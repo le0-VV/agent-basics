@@ -1,0 +1,1 @@
+- Always keep markdown files ending with an empty trailing line.
