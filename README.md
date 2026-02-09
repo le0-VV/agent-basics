@@ -58,7 +58,7 @@ brew upgrade agent-basics
 
 - ### TODO.md
 
-    The instructions will tell agents to use this TODO to record and stick to their work plan. This helps agents to work more coherently, write better structured code, and is especially effective in helping agent stays on track when it had to compact context mid-work. This is untracked by git by design to avoid triggering git too frequently andd bloating the git files as it will change very frequently.
+    The instructions will tell agents to use this TODO to record and stick to their work plan. This helps agents to work more coherently, write better structured code, and is especially effective in helping agent stays on track when it had to compact context mid-work. This is untracked by git by design to avoid triggering git too frequently bloating the git files as it will change very frequently.
 
 - ### MEMORY.md
 
