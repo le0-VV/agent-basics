@@ -1,1 +1,4 @@
 .agents/TODO.md
+.vscode
+.DS_Store
+._*
