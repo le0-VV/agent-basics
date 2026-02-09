@@ -6,23 +6,6 @@
 
 ## How it works
 
-## macOS setup command
-
-Run from the repository root:
-
-```bash
-./setup-macos.sh
-```
-
-Or pass a target directory:
-
-```bash
-./setup-macos.sh /path/to/project
-```
-
-If `Agents.md` or `.agents/INSTRUCTIONS.md` already exist and are not empty, the script will prompt per file to either append the new content or overwrite the file.
-For `.gitignore`, the script is non-interactive: it appends `.agents/TODO.md` only when missing; if present, it does nothing.
-
 The command will check for the existence for, and if they're not present, add the following files:
 
 ```
@@ -37,6 +20,23 @@ The command will check for the existence for, and if they're not present, add th
 ```
 
 And then check if the folder is a git repo. If not, then set it up as one.
+
+If `Agents.md` or `.agents/INSTRUCTIONS.md` already exist and are not empty, the script will prompt per file to either append the new content or overwrite the file.
+For `.gitignore`, the script is non-interactive: it appends `.agents/TODO.md` only when missing; if present, it does nothing.
+
+## Install via custom Homebrew tap
+
+```bash
+brew tap le0-VV/agent-basics
+brew install --HEAD le0-VV/agent-basics/agent-basics
+```
+
+### Upgrade
+
+```bash
+brew update
+brew upgrade agent-basics
+```
 
 ## The files
 
