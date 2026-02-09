@@ -6,6 +6,23 @@
 
 ## How it works
 
+## macOS setup command
+
+Run from the repository root:
+
+```bash
+./setup-macos.sh
+```
+
+Or pass a target directory:
+
+```bash
+./setup-macos.sh /path/to/project
+```
+
+If `Agents.md` or `.agents/INSTRUCTIONS.md` already exist and are not empty, the script will prompt per file to either append the new content or overwrite the file.
+For `.gitignore`, the script is non-interactive: it appends `.agents/TODO.md` only when missing; if present, it does nothing.
+
 The command will check for the existence for, and if they're not present, add the following files:
 
 ```
