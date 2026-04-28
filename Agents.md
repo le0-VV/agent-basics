@@ -23,6 +23,7 @@
 - Add tests for new behaviour unless the change is strictly docs/metadata cleanup.
 - Tick off every item you completed in ./.agents/TODO.md.
 - After ticking off an item, commit the changes you made for that item
+- When making commits, set the commit author name to `Coding agent supervised by {global git user.name}`, replacing `{global git user.name}` with the value from `git config --global user.name`
 - When making commits, write the commit message according to this format: {type}({scope}): {description}, where types should be one of the following:
     - build
     - chore
