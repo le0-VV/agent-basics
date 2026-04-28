@@ -23,3 +23,10 @@ This file is the local fallback index for documentation sources that should be s
 - OpenViking repository and README: https://github.com/volcengine/OpenViking
 - OpenViking documentation directory: https://github.com/volcengine/OpenViking/tree/main/docs
 
+## `viking://resources/agent-basics/documentations/web-platform.md`
+
+- MDN HTML documentation: https://developer.mozilla.org/en-US/docs/Web/HTML
+- MDN CSS documentation: https://developer.mozilla.org/en-US/docs/Web/CSS
+- MDN JavaScript documentation: https://developer.mozilla.org/en-US/docs/Web/JavaScript
+- MDN HTML Drag and Drop API documentation: https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API
+- MDN FileReader documentation: https://developer.mozilla.org/en-US/docs/Web/API/FileReader
