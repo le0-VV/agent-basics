@@ -7,3 +7,5 @@
 - Homebrew Tap documentation: https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap
 - Homebrew Formula Ruby API: https://rubydoc.brew.sh/Formula
 - Ruby documentation: https://www.ruby-lang.org/en/documentation/
+- OpenViking repository and README: https://github.com/volcengine/OpenViking
+- OpenViking documentation directory: https://github.com/volcengine/OpenViking/tree/main/docs
