@@ -10,6 +10,25 @@
 - When .agents/MEMORY.md is updated, commit ONLY .agents/MEMORY.md with commit message: "docs(agent memory): update memory"
 - If you have **ANY** questions or concerns, **IMMEDIATELY** clarify with the user.
 - Before making any changes to the codebase, THOROUGHLY plan out your work, write down every step you're going to take in ./.agents/TODO.md, and follow it during your work.
+- Read a file fully before editing it.
+- Keep comments rare and useful. Explain why or constraints, not obvious mechanics.
+- Keep diffs narrow and task-focused.
+- Do not guess at attribute names, control flow, or config behaviour.
+- Prefer fail-fast behaviour over silent fallback logic.
+- Add tests for new behaviour unless the change is strictly docs/metadata cleanup.
 - Tick off every item you completed in ./.agents/TODO.md.
+- After ticking off an item, commit the changes you made for that item
+- When making commits, write the commit message according to this format: {type}({scope}): {description}, where types should be one of the following:
+    - build
+    - chore
+    - CI
+    - docs
+    - feat
+    - fix
+    - perf
+    - refactor
+    - revert
+    - style
+    - test
 - **Only** stop working when you finished everything listed in /.agents/TODO.md **OR** you encountered an interruption to your work that **REQUIRES** user intervention.
 - If everything is ticked off in ./.agents/TODO.md and you need to plan for a new round of work, clear out ./.agents/TODO.md and write down your new list of steps
