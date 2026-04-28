@@ -11,8 +11,8 @@ This file is only a local fallback and migration queue for environments where Op
 ## `viking://agent/memories/patterns/agent-basics.md`
 
 - `setup-macos.sh` is intended to be the complete one-command setup surface for this project, so generated markdown templates should remain embedded in the script.
+- Keep OpenViking-related local files, configuration, and fallback/export material under `.agents`.
 
 ## Migration Queue
 
 - [ ] Migrate the fallback entries above into OpenViking when an OpenViking server is available.
-
