@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>agent-basics markdown merge demo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7f8;
+      --panel: #ffffff;
+      --text: #172026;
+      --muted: #5b6975;
+      --line: #d8dee4;
+      --accent: #1167b1;
+      --same-bg: #e8f6ee;
+      --same-line: #7ac99a;
+      --diff-bg: #fdebea;
+      --diff-line: #e37a72;
+      --picked-bg: #eaf3ff;
+      --picked-line: #83b9ee;
+      --shadow: 0 1px 2px rgba(23, 32, 38, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 18px;
+      background: #14212b;
+      color: #f8fafc;
+    }
+
+    .title {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 240px;
+    }
+
+    .title strong {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .title span {
+      color: #c9d3dd;
+      font-size: 13px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .button {
+      border: 1px solid #91a4b4;
+      border-radius: 6px;
+      padding: 7px 10px;
+      background: #ffffff;
+      color: #14212b;
+      cursor: pointer;
+    }
+
+    .button.primary {
+      border-color: #48a1ff;
+      background: #1677c7;
+      color: #ffffff;
+    }
+
+    .button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      padding: 10px 18px 0;
+      background: #e9eef2;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .tab {
+      border: 1px solid var(--line);
+      border-bottom: 0;
+      border-radius: 6px 6px 0 0;
+      padding: 8px 12px;
+      background: #f8fafc;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .tab.active {
+      background: var(--panel);
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(300px, 0.95fr) minmax(340px, 1fr) minmax(320px, 0.95fr);
+      gap: 12px;
+      padding: 12px;
+      min-height: 0;
+    }
+
+    .panel {
+      min-width: 0;
+      min-height: 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .panel header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 45px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel h2 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    .panel small {
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .list {
+      min-height: 0;
+      overflow: auto;
+      padding: 10px;
+    }
+
+    .line {
+      display: grid;
+      grid-template-columns: 38px 1fr auto;
+      gap: 8px;
+      align-items: start;
+      width: 100%;
+      min-height: 34px;
+      margin-bottom: 6px;
+      border: 1px solid var(--line);
+      border-left-width: 5px;
+      border-radius: 6px;
+      padding: 7px 8px 7px 5px;
+      background: #ffffff;
+      text-align: left;
+    }
+
+    .line.same {
+      border-left-color: var(--same-line);
+      background: var(--same-bg);
+    }
+
+    .line.diff {
+      border-left-color: var(--diff-line);
+      background: var(--diff-bg);
+    }
+
+    .line.picked {
+      border-left-color: var(--picked-line);
+      background: var(--picked-bg);
+    }
+
+    .line button {
+      min-width: 28px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #ffffff;
+      cursor: pointer;
+    }
+
+    .line-number {
+      color: var(--muted);
+      font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      text-align: right;
+      user-select: none;
+    }
+
+    .line-code {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .merge-list {
+      min-height: 260px;
+    }
+
+    .merge-list.dragging-over {
+      outline: 2px dashed var(--accent);
+      outline-offset: -6px;
+    }
+
+    .picked-row {
+      cursor: grab;
+    }
+
+    .picked-row.dragging {
+      opacity: 0.45;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .preview {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 420px;
+      resize: none;
+      border: 0;
+      padding: 12px;
+      color: var(--text);
+      background: #fcfdff;
+      font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .legend {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      border: 1px solid var(--line);
+      display: inline-block;
+      vertical-align: -2px;
+      margin-right: 4px;
+    }
+
+    .swatch.same {
+      background: var(--same-bg);
+      border-color: var(--same-line);
+    }
+
+    .swatch.diff {
+      background: var(--diff-bg);
+      border-color: var(--diff-line);
+    }
+
+    .swatch.picked {
+      background: var(--picked-bg);
+      border-color: var(--picked-line);
+    }
+
+    @media (max-width: 1100px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .preview {
+        min-height: 300px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="topbar">
+      <div class="title">
+        <strong>Markdown merge UI demo</strong>
+        <span>Pick and order final agent instructions before setup writes files.</span>
+      </div>
+      <div class="actions">
+        <button class="button" id="use-existing">Use existing</button>
+        <button class="button" id="use-proposed">Use agent-basics</button>
+        <button class="button" id="clear-output">Clear output</button>
+        <button class="button primary" id="apply-demo">Apply with backup</button>
+      </div>
+    </section>
+
+    <nav class="tabs" aria-label="Files">
+      <button class="tab active" data-file="agents">Agents.md</button>
+      <button class="tab" data-file="instructions">.agents/INSTRUCTIONS.md</button>
+    </nav>
+
+    <section class="workspace">
+      <section class="panel">
+        <header>
+          <h2>Existing project</h2>
+          <small id="existing-count"></small>
+        </header>
+        <div class="list" id="existing-list" aria-label="Existing markdown lines"></div>
+      </section>
+
+      <section class="panel">
+        <header>
+          <div>
+            <h2>Final ordered file</h2>
+            <div class="legend">
+              <span><span class="swatch same"></span>same</span>
+              <span><span class="swatch diff"></span>different</span>
+              <span><span class="swatch picked"></span>picked</span>
+            </div>
+          </div>
+          <small>Drag rows or use arrows</small>
+        </header>
+        <div class="list merge-list" id="merge-list" aria-label="Final markdown lines"></div>
+      </section>
+
+      <section class="panel">
+        <header>
+          <h2>agent-basics proposed</h2>
+          <small id="proposed-count"></small>
+        </header>
+        <div class="list" id="proposed-list" aria-label="Proposed markdown lines"></div>
+      </section>
+
+      <section class="panel" style="grid-column: 1 / -1;">
+        <header>
+          <h2>Preview</h2>
+          <small id="preview-count"></small>
+        </header>
+        <textarea class="preview" id="preview" spellcheck="false" aria-label="Merged markdown preview"></textarea>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const files = {
+      agents: {
+        existing: [
+          '# Agent Rules',
+          '',
+          '- Follow the existing project style.',
+          '- Check README.md before editing.',
+          '- Commit with conventional commit messages.',
+          '- Keep local notes in .agents/MEMORY.md.'
+        ],
+        proposed: [
+          '# **YOU MUST:**',
+          '',
+          '- Follow the instructions of ./.agents/INSTRUCTIONS.md',
+          '- Use OpenViking as the long-term context and memory store.',
+          '- Keep OpenViking-related files under .agents.',
+          '- Commit using the supervised agent author name.',
+          '- Keep diffs narrow and task-focused.'
+        ]
+      },
+      instructions: {
+        existing: [
+          '# INSTRUCTIONS',
+          '',
+          '- Answer concisely.',
+          '- Ask before destructive changes.',
+          '- Prefer tests for code changes.',
+          '- Keep markdown files ending with an empty trailing line.'
+        ],
+        proposed: [
+          '# INSTRUCTIONS',
+          '',
+          '- Use OpenViking for persistent memory and project context.',
+          '- Store user-specific memories under `viking://user/memories/`.',
+          '- Store project references under `viking://resources/`.',
+          '- Ask before destructive changes.',
+          '- Keep markdown files ending with an empty trailing line.'
+        ]
+      }
+    };
+
+    const state = {
+      file: 'agents',
+      selected: []
+    };
+
+    const existingList = document.querySelector('#existing-list');
+    const proposedList = document.querySelector('#proposed-list');
+    const mergeList = document.querySelector('#merge-list');
+    const preview = document.querySelector('#preview');
+    const existingCount = document.querySelector('#existing-count');
+    const proposedCount = document.querySelector('#proposed-count');
+    const previewCount = document.querySelector('#preview-count');
+
+    function lineKey(text) {
+      return text.trim();
+    }
+
+    function isSameLine(text) {
+      const current = files[state.file];
+      const existing = new Set(current.existing.map(lineKey));
+      const proposed = new Set(current.proposed.map(lineKey));
+      const key = lineKey(text);
+      return key !== '' && existing.has(key) && proposed.has(key);
+    }
+
+    function rowClass(text, extra = '') {
+      const kind = isSameLine(text) ? 'same' : 'diff';
+      return `line ${kind} ${extra}`.trim();
+    }
+
+    function addLine(text, source) {
+      state.selected.push({ text, source, id: crypto.randomUUID() });
+      render();
+    }
+
+    function moveLine(index, direction) {
+      const target = index + direction;
+      if (target < 0 || target >= state.selected.length) {
+        return;
+      }
+      const [line] = state.selected.splice(index, 1);
+      state.selected.splice(target, 0, line);
+      render();
+    }
+
+    function removeLine(index) {
+      state.selected.splice(index, 1);
+      render();
+    }
+
+    function renderSource(container, lines, source) {
+      container.replaceChildren();
+      lines.forEach((text, index) => {
+        const row = document.createElement('div');
+        row.className = rowClass(text);
+
+        const number = document.createElement('span');
+        number.className = 'line-number';
+        number.textContent = String(index + 1);
+
+        const code = document.createElement('span');
+        code.className = 'line-code';
+        code.textContent = text || ' ';
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.title = 'Add line to final file';
+        button.textContent = '+';
+        button.addEventListener('click', () => addLine(text, source));
+
+        row.append(number, code, button);
+        container.append(row);
+      });
+    }
+
+    function renderMerge() {
+      mergeList.replaceChildren();
+      state.selected.forEach((line, index) => {
+        const row = document.createElement('div');
+        row.className = rowClass(line.text, 'picked picked-row');
+        row.draggable = true;
+        row.dataset.index = String(index);
+
+        row.addEventListener('dragstart', (event) => {
+          row.classList.add('dragging');
+          event.dataTransfer.setData('text/plain', String(index));
+        });
+        row.addEventListener('dragend', () => row.classList.remove('dragging'));
+        row.addEventListener('dragover', (event) => event.preventDefault());
+        row.addEventListener('drop', (event) => {
+          event.preventDefault();
+          const from = Number(event.dataTransfer.getData('text/plain'));
+          const to = Number(row.dataset.index);
+          if (Number.isNaN(from) || from === to) {
+            return;
+          }
+          const [moved] = state.selected.splice(from, 1);
+          state.selected.splice(to, 0, moved);
+          render();
+        });
+
+        const number = document.createElement('span');
+        number.className = 'line-number';
+        number.textContent = String(index + 1);
+
+        const code = document.createElement('span');
+        code.className = 'line-code';
+        code.textContent = line.text || ' ';
+
+        const actions = document.createElement('span');
+        actions.className = 'row-actions';
+
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.title = 'Move up';
+        up.textContent = '↑';
+        up.disabled = index === 0;
+        up.addEventListener('click', () => moveLine(index, -1));
+
+        const down = document.createElement('button');
+        down.type = 'button';
+        down.title = 'Move down';
+        down.textContent = '↓';
+        down.disabled = index === state.selected.length - 1;
+        down.addEventListener('click', () => moveLine(index, 1));
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.title = 'Remove';
+        remove.textContent = '×';
+        remove.addEventListener('click', () => removeLine(index));
+
+        actions.append(up, down, remove);
+        row.append(number, code, actions);
+        mergeList.append(row);
+      });
+    }
+
+    function renderPreview() {
+      preview.value = state.selected.map((line) => line.text).join('\n') + '\n';
+      previewCount.textContent = `${state.selected.length} selected lines`;
+    }
+
+    function render() {
+      const current = files[state.file];
+      renderSource(existingList, current.existing, 'existing');
+      renderSource(proposedList, current.proposed, 'proposed');
+      renderMerge();
+      renderPreview();
+      existingCount.textContent = `${current.existing.length} lines`;
+      proposedCount.textContent = `${current.proposed.length} lines`;
+    }
+
+    function loadFile(file) {
+      state.file = file;
+      state.selected = files[file].proposed.map((text) => ({
+        text,
+        source: 'proposed',
+        id: crypto.randomUUID()
+      }));
+      document.querySelectorAll('.tab').forEach((tab) => {
+        tab.classList.toggle('active', tab.dataset.file === file);
+      });
+      render();
+    }
+
+    document.querySelectorAll('.tab').forEach((tab) => {
+      tab.addEventListener('click', () => loadFile(tab.dataset.file));
+    });
+
+    document.querySelector('#use-existing').addEventListener('click', () => {
+      state.selected = files[state.file].existing.map((text) => ({
+        text,
+        source: 'existing',
+        id: crypto.randomUUID()
+      }));
+      render();
+    });
+
+    document.querySelector('#use-proposed').addEventListener('click', () => {
+      state.selected = files[state.file].proposed.map((text) => ({
+        text,
+        source: 'proposed',
+        id: crypto.randomUUID()
+      }));
+      render();
+    });
+
+    document.querySelector('#clear-output').addEventListener('click', () => {
+      state.selected = [];
+      render();
+    });
+
+    document.querySelector('#apply-demo').addEventListener('click', () => {
+      const fileName = state.file === 'agents' ? 'Agents.md' : '.agents/INSTRUCTIONS.md';
+      window.alert(`Demo only: production setup would back up and write ${fileName}.`);
+    });
+
+    loadFile('agents');
+  </script>
+</body>
+</html>
+
