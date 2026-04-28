@@ -4,10 +4,15 @@
 - Follow the instructions of ./.agents/INSTRUCTIONS.md
 - Find up-to-date documentations for any library, framework and programming languages used in this project, and record their source URLs in ./.agents/DOCUMENTATIONS.md
 - While you write code, **CONSTANTLY** refer to sources you recorded in ./.agents/DOCUMENTATIONS.md to make sure you're writing accurate, working and standard-complying code.
-- Anything the user asks you to remember, record it in ./.agents/MEMORY.md
-- If the user's message referred to anything that may have been part of a past conversation, but is not present in your context, check ./.agents/MEMORY.md
+- Use OpenViking as the long-term context and memory store whenever OpenViking is available for the current environment.
+- Store user-specific memories in OpenViking under `viking://user/memories/`, using the documented categories such as `profile.md`, `preferences/`, `entities/`, and `events/`.
+- Store agent-learned memories in OpenViking under `viking://agent/memories/`, using the documented categories such as `cases/`, `patterns/`, `tools/`, and `skills/`.
+- Store static project knowledge, documents, and other reference resources in OpenViking under `viking://resources/`.
+- Store reusable agent capabilities and workflows in OpenViking under `viking://agent/skills/`.
+- If the user's message refers to anything that may have been part of a past conversation but is not present in your context, search OpenViking memory before answering.
+- Anything the user asks you to remember must be recorded in OpenViking memory. Use ./.agents/MEMORY.md only as a temporary fallback when OpenViking is unavailable, and migrate fallback notes to OpenViking when it becomes available.
 - When .agents/DOCUMENTATIONS.md is updated, commit ONLY .agents/DOCUMENTATIONS.md with commit message: "docs(agent docs): agent added more doc sources"
-- When .agents/MEMORY.md is updated, commit ONLY .agents/MEMORY.md with commit message: "docs(agent memory): update memory"
+- When .agents/MEMORY.md is updated as a fallback, commit ONLY .agents/MEMORY.md with commit message: "docs(agent memory): update memory"
 - If you have **ANY** questions or concerns, **IMMEDIATELY** clarify with the user.
 - Before making any changes to the codebase, THOROUGHLY plan out your work, write down every step you're going to take in ./.agents/TODO.md, and follow it during your work.
 - Read a file fully before editing it.
@@ -32,3 +37,4 @@
     - test
 - **Only** stop working when you finished everything listed in /.agents/TODO.md **OR** you encountered an interruption to your work that **REQUIRES** user intervention.
 - If everything is ticked off in ./.agents/TODO.md and you need to plan for a new round of work, clear out ./.agents/TODO.md and write down your new list of steps
+
