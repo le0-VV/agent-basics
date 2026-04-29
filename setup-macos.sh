@@ -2,6 +2,12 @@
 set -euo pipefail
 
 TARGET_DIR="${1:-$(pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_EMBEDDING_MODEL_FILE="bge-small-zh-v1.5-q4_k_m.gguf"
+LOCAL_EMBEDDING_MODEL_NAME="bge-small-zh-v1.5-q4_k_m"
+LOCAL_EMBEDDING_MODEL_SHA256="0c17cc6ed7ec697db6768c2db6dd22c4e816a12c68ed14ff4d764927338532f8"
+LOCAL_EMBEDDING_MODEL_URI=".agents/openviking/models/$LOCAL_EMBEDDING_MODEL_FILE"
+LOCAL_EMBEDDING_PORT="${AGENT_BASICS_EMBEDDING_PORT:-1934}"
 
 if [[ ! -d "$TARGET_DIR" ]]; then
   echo "Error: target directory does not exist: $TARGET_DIR" >&2
@@ -184,7 +190,7 @@ create_default_openviking_config() {
   local ov_cli_config="$2"
 
   if [[ ! -f "$ov_config" ]]; then
-    cat > "$ov_config" <<'EOT'
+    cat > "$ov_config" <<EOT
 {
   "storage": {
     "workspace": ".agents/openviking/data"
@@ -192,17 +198,17 @@ create_default_openviking_config() {
   "embedding": {
     "dense": {
       "provider": "litellm",
-      "model": "text-embedding-3-small",
+      "model": "bge-small-zh-v1.5-q4_k_m",
       "api_key": "no-key",
-      "api_base": "http://127.0.0.1:9",
-      "dimension": 1536
+      "api_base": "http://127.0.0.1:$LOCAL_EMBEDDING_PORT/v1",
+      "dimension": 512
     }
   },
   "vlm": {
     "provider": "litellm",
-    "model": "gpt-4o-mini",
+    "model": "agent-basics-local-summary",
     "api_key": "no-key",
-    "api_base": "http://127.0.0.1:9"
+    "api_base": "http://127.0.0.1:$LOCAL_EMBEDDING_PORT/v1"
   },
   "server": {
     "host": "127.0.0.1",
@@ -223,6 +229,190 @@ EOT
 EOT
     echo "Created: .agents/openviking/ovcli.conf"
   fi
+}
+
+create_embedding_server() {
+  local server_path=".agents/openviking/embedding-server.py"
+
+  if [[ -f "$server_path" ]]; then
+    return
+  fi
+
+  cat > "$server_path" <<'PY'
+#!/usr/bin/env python3
+import json
+import os
+import re
+import subprocess
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+ROOT = Path(os.environ.get("AGENT_BASICS_PROJECT_DIR", os.getcwd()))
+MODEL_PATH = ROOT / ".agents/openviking/models/bge-small-zh-v1.5-q4_k_m.gguf"
+MODEL_NAME = "bge-small-zh-v1.5-q4_k_m"
+PORT = int(os.environ.get("AGENT_BASICS_EMBEDDING_PORT", "1934"))
+DIMENSION = 512
+
+
+def run_embedding(text):
+    base = [
+        "llama-embedding",
+        "--model",
+        str(MODEL_PATH),
+        "--prompt",
+        text,
+        "--log-verbosity",
+        "1",
+        "--no-warmup",
+    ]
+    attempts = [base, base + ["--device", "none"]]
+    last = None
+    for command in attempts:
+        result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
+        match = re.search(r"embedding\s+0:\s+(.+?)(?:\n\n|$)", result.stdout, re.S)
+        if match:
+            values = [float(part) for part in match.group(1).split()]
+            if len(values) != DIMENSION:
+                raise RuntimeError(f"expected {DIMENSION} embedding values, got {len(values)}")
+            return values
+        last = result.stdout + result.stderr
+    raise RuntimeError(last or "llama-embedding failed")
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        return
+
+    def _json(self, status, payload):
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path in ("/health", "/v1/health"):
+            self._json(200, {"status": "ok", "model": MODEL_NAME, "dimension": DIMENSION})
+            return
+        self._json(404, {"error": "not found"})
+
+    def do_POST(self):
+        if self.path in ("/v1/chat/completions", "/chat/completions"):
+            self._json(200, {
+                "id": "agent-basics-local-summary",
+                "object": "chat.completion",
+                "model": "agent-basics-local-summary",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Local OpenViking context item. Use the source content directly for details.",
+                    },
+                    "finish_reason": "stop",
+                }],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            })
+            return
+        if self.path not in ("/v1/embeddings", "/embeddings"):
+            self._json(404, {"error": "not found"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            inputs = payload.get("input", "")
+            if isinstance(inputs, str):
+                inputs = [inputs]
+            data = []
+            for index, text in enumerate(inputs):
+                data.append({
+                    "object": "embedding",
+                    "index": index,
+                    "embedding": run_embedding(str(text)),
+                })
+            self._json(200, {
+                "object": "list",
+                "model": payload.get("model") or MODEL_NAME,
+                "data": data,
+                "usage": {"prompt_tokens": 0, "total_tokens": 0},
+            })
+        except Exception as exc:
+            self._json(500, {"error": str(exc)})
+
+
+if __name__ == "__main__":
+    if not MODEL_PATH.exists():
+        print(f"missing model: {MODEL_PATH}", file=sys.stderr)
+        sys.exit(1)
+    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+PY
+  chmod 0755 "$server_path"
+  echo "Created: $server_path"
+}
+
+verify_local_embedding_model() {
+  local model_path="$1"
+  local actual_sha
+
+  if [[ ! -f "$model_path" ]]; then
+    return 1
+  fi
+
+  actual_sha="$(shasum -a 256 "$model_path" | awk '{print $1}')"
+  [[ "$actual_sha" == "$LOCAL_EMBEDDING_MODEL_SHA256" ]]
+}
+
+ensure_local_embedding_model() {
+  local target_model_path="$TARGET_DIR/$LOCAL_EMBEDDING_MODEL_URI"
+  local candidate
+  local -a candidates
+
+  mkdir -p "$(dirname "$target_model_path")"
+
+  if verify_local_embedding_model "$target_model_path"; then
+    echo "Exists: $LOCAL_EMBEDDING_MODEL_URI"
+    return
+  fi
+
+  candidates=(
+    "${AGENT_BASICS_MODEL_DIR:-}/$LOCAL_EMBEDDING_MODEL_FILE"
+    "$SCRIPT_DIR/.agents/openviking/models/$LOCAL_EMBEDDING_MODEL_FILE"
+    "$SCRIPT_DIR/../libexec/models/$LOCAL_EMBEDDING_MODEL_FILE"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if [[ -n "$candidate" ]] && verify_local_embedding_model "$candidate"; then
+      cp "$candidate" "$target_model_path"
+      echo "Copied local embedding model: $LOCAL_EMBEDDING_MODEL_URI"
+      return
+    fi
+  done
+
+  echo "Error: required local embedding model is missing or has the wrong checksum." >&2
+  echo "Expected: $LOCAL_EMBEDDING_MODEL_URI" >&2
+  echo "SHA-256:  $LOCAL_EMBEDDING_MODEL_SHA256" >&2
+  echo "Run setup from the agent-basics repository or install a package that includes the model asset." >&2
+  exit 1
+}
+
+ensure_llama_cpp_command() {
+  if command -v llama-embedding >/dev/null 2>&1; then
+    return
+  fi
+
+  echo "llama.cpp is required to run the repo-local GGUF embedding model."
+  if ! confirm_action "Install llama.cpp with Homebrew?"; then
+    echo "llama.cpp installation declined. agent-basics cannot continue." >&2
+    exit 1
+  fi
+
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "Error: Homebrew is required to install llama.cpp automatically." >&2
+    exit 1
+  fi
+
+  brew install llama.cpp
 }
 
 ensure_openviking_command() {
@@ -253,6 +443,51 @@ ensure_openviking_command() {
   fi
 }
 
+start_embedding_server() {
+  local pid_file=".agents/openviking/setup-state/embedding-server.pid"
+  local log_file=".agents/openviking/setup-state/embedding-server.log"
+
+  if curl -fsS "http://127.0.0.1:$LOCAL_EMBEDDING_PORT/health" >/dev/null 2>&1; then
+    return
+  fi
+
+  AGENT_BASICS_PROJECT_DIR="$TARGET_DIR" \
+  AGENT_BASICS_EMBEDDING_PORT="$LOCAL_EMBEDDING_PORT" \
+  "$TARGET_DIR/.agents/openviking/venv/bin/python" "$TARGET_DIR/.agents/openviking/embedding-server.py" >"$log_file" 2>&1 &
+  printf "%s\n" "$!" > "$pid_file"
+}
+
+verify_local_embedding_runtime() {
+  local attempt
+  local response
+
+  for attempt in 1 2 3 4 5; do
+    if curl -fsS "http://127.0.0.1:$LOCAL_EMBEDDING_PORT/health" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+
+  if ! response="$(curl -fsS "http://127.0.0.1:$LOCAL_EMBEDDING_PORT/v1/embeddings" \
+    -H "Content-Type: application/json" \
+    -d "{\"model\":\"$LOCAL_EMBEDDING_MODEL_NAME\",\"input\":\"agent-basics local embedding health check\"}")"; then
+    echo "Error: local embedding health check failed." >&2
+    cat ".agents/openviking/setup-state/embedding-server.log" >&2 2>/dev/null || true
+    exit 1
+  fi
+
+  "$TARGET_DIR/.agents/openviking/venv/bin/python" -c '
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+embedding = payload["data"][0]["embedding"]
+if len(embedding) != 512:
+    raise RuntimeError(f"Expected 512-dimensional embedding, got {len(embedding)}")
+print("Local embedding health check passed")
+' "$response"
+}
+
 ensure_openviking_ready() {
   local ov_config
   local ov_cli_config
@@ -260,6 +495,9 @@ ensure_openviking_ready() {
   ov_cli_config="$TARGET_DIR/.agents/openviking/ovcli.conf"
 
   create_openviking_layout
+  ensure_local_embedding_model
+  ensure_llama_cpp_command
+  create_embedding_server
   ensure_openviking_command
 
   export OPENVIKING_CONFIG_FILE="$ov_config"
@@ -269,7 +507,9 @@ ensure_openviking_ready() {
     create_default_openviking_config "$ov_config" "$ov_cli_config"
   fi
 
+  start_embedding_server
   openviking-server doctor
+  verify_local_embedding_runtime
 }
 
 ensure_openviking_ready

@@ -2,9 +2,17 @@ class AgentBasics < Formula
   desc "1 command to setup a directory for reliable agent operations"
   homepage "https://github.com/le0-VV/agent-basics"
   head "https://github.com/le0-VV/agent-basics.git", branch: "main"
+  depends_on "llama.cpp"
 
   def install
-    bin.install "setup-macos.sh" => "agent-basics"
+    libexec.install ".agents/openviking/models"
+    libexec.install "setup-macos.sh"
+
+    (bin/"agent-basics").write <<~EOS
+      #!/usr/bin/env bash
+      export AGENT_BASICS_MODEL_DIR="#{libexec}/models"
+      exec "#{libexec}/setup-macos.sh" "$@"
+    EOS
   end
 
   test do
@@ -26,7 +34,7 @@ class AgentBasics < Formula
     (ov_bin/"python").write <<~EOS
       #!/usr/bin/env bash
       set -euo pipefail
-      exit 0
+      exec /usr/bin/python3 "$@"
     EOS
     chmod 0755, ov_bin/"openviking-server"
     chmod 0755, ov_bin/"python"

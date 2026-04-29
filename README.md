@@ -22,12 +22,14 @@ The command will check for the existence for, and if they're not present, add th
 │       │   └── viking
 │       ├── exports
 │       ├── merge-sessions
+│       ├── models
+│       │   └── bge-small-zh-v1.5-q4_k_m.gguf
 │       └── setup-state
 ├── .gitignore
 └── Agents.md
 ```
 
-Setup installs OpenViking into `.agents/openviking/venv`, initializes project-local OpenViking configuration under `.agents/openviking` when needed, runs `openviking-server doctor`, migrates legacy `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` content into OpenViking when those files exist, and then checks if the folder is a git repo. If not, then it sets it up as one.
+Setup installs OpenViking into `.agents/openviking/venv`, copies the repo-local GGUF embedding model into `.agents/openviking/models`, uses `llama.cpp` to serve the model through a local OpenAI-compatible embedding shim, initializes project-local OpenViking configuration under `.agents/openviking` when needed, runs `openviking-server doctor`, verifies a real local embedding call, migrates legacy `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` content into OpenViking when those files exist, and then checks if the folder is a git repo. If not, then it sets it up as one.
 
 OpenViking commands for a project should run with:
 
@@ -36,6 +38,8 @@ export PATH="$PWD/.agents/openviking/venv/bin:$PATH"
 export OPENVIKING_CONFIG_FILE="$PWD/.agents/openviking/ov.conf"
 export OPENVIKING_CLI_CONFIG_FILE="$PWD/.agents/openviking/ovcli.conf"
 ```
+
+The default embedding model is `bge-small-zh-v1.5-q4_k_m.gguf`, a 512-dimensional local GGUF model stored under `.agents/openviking/models`. On macOS, setup uses Homebrew `llama.cpp`; the embedding shim first tries Metal through `llama-embedding` and falls back to `--device none` when Metal is unavailable.
 
 The script writes `Agents.md` and `.agents/INSTRUCTIONS.md` from embedded templates. When an existing markdown file differs from the template, it prompts per file to keep the existing file, replace it after creating a backup, append the template after creating a backup, manually merge both versions in `$EDITOR`, or save the incoming template beside the existing file as `*.agent-basics.new`.
 For `.gitignore`, the script is non-interactive: it appends `.agents/TODO.md` only when missing; if present, it does nothing.

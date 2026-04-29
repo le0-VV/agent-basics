@@ -7,6 +7,7 @@
 - `setup-macos.sh` remains the one-command entry point for macOS users.
 - OpenViking is the canonical memory, documentation, skill, and project context store.
 - OpenViking-related local files, configuration, backups, fallback exports, and setup metadata live under `.agents`.
+- OpenViking uses a repo-local lightweight GGUF embedding model by default so new projects can start without external embedding credentials.
 - `Agents.md` and `.agents/INSTRUCTIONS.md` are the only markdown instruction files `agent-basics` should create or normalize directly.
 - Existing `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` files are migrated automatically into OpenViking before they are removed from the canonical structure. After that baseline migration, the user's own agents can migrate extra memories and documentation into richer OpenViking paths.
 - `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` are removed from the canonical structure. OpenViking replaces them.

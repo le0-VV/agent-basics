@@ -5,6 +5,8 @@
 .agents/openviking/data/viking/default/temp/
 .agents/openviking/exports/
 .agents/openviking/merge-sessions/
+.agents/openviking/setup-state/*.log
+.agents/openviking/setup-state/*.pid
 .agents/openviking/venv/
 .vscode
 .DS_Store

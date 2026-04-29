@@ -17,6 +17,8 @@ You **MUST** ALWAYS:
 - Export `OPENVIKING_CONFIG_FILE="$PWD/.agents/openviking/ov.conf"` before running OpenViking server, SDK, or CLI commands for this repo.
 - Export `OPENVIKING_CLI_CONFIG_FILE="$PWD/.agents/openviking/ovcli.conf"` before running `ov` CLI commands for this repo.
 - Add `.agents/openviking/venv/bin` to the front of `PATH` when invoking `openviking-server`, `openviking`, or `ov` for this repo.
+- The default local embedding model is `.agents/openviking/models/bge-small-zh-v1.5-q4_k_m.gguf`, served through `.agents/openviking/embedding-server.py` on `AGENT_BASICS_EMBEDDING_PORT` or port `1934`.
+- `setup-macos.sh` requires `llama.cpp` and verifies the GGUF model with a real local embedding request before migrating context.
 - `setup-macos.sh` uses `EDITOR` for manual markdown conflict merges. If provider credentials are referenced through environment variables in `ov.conf`, document the exact variable names here before use and never commit raw secret values.
 - Keep OpenViking storage, setup state, exports, backups, and merge sessions under `.agents/openviking/`.
 - Validate OpenViking with `openviking-server doctor` before migrating project content. If doctor reports missing embedding or VLM configuration, fix the OpenViking config or install the required extras before continuing.
