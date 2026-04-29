@@ -4,6 +4,8 @@
 
 > **THIS SETUP WILL INCREASE TOKEN USAGE IN EXCHANGE FOR MORE RELIABLE AGENT OPERATIONS**
 
+`agent-basics` depends on [OpenViking](https://github.com/volcengine/OpenViking). If OpenViking is not installed and configured, setup stops instead of falling back to markdown memory files.
+
 ## How it works
 
 The command will check for the existence for, and if they're not present, add the following files:
@@ -11,15 +13,29 @@ The command will check for the existence for, and if they're not present, add th
 ```
 .
 ├── .agents
-│   ├── DOCUMENTATIONS.md
 │   ├── INSTRUCTIONS.md
-│   ├── MEMORY.md
-│   └── TODO.md
+│   ├── TODO.md
+│   └── openviking
+│       ├── README.md
+│       ├── backups
+│       ├── data
+│       │   └── viking
+│       ├── exports
+│       ├── merge-sessions
+│       └── setup-state
 ├── .gitignore
 └── Agents.md
 ```
 
-And then check if the folder is a git repo. If not, then set it up as one.
+Setup installs OpenViking into `.agents/openviking/venv`, initializes project-local OpenViking configuration under `.agents/openviking` when needed, runs `openviking-server doctor`, migrates legacy `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` content into OpenViking when those files exist, and then checks if the folder is a git repo. If not, then it sets it up as one.
+
+OpenViking commands for a project should run with:
+
+```bash
+export PATH="$PWD/.agents/openviking/venv/bin:$PATH"
+export OPENVIKING_CONFIG_FILE="$PWD/.agents/openviking/ov.conf"
+export OPENVIKING_CLI_CONFIG_FILE="$PWD/.agents/openviking/ovcli.conf"
+```
 
 The script writes `Agents.md` and `.agents/INSTRUCTIONS.md` from embedded templates. When an existing markdown file differs from the template, it prompts per file to keep the existing file, replace it after creating a backup, append the template after creating a backup, manually merge both versions in `$EDITOR`, or save the incoming template beside the existing file as `*.agent-basics.new`.
 For `.gitignore`, the script is non-interactive: it appends `.agents/TODO.md` only when missing; if present, it does nothing.
@@ -54,7 +70,7 @@ brew upgrade agent-basics
 
 - ### DOCUMENTATIONS.MD
 
-    A place for agents to record URLs of documentations for the project. This combined with the instruction help reinforce the agent to write more standard-compliant code
+    Removed from the agent-basics structure. Agents should store documentation source URLs in OpenViking under `viking://resources/`.
 
 - ### TODO.md
 
@@ -62,4 +78,4 @@ brew upgrade agent-basics
 
 - ### MEMORY.md
 
-    OpenViking is the preferred long-term memory store. `MEMORY.md` remains as a temporary fallback for environments where OpenViking is unavailable, so notes can be migrated into OpenViking later.
+    Removed from the agent-basics structure. Agents should store user memories under `viking://user/memories/` and agent-learned memories under `viking://agent/memories/`.

@@ -8,7 +8,8 @@
 - OpenViking is the canonical memory, documentation, skill, and project context store.
 - OpenViking-related local files, configuration, backups, fallback exports, and setup metadata live under `.agents`.
 - `Agents.md` and `.agents/INSTRUCTIONS.md` are the only markdown instruction files `agent-basics` should create or normalize directly.
-- Existing project memories and documentation are not migrated automatically by the installer. After `agent-basics` establishes the correct instructions, the user's own agents can migrate extra memories and documentation into OpenViking.
+- Existing `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` files are migrated automatically into OpenViking before they are removed from the canonical structure. After that baseline migration, the user's own agents can migrate extra memories and documentation into richer OpenViking paths.
+- `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` are removed from the canonical structure. OpenViking replaces them.
 - Existing user instructions must be treated as valuable project data. Setup should provide review, ordering, and merge controls before changing them.
 
 ## Mandatory OpenViking Setup
@@ -27,9 +28,7 @@ Use `.agents` as the visible project-local home for OpenViking integration files
 
 ```text
 .agents/
-├── DOCUMENTATIONS.md
 ├── INSTRUCTIONS.md
-├── MEMORY.md
 ├── TODO.md
 └── openviking/
     ├── README.md
@@ -78,7 +77,7 @@ Prefer block-level ordering with line-level highlighting:
 4. Scan for existing `Agents.md` and `.agents/INSTRUCTIONS.md`.
 5. If either file conflicts with the embedded template, launch the merge UI.
 6. Write the accepted `Agents.md` and `.agents/INSTRUCTIONS.md`.
-7. Create `.agents/TODO.md`, `.agents/DOCUMENTATIONS.md`, and `.agents/MEMORY.md` only as compatibility/export files.
+7. Create `.agents/TODO.md` and `.agents/openviking/`; do not create `.agents/DOCUMENTATIONS.md` or `.agents/MEMORY.md`.
 8. Store setup metadata and migration session summaries in OpenViking.
 9. Initialize git when needed.
 10. Report final paths, backup locations, and next agent migration tasks.
@@ -104,4 +103,3 @@ The first demo is a static browser prototype that proves the markdown merge inte
 - Final markdown preview
 
 This demo is not the production migration engine. It is a UX checkpoint before adding OpenViking setup, local server wiring, file writes, and backup/session persistence.
-

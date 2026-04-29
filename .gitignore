@@ -1,4 +1,11 @@
 .agents/TODO.md
+.agents/openviking/backups/
+.agents/openviking/data/_system/
+.agents/openviking/data/vectordb/
+.agents/openviking/data/viking/default/temp/
+.agents/openviking/exports/
+.agents/openviking/merge-sessions/
+.agents/openviking/venv/
 .vscode
 .DS_Store
 ._*

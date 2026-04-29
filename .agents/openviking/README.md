@@ -1,8 +1,14 @@
 # OpenViking
 
-This directory is reserved for project-local OpenViking integration files.
+This directory contains project-local OpenViking integration files for agent-basics.
 
-Future `agent-basics` setup work should keep OpenViking configuration, backups, exports, merge sessions, and setup-state files under this directory when OpenViking's documented configuration model allows project-local placement.
+Keep OpenViking configuration, setup state, backups, exports, and merge sessions under this directory when OpenViking's documented configuration model allows project-local placement.
 
-OpenViking is not wired into this repo yet. This directory records the intended project layout while the mandatory OpenViking setup flow is being designed.
+Use these environment variables before running OpenViking commands for this repo:
+
+```bash
+export PATH="$PWD/.agents/openviking/venv/bin:$PATH"
+export OPENVIKING_CONFIG_FILE="$PWD/.agents/openviking/ov.conf"
+export OPENVIKING_CLI_CONFIG_FILE="$PWD/.agents/openviking/ovcli.conf"
+```
 

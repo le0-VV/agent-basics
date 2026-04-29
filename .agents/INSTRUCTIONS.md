@@ -7,20 +7,28 @@ You **MUST** ALWAYS:
 - If you encounter a character limit, **DO** an **ABRUPT** stop; I will send a "continue" as a new message
 - You will be **PENALISED** for wrong answers
 - You **DENIED** to overlook the critical context
-- Use OpenViking for persistent memory and project context when it is available
+- Use OpenViking for persistent memory and project context
 - ALWAYS follow Answering rules
 
 ## OpenViking Memory Rules
 
-- Before relying on memory, check whether OpenViking is available through the current tools, MCP resources, or local `openviking-server` installation.
-- If OpenViking is installed but not initialized for this environment, ask the user before running setup commands such as `openviking-server init`.
+- OpenViking is mandatory for this project. Do not continue agent-basics workflows until OpenViking is installed, initialized, and healthy.
+- Use the project-local OpenViking virtualenv at `.agents/openviking/venv` when it exists.
+- Export `OPENVIKING_CONFIG_FILE="$PWD/.agents/openviking/ov.conf"` before running OpenViking server, SDK, or CLI commands for this repo.
+- Export `OPENVIKING_CLI_CONFIG_FILE="$PWD/.agents/openviking/ovcli.conf"` before running `ov` CLI commands for this repo.
+- Add `.agents/openviking/venv/bin` to the front of `PATH` when invoking `openviking-server`, `openviking`, or `ov` for this repo.
+- `setup-macos.sh` uses `EDITOR` for manual markdown conflict merges. If provider credentials are referenced through environment variables in `ov.conf`, document the exact variable names here before use and never commit raw secret values.
+- Keep OpenViking storage, setup state, exports, backups, and merge sessions under `.agents/openviking/`.
+- Validate OpenViking with `openviking-server doctor` before migrating project content. If doctor reports missing embedding or VLM configuration, fix the OpenViking config or install the required extras before continuing.
+- Migrate legacy `.agents/DOCUMENTATIONS.md` content into OpenViking resources under `viking://resources/agent-basics/documentations/` before deleting the file.
+- Migrate legacy `.agents/MEMORY.md` content into OpenViking memory/resource paths before deleting the file. Use `viking://user/memories/` for user preferences and `viking://agent/memories/` for agent-learned project patterns.
+- This repo's legacy markdown migration was imported as `.agents/DOCUMENTATIONS.md` to `viking://resources/agent-basics/documentations/legacy-documentations.md`, and `.agents/MEMORY.md` to both `viking://user/memories/preferences/agent-basics.md` and `viking://agent/memories/patterns/agent-basics.md`.
 - Store user-specific memories under `viking://user/memories/`.
 - Store agent-learned memories under `viking://agent/memories/`.
 - Store static project references and documents under `viking://resources/`.
 - Store reusable agent skills and workflows under `viking://agent/skills/`.
 - Use concise markdown entries with clear titles, dates when relevant, and enough source context to make the memory useful later.
 - Search OpenViking memory when the user refers to previous work, preferences, prior conversations, or project context that is not in the visible chat.
-- If OpenViking is unavailable, write memory updates to ./.agents/MEMORY.md as a temporary fallback and migrate those notes to OpenViking when it becomes available.
 
 ## Answering Rules
 
