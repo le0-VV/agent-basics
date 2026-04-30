@@ -7,6 +7,7 @@
 - `setup-macos.sh` remains the one-command entry point for macOS users.
 - MemoryHub is the canonical memory, documentation, skill, and project context store for agent-basics.
 - MemoryHub owns the single OpenViking/runtime/embedding installation for all agent-basics projects.
+- MemoryHub remains a separate dependency and source repository; `agent-basics` documents the cross-repo workflow but does not vendor MemoryHub code.
 - Project memory files remain in the repository under `.agents/memoryhub/`; the central hub references them through symlinks under `$MEMORYHUB_CONFIG_DIR/projects/`.
 - MemoryHub-related project files, backups, merge sessions, and setup metadata live under `.agents`.
 - `Agents.md` and `.agents/INSTRUCTIONS.md` are the only markdown instruction files `agent-basics` should create or normalize directly.
@@ -26,6 +27,17 @@
 8. Run the MemoryHub health check before writing agent instruction files.
 9. Fail fast when MemoryHub setup is unhealthy, with exact remediation commands.
 10. Record setup metadata under `.agents/memoryhub/resources/agent-basics/setup/`.
+
+## Cross-Repo Development
+
+`agent-basics` and MemoryHub are expected to be developed as sibling repositories. The durable workflow lives in [WORKSPACES.md](WORKSPACES.md).
+
+Cross-repo tasks should keep ownership clear:
+
+- `agent-basics`: setup script, Homebrew formula, generated instruction templates, repository memory layout, migration UI, bootstrap docs
+- MemoryHub: memory runtime, CLI/API/MCP behavior, project registry, sync/indexing, config, tests
+
+Changes spanning both repos should be tested and committed independently in each git worktree.
 
 ## `.agents` MemoryHub Layout
 

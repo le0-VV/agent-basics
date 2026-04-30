@@ -44,6 +44,16 @@ The central MemoryHub installation owns the database, semantic index, embedding 
 The script writes `Agents.md` and `.agents/INSTRUCTIONS.md` from embedded templates. When an existing markdown file differs from the template, it prompts per file to keep the existing file, replace it after creating a backup, append the template after creating a backup, manually merge both versions in `$EDITOR`, or save the incoming template beside the existing file as `*.agent-basics.new`.
 For `.gitignore`, the script is non-interactive: it appends `.agents/TODO.md` and transient `.agents/memoryhub/` state paths only when missing; if present, it does nothing.
 
+## Working with MemoryHub
+
+For coordinated changes across this repo and the local MemoryHub checkout, see [WORKSPACES.md](WORKSPACES.md).
+
+Set `MEMORYHUB_SOURCE_DIR` when the MemoryHub checkout is not in a sibling directory:
+
+```bash
+export MEMORYHUB_SOURCE_DIR="/Users/leonardw/Projects/MemoryHub"
+```
+
 ## Install via custom Homebrew tap
 
 ```bash
