@@ -34,6 +34,7 @@ export PATH="$MEMORYHUB_CONFIG_DIR/venv/bin:$PATH"
 - Do not overwrite dirty MemoryHub files unless the user explicitly asks for that exact change.
 - Make `agent-basics` changes in `/Users/leonardw/Projects/agent-basics`.
 - Make MemoryHub changes in `/Users/leonardw/Projects/MemoryHub`.
+- Use `.agents/agent-mailbox/` in either repo for timestamped cross-sandbox handoffs when separate agents need to coordinate.
 - When a change spans both repos, commit each repo separately with a message that explains its half of the integration.
 - Use the supervised author format for commits: `Coding agent supervised by $(git config --global user.name)`.
 
@@ -60,6 +61,19 @@ export PATH="$MEMORYHUB_CONFIG_DIR/venv/bin:$PATH"
 
    Use a narrower MemoryHub test command when the change is scoped to a specific module.
 
+## Agent Mailbox
+
+Each repo may contain `.agents/agent-mailbox/` with `inbox/`, `outbox/`, and `archive/` folders.
+
+Use timestamped markdown messages:
+
+```text
+YYYYMMDD-HHMMSS-to-agent-basics-topic.md
+YYYYMMDD-HHMMSS-to-memoryhub-topic.md
+```
+
+Mailbox messages should be short handoffs that name the sender repo, target repo, branch, relevant files or commands, and whether action is needed. Durable product decisions still belong in normal docs, code, or tests.
+
 ## Current Integration Boundary
 
 `agent-basics` should not vendor MemoryHub code. It depends on a local MemoryHub checkout or an installed `memoryhub` executable.
@@ -79,4 +93,3 @@ MemoryHub should provide:
 - local markdown source-of-truth behavior
 - safe sync/indexing for symlinked project directories
 - tests covering config, registry, routing, and sync behavior
-

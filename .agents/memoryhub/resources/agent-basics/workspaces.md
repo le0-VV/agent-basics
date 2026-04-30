@@ -8,6 +8,6 @@ Keep the repositories separate:
 - preserve dirty MemoryHub files unless the user explicitly asks to change them
 - commit each repo independently
 - use `MEMORYHUB_SOURCE_DIR=/Users/leonardw/Projects/MemoryHub` when installing MemoryHub through `setup-macos.sh`
+- use `.agents/agent-mailbox/` in either repo for timestamped cross-sandbox handoffs
 
 The central integration contract is documented in `WORKSPACES.md`.
-
