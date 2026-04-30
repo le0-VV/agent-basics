@@ -3,16 +3,59 @@ set -euo pipefail
 
 TARGET_DIR="${1:-$(pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_EMBEDDING_MODEL_FILE="bge-small-zh-v1.5-q4_k_m.gguf"
-LOCAL_EMBEDDING_MODEL_NAME="bge-small-zh-v1.5-q4_k_m"
-LOCAL_EMBEDDING_MODEL_SHA256="0c17cc6ed7ec697db6768c2db6dd22c4e816a12c68ed14ff4d764927338532f8"
-LOCAL_EMBEDDING_MODEL_URI=".agents/openviking/models/$LOCAL_EMBEDDING_MODEL_FILE"
-LOCAL_EMBEDDING_PORT="${AGENT_BASICS_EMBEDDING_PORT:-1934}"
+MEMORYHUB_CONFIG_DIR="${MEMORYHUB_CONFIG_DIR:-$HOME/.memoryhub}"
+MEMORYHUB_VENV_DIR="$MEMORYHUB_CONFIG_DIR/venv"
+MEMORYHUB_PROJECTS_DIR="$MEMORYHUB_CONFIG_DIR/projects"
+MEMORYHUB_BIN=""
 
 if [[ ! -d "$TARGET_DIR" ]]; then
   echo "Error: target directory does not exist: $TARGET_DIR" >&2
   exit 1
 fi
+
+confirm_action() {
+  local prompt="$1"
+  local choice
+
+  if [[ ! -t 0 ]]; then
+    echo "Error: $prompt" >&2
+    echo "Run agent-basics in an interactive terminal to approve this required step." >&2
+    exit 1
+  fi
+
+  while true; do
+    read -r -p "$prompt [y/n]: " choice
+    case "$choice" in
+      y|Y) return 0 ;;
+      n|N) return 1 ;;
+      *) echo "Invalid choice: $choice" >&2 ;;
+    esac
+  done
+}
+
+slugify() {
+  local input="$1"
+  local slug
+  slug="$(printf "%s" "$input" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+  if [[ -z "$slug" ]]; then
+    slug="project"
+  fi
+  printf "%s\n" "$slug"
+}
+
+absolute_path() {
+  local path="$1"
+  local directory
+  local basename_part
+
+  directory="$(dirname "$path")"
+  basename_part="$(basename "$path")"
+  if [[ ! -d "$directory" ]]; then
+    return 1
+  fi
+
+  printf "%s/%s\n" "$(cd "$directory" && pwd -P)" "$basename_part"
+}
 
 create_template_file() {
   local name="$1"
@@ -27,16 +70,18 @@ create_template_file() {
 
 - **DO NOT, UNDER ANY CIRCUMSTANCES, UNLESS EXPLICITLY INSTRUCTED BY THE USER**, modify this file or ./.agents/INSTRUCTIONS.md
 - Follow the instructions of ./.agents/INSTRUCTIONS.md
-- OpenViking is mandatory for this project. Do not use agent-basics workflows until OpenViking is installed, initialized, and healthy.
-- Before running OpenViking commands for this repo, export `PATH="$PWD/.agents/openviking/venv/bin:$PATH"`, `OPENVIKING_CONFIG_FILE="$PWD/.agents/openviking/ov.conf"`, and `OPENVIKING_CLI_CONFIG_FILE="$PWD/.agents/openviking/ovcli.conf"`.
-- Find up-to-date documentations for any library, framework and programming languages used in this project, and record their source URLs in OpenViking under `viking://resources/`.
-- While you write code, **CONSTANTLY** refer to documentation sources recorded in OpenViking to make sure you're writing accurate, working and standard-complying code.
-- Store user-specific memories in OpenViking under `viking://user/memories/`, using the documented categories such as `profile.md`, `preferences/`, `entities/`, and `events/`.
-- Store agent-learned memories in OpenViking under `viking://agent/memories/`, using the documented categories such as `cases/`, `patterns/`, `tools/`, and `skills/`.
-- Store static project knowledge, documents, and other reference resources in OpenViking under `viking://resources/`.
-- Store reusable agent capabilities and workflows in OpenViking under `viking://agent/skills/`.
-- If the user's message refers to anything that may have been part of a past conversation but is not present in your context, search OpenViking memory before answering.
-- Anything the user asks you to remember must be recorded in OpenViking memory.
+- MemoryHub is mandatory for this project. Do not use agent-basics workflows until the central MemoryHub installation is installed, initialized, and healthy.
+- MemoryHub is the central OpenViking-backed memory hub for agent-basics projects. Use one hub installation and one embedding/runtime stack instead of per-repo OpenViking installs.
+- Before running MemoryHub commands for this repo, export `MEMORYHUB_CONFIG_DIR="${MEMORYHUB_CONFIG_DIR:-$HOME/.memoryhub}"` and add `${MEMORYHUB_CONFIG_DIR}/venv/bin` to `PATH` when that virtualenv exists.
+- Keep this repo's MemoryHub markdown source under `.agents/memoryhub/`. The central hub should reference it through a symlink under `$MEMORYHUB_CONFIG_DIR/projects/`.
+- Find up-to-date documentations for any library, framework and programming languages used in this project, and record their source URLs in MemoryHub resources.
+- While you write code, **CONSTANTLY** refer to documentation sources recorded in MemoryHub to make sure you're writing accurate, working and standard-complying code.
+- Store user-specific memories in MemoryHub under `.agents/memoryhub/user/memories/`, using categories such as `profile.md`, `preferences/`, `entities/`, and `events/`.
+- Store agent-learned memories in MemoryHub under `.agents/memoryhub/agent/memories/`, using categories such as `cases/`, `patterns/`, `tools/`, and `skills/`.
+- Store static project knowledge, documents, and other reference resources in MemoryHub under `.agents/memoryhub/resources/`.
+- Store reusable agent capabilities and workflows in MemoryHub under `.agents/memoryhub/agent/skills/`.
+- If the user's message refers to anything that may have been part of a past conversation but is not present in your context, search MemoryHub before answering.
+- Anything the user asks you to remember must be recorded in MemoryHub memory.
 - If you have **ANY** questions or concerns, **IMMEDIATELY** clarify with the user.
 - Before making any changes to the codebase, THOROUGHLY plan out your work, write down every step you're going to take in ./.agents/TODO.md, and follow it during your work.
 - Read a file fully before editing it.
@@ -75,27 +120,31 @@ You **MUST** ALWAYS:
 - If you encounter a character limit, **DO** an **ABRUPT** stop; I will send a "continue" as a new message
 - You will be **PENALISED** for wrong answers
 - You **DENIED** to overlook the critical context
-- Use OpenViking for persistent memory and project context
+- Use MemoryHub for persistent memory and project context
 - ALWAYS follow Answering rules
 
-## OpenViking Memory Rules
+## MemoryHub Rules
 
-- OpenViking is mandatory for this project. Do not continue agent-basics workflows until OpenViking is installed, initialized, and healthy.
-- Use the project-local OpenViking virtualenv at `.agents/openviking/venv` when it exists.
-- Export `OPENVIKING_CONFIG_FILE="$PWD/.agents/openviking/ov.conf"` before running OpenViking server, SDK, or CLI commands for this repo.
-- Export `OPENVIKING_CLI_CONFIG_FILE="$PWD/.agents/openviking/ovcli.conf"` before running `ov` CLI commands for this repo.
-- Add `.agents/openviking/venv/bin` to the front of `PATH` when invoking `openviking-server`, `openviking`, or `ov` for this repo.
-- `setup-macos.sh` uses `EDITOR` for manual markdown conflict merges. If provider credentials are referenced through environment variables in `ov.conf`, document the exact variable names here before use and never commit raw secret values.
-- Keep OpenViking storage, setup state, exports, backups, and merge sessions under `.agents/openviking/`.
-- Validate OpenViking with `openviking-server doctor` before migrating project content. If doctor reports missing embedding or VLM configuration, fix the OpenViking config or install the required extras before continuing.
-- Migrate legacy `.agents/DOCUMENTATIONS.md` content into OpenViking resources under `viking://resources/agent-basics/documentations/` before deleting the file.
-- Migrate legacy `.agents/MEMORY.md` content into OpenViking memory/resource paths before deleting the file. Use `viking://user/memories/` for user preferences and `viking://agent/memories/` for agent-learned project patterns.
-- Store user-specific memories under `viking://user/memories/`.
-- Store agent-learned memories under `viking://agent/memories/`.
-- Store static project references and documents under `viking://resources/`.
-- Store reusable agent skills and workflows under `viking://agent/skills/`.
+- MemoryHub is mandatory for this project. Do not continue agent-basics workflows until the central MemoryHub installation is installed, initialized, and healthy.
+- MemoryHub is the central OpenViking-backed memory hub for agent-basics projects. Do not install a separate OpenViking runtime, embedding model, or vector stack per repository.
+- Use `MEMORYHUB_CONFIG_DIR="${MEMORYHUB_CONFIG_DIR:-$HOME/.memoryhub}"` for the central hub configuration and database.
+- Add `$MEMORYHUB_CONFIG_DIR/venv/bin` to the front of `PATH` when invoking the central `memoryhub` executable installed by `setup-macos.sh`.
+- This repo's MemoryHub markdown source belongs under `.agents/memoryhub/`.
+- The central hub should expose this repo through a symlink at `$MEMORYHUB_CONFIG_DIR/projects/<project-name>` pointing back to `.agents/memoryhub/`.
+- `setup-macos.sh` uses `EDITOR` for manual markdown conflict merges. If provider credentials or model endpoints are referenced through MemoryHub environment variables, document the exact variable names here before use and never commit raw secret values.
+- Required MemoryHub environment variables:
+  - `MEMORYHUB_CONFIG_DIR`: central MemoryHub config, database, venv, project symlink, and runtime state directory.
+  - `MEMORYHUB_MCP_PROJECT`: optional project constraint when an agent or MCP server must be pinned to one project.
+  - `MEMORYHUB_SEMANTIC_EMBEDDING_PROVIDER`, `MEMORYHUB_SEMANTIC_EMBEDDING_MODEL`, `MEMORYHUB_SEMANTIC_EMBEDDING_DIMENSIONS`, and `MEMORYHUB_SEMANTIC_EMBEDDING_BATCH_SIZE`: optional semantic search overrides. Do not set these unless the selected MemoryHub provider requires them.
+- Validate MemoryHub with `memoryhub doctor` and `memoryhub project list --json` before migrating project content.
+- Migrate legacy `.agents/DOCUMENTATIONS.md` content into `.agents/memoryhub/resources/legacy-documentations.md` before deleting the file.
+- Migrate legacy `.agents/MEMORY.md` content into `.agents/memoryhub/user/memories/preferences/<project-name>.md` and `.agents/memoryhub/agent/memories/patterns/<project-name>.md` before deleting the file.
+- Store user-specific memories under `.agents/memoryhub/user/memories/`.
+- Store agent-learned memories under `.agents/memoryhub/agent/memories/`.
+- Store static project references and documents under `.agents/memoryhub/resources/`.
+- Store reusable agent skills and workflows under `.agents/memoryhub/agent/skills/`.
 - Use concise markdown entries with clear titles, dates when relevant, and enough source context to make the memory useful later.
-- Search OpenViking memory when the user refers to previous work, preferences, prior conversations, or project context that is not in the visible chat.
+- Search MemoryHub when the user refers to previous work, preferences, prior conversations, or project context that is not in the visible chat.
 
 ## Answering Rules
 
@@ -129,505 +178,251 @@ EOT
 
 cd "$TARGET_DIR"
 TARGET_DIR="$(pwd)"
+PROJECT_NAME="${AGENT_BASICS_PROJECT_NAME:-$(slugify "$(basename "$TARGET_DIR")")}"
+REPO_MEMORY_DIR="$TARGET_DIR/.agents/memoryhub"
+HUB_PROJECT_LINK="$MEMORYHUB_PROJECTS_DIR/$PROJECT_NAME"
 mkdir -p .agents
 
-confirm_action() {
-  local prompt="$1"
-  local choice
-
-  if [[ ! -t 0 ]]; then
-    echo "Error: $prompt" >&2
-    echo "Run agent-basics in an interactive terminal to approve this required step." >&2
-    exit 1
-  fi
-
-  while true; do
-    read -r -p "$prompt [y/n]: " choice
-    case "$choice" in
-      y|Y)
-        return 0
-        ;;
-      n|N)
-        return 1
-        ;;
-      *)
-        echo "Invalid choice: $choice" >&2
-        ;;
-    esac
-  done
-}
-
-create_openviking_layout() {
-  mkdir -p \
-    .agents/openviking/backups \
-    .agents/openviking/data \
-    .agents/openviking/exports \
-    .agents/openviking/merge-sessions \
-    .agents/openviking/setup-state
-
-  if [[ ! -f ".agents/openviking/README.md" ]]; then
-    cat > ".agents/openviking/README.md" <<'EOT'
-# OpenViking
-
-This directory contains project-local OpenViking integration files for agent-basics.
-
-Keep OpenViking configuration, setup state, backups, exports, and merge sessions under this directory when OpenViking's documented configuration model allows project-local placement.
-
-Use these environment variables before running OpenViking commands for this repo:
-
-```bash
-export PATH="$PWD/.agents/openviking/venv/bin:$PATH"
-export OPENVIKING_CONFIG_FILE="$PWD/.agents/openviking/ov.conf"
-export OPENVIKING_CLI_CONFIG_FILE="$PWD/.agents/openviking/ovcli.conf"
-```
-EOT
-    echo "Created: .agents/openviking/README.md"
-  fi
-}
-
-create_default_openviking_config() {
-  local ov_config="$1"
-  local ov_cli_config="$2"
-
-  if [[ ! -f "$ov_config" ]]; then
-    cat > "$ov_config" <<EOT
-{
-  "storage": {
-    "workspace": ".agents/openviking/data"
-  },
-  "embedding": {
-    "dense": {
-      "provider": "litellm",
-      "model": "bge-small-zh-v1.5-q4_k_m",
-      "api_key": "no-key",
-      "api_base": "http://127.0.0.1:$LOCAL_EMBEDDING_PORT/v1",
-      "dimension": 512
-    }
-  },
-  "vlm": {
-    "provider": "litellm",
-    "model": "agent-basics-local-summary",
-    "api_key": "no-key",
-    "api_base": "http://127.0.0.1:$LOCAL_EMBEDDING_PORT/v1"
-  },
-  "server": {
-    "host": "127.0.0.1",
-    "port": 1933
-  }
-}
-EOT
-    echo "Created: .agents/openviking/ov.conf"
-  fi
-
-  if [[ ! -f "$ov_cli_config" ]]; then
-    cat > "$ov_cli_config" <<'EOT'
-{
-  "url": "http://127.0.0.1:1933",
-  "timeout": 60,
-  "output": "table"
-}
-EOT
-    echo "Created: .agents/openviking/ovcli.conf"
-  fi
-}
-
-create_embedding_server() {
-  local server_path=".agents/openviking/embedding-server.py"
-
-  if [[ -f "$server_path" ]]; then
-    return
-  fi
-
-  cat > "$server_path" <<'PY'
-#!/usr/bin/env python3
-import json
-import os
-import re
-import subprocess
-import sys
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-
-ROOT = Path(os.environ.get("AGENT_BASICS_PROJECT_DIR", os.getcwd()))
-MODEL_PATH = ROOT / ".agents/openviking/models/bge-small-zh-v1.5-q4_k_m.gguf"
-MODEL_NAME = "bge-small-zh-v1.5-q4_k_m"
-PORT = int(os.environ.get("AGENT_BASICS_EMBEDDING_PORT", "1934"))
-DIMENSION = 512
-
-
-def run_embedding(text):
-    base = [
-        "llama-embedding",
-        "--model",
-        str(MODEL_PATH),
-        "--prompt",
-        text,
-        "--log-verbosity",
-        "1",
-        "--no-warmup",
-    ]
-    attempts = [base, base + ["--device", "none"]]
-    last = None
-    for command in attempts:
-        result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
-        match = re.search(r"embedding\s+0:\s+(.+?)(?:\n\n|$)", result.stdout, re.S)
-        if match:
-            values = [float(part) for part in match.group(1).split()]
-            if len(values) != DIMENSION:
-                raise RuntimeError(f"expected {DIMENSION} embedding values, got {len(values)}")
-            return values
-        last = result.stdout + result.stderr
-    raise RuntimeError(last or "llama-embedding failed")
-
-
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, fmt, *args):
-        return
-
-    def _json(self, status, payload):
-        body = json.dumps(payload).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_GET(self):
-        if self.path in ("/health", "/v1/health"):
-            self._json(200, {"status": "ok", "model": MODEL_NAME, "dimension": DIMENSION})
-            return
-        self._json(404, {"error": "not found"})
-
-    def do_POST(self):
-        if self.path in ("/v1/chat/completions", "/chat/completions"):
-            self._json(200, {
-                "id": "agent-basics-local-summary",
-                "object": "chat.completion",
-                "model": "agent-basics-local-summary",
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": "Local OpenViking context item. Use the source content directly for details.",
-                    },
-                    "finish_reason": "stop",
-                }],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            })
-            return
-        if self.path not in ("/v1/embeddings", "/embeddings"):
-            self._json(404, {"error": "not found"})
-            return
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-            payload = json.loads(self.rfile.read(length) or b"{}")
-            inputs = payload.get("input", "")
-            if isinstance(inputs, str):
-                inputs = [inputs]
-            data = []
-            for index, text in enumerate(inputs):
-                data.append({
-                    "object": "embedding",
-                    "index": index,
-                    "embedding": run_embedding(str(text)),
-                })
-            self._json(200, {
-                "object": "list",
-                "model": payload.get("model") or MODEL_NAME,
-                "data": data,
-                "usage": {"prompt_tokens": 0, "total_tokens": 0},
-            })
-        except Exception as exc:
-            self._json(500, {"error": str(exc)})
-
-
-if __name__ == "__main__":
-    if not MODEL_PATH.exists():
-        print(f"missing model: {MODEL_PATH}", file=sys.stderr)
-        sys.exit(1)
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
-PY
-  chmod 0755 "$server_path"
-  echo "Created: $server_path"
-}
-
-verify_local_embedding_model() {
-  local model_path="$1"
-  local actual_sha
-
-  if [[ ! -f "$model_path" ]]; then
-    return 1
-  fi
-
-  actual_sha="$(shasum -a 256 "$model_path" | awk '{print $1}')"
-  [[ "$actual_sha" == "$LOCAL_EMBEDDING_MODEL_SHA256" ]]
-}
-
-ensure_local_embedding_model() {
-  local target_model_path="$TARGET_DIR/$LOCAL_EMBEDDING_MODEL_URI"
+find_memoryhub_source_dir() {
   local candidate
   local -a candidates
 
-  mkdir -p "$(dirname "$target_model_path")"
-
-  if verify_local_embedding_model "$target_model_path"; then
-    echo "Exists: $LOCAL_EMBEDDING_MODEL_URI"
-    return
-  fi
-
   candidates=(
-    "${AGENT_BASICS_MODEL_DIR:-}/$LOCAL_EMBEDDING_MODEL_FILE"
-    "$SCRIPT_DIR/.agents/openviking/models/$LOCAL_EMBEDDING_MODEL_FILE"
-    "$SCRIPT_DIR/../libexec/models/$LOCAL_EMBEDDING_MODEL_FILE"
+    "${MEMORYHUB_SOURCE_DIR:-}"
+    "$SCRIPT_DIR/../MemoryHub"
+    "$SCRIPT_DIR/../../MemoryHub"
+    "/Users/leonardw/Projects/MemoryHub"
   )
 
   for candidate in "${candidates[@]}"; do
-    if [[ -n "$candidate" ]] && verify_local_embedding_model "$candidate"; then
-      cp "$candidate" "$target_model_path"
-      echo "Copied local embedding model: $LOCAL_EMBEDDING_MODEL_URI"
-      return
+    if [[ -n "$candidate" && -f "$candidate/pyproject.toml" && -d "$candidate/src/memoryhub" ]]; then
+      printf "%s\n" "$candidate"
+      return 0
     fi
   done
 
-  echo "Error: required local embedding model is missing or has the wrong checksum." >&2
-  echo "Expected: $LOCAL_EMBEDDING_MODEL_URI" >&2
-  echo "SHA-256:  $LOCAL_EMBEDDING_MODEL_SHA256" >&2
-  echo "Run setup from the agent-basics repository or install a package that includes the model asset." >&2
-  exit 1
+  return 1
 }
 
-ensure_llama_cpp_command() {
-  if command -v llama-embedding >/dev/null 2>&1; then
+ensure_memoryhub_command() {
+  local source_dir
+
+  mkdir -p "$MEMORYHUB_CONFIG_DIR" "$MEMORYHUB_PROJECTS_DIR"
+
+  if [[ -x "$MEMORYHUB_VENV_DIR/bin/memoryhub" ]]; then
+    export PATH="$MEMORYHUB_VENV_DIR/bin:$PATH"
+    MEMORYHUB_BIN="$MEMORYHUB_VENV_DIR/bin/memoryhub"
     return
   fi
 
-  echo "llama.cpp is required to run the repo-local GGUF embedding model."
-  if ! confirm_action "Install llama.cpp with Homebrew?"; then
-    echo "llama.cpp installation declined. agent-basics cannot continue." >&2
-    exit 1
-  fi
-
-  if ! command -v brew >/dev/null 2>&1; then
-    echo "Error: Homebrew is required to install llama.cpp automatically." >&2
-    exit 1
-  fi
-
-  brew install llama.cpp
-}
-
-ensure_openviking_command() {
-  if [[ -x ".agents/openviking/venv/bin/openviking-server" ]]; then
-    export PATH="$TARGET_DIR/.agents/openviking/venv/bin:$PATH"
+  if command -v memoryhub >/dev/null 2>&1; then
+    MEMORYHUB_BIN="$(command -v memoryhub)"
     return
   fi
 
-  echo "OpenViking is required by agent-basics, but .agents/openviking/venv is not ready."
-  if ! confirm_action "Install OpenViking into .agents/openviking/venv with uv?"; then
-    echo "OpenViking installation declined. agent-basics cannot continue." >&2
+  echo "MemoryHub is required by agent-basics, but no central memoryhub executable was found."
+  if ! confirm_action "Install MemoryHub into $MEMORYHUB_VENV_DIR with uv?"; then
+    echo "MemoryHub installation declined. agent-basics cannot continue." >&2
     exit 1
   fi
 
   if ! command -v uv >/dev/null 2>&1; then
-    echo "Error: uv is required to create the project-local OpenViking virtualenv." >&2
-    echo "Install uv, then rerun agent-basics." >&2
+    echo "Error: uv is required to create the central MemoryHub virtualenv." >&2
     exit 1
   fi
 
-  uv venv --python 3.12 .agents/openviking/venv
-  uv pip install --python .agents/openviking/venv/bin/python openviking --upgrade --force-reinstall
-  export PATH="$TARGET_DIR/.agents/openviking/venv/bin:$PATH"
+  if ! source_dir="$(find_memoryhub_source_dir)"; then
+    echo "Error: MemoryHub source checkout was not found." >&2
+    echo "Set MEMORYHUB_SOURCE_DIR to the local MemoryHub checkout, then rerun setup." >&2
+    exit 1
+  fi
 
-  if ! command -v openviking-server >/dev/null 2>&1; then
-    echo "Error: OpenViking install completed, but openviking-server is still not available." >&2
+  uv venv --python 3.12 "$MEMORYHUB_VENV_DIR"
+  uv pip install --python "$MEMORYHUB_VENV_DIR/bin/python" -e "$source_dir"
+  export PATH="$MEMORYHUB_VENV_DIR/bin:$PATH"
+  MEMORYHUB_BIN="$MEMORYHUB_VENV_DIR/bin/memoryhub"
+
+  if [[ ! -x "$MEMORYHUB_BIN" ]]; then
+    echo "Error: MemoryHub install completed, but $MEMORYHUB_BIN is not executable." >&2
     exit 1
   fi
 }
 
-start_embedding_server() {
-  local pid_file=".agents/openviking/setup-state/embedding-server.pid"
-  local log_file=".agents/openviking/setup-state/embedding-server.log"
+create_memoryhub_layout() {
+  mkdir -p \
+    "$REPO_MEMORY_DIR/agent/memories/cases" \
+    "$REPO_MEMORY_DIR/agent/memories/patterns" \
+    "$REPO_MEMORY_DIR/agent/memories/tools" \
+    "$REPO_MEMORY_DIR/agent/memories/skills" \
+    "$REPO_MEMORY_DIR/agent/skills" \
+    "$REPO_MEMORY_DIR/backups" \
+    "$REPO_MEMORY_DIR/merge-sessions" \
+    "$REPO_MEMORY_DIR/resources/agent-basics/setup" \
+    "$REPO_MEMORY_DIR/setup-state" \
+    "$REPO_MEMORY_DIR/user/memories/entities" \
+    "$REPO_MEMORY_DIR/user/memories/events" \
+    "$REPO_MEMORY_DIR/user/memories/preferences"
 
-  if curl -fsS "http://127.0.0.1:$LOCAL_EMBEDDING_PORT/health" >/dev/null 2>&1; then
+  if [[ ! -f "$REPO_MEMORY_DIR/README.md" ]]; then
+    cat > "$REPO_MEMORY_DIR/README.md" <<'EOT'
+# MemoryHub
+
+This directory contains repo-local markdown source for the central MemoryHub installation used by agent-basics.
+
+The central hub should be configured with `MEMORYHUB_CONFIG_DIR`, usually `$HOME/.memoryhub`. Its `projects/` directory links back to this directory so the project owns its memory files while the hub owns the runtime, database, embeddings, and MCP/API surface.
+
+Suggested categories:
+
+- `user/memories/`: user profile, preferences, entities, and events
+- `agent/memories/`: agent-learned cases, patterns, tools, and skills
+- `agent/skills/`: reusable workflows and capabilities
+- `resources/`: static project documents and documentation source records
+EOT
+    echo "Created: .agents/memoryhub/README.md"
+  fi
+}
+
+backup_existing_file() {
+  local file_path="$1"
+  local timestamp
+  local backup_name
+  timestamp="$(date +%Y%m%d%H%M%S)"
+  backup_name="${file_path//\//__}.$timestamp.bak"
+
+  mkdir -p "$REPO_MEMORY_DIR/backups"
+  cp "$file_path" "$REPO_MEMORY_DIR/backups/$backup_name"
+  echo "Backed up existing file: .agents/memoryhub/backups/$backup_name"
+}
+
+ensure_hub_symlink() {
+  mkdir -p "$MEMORYHUB_PROJECTS_DIR"
+
+  if [[ -L "$HUB_PROJECT_LINK" ]]; then
+    local current_target
+    local resolved_target
+    current_target="$(readlink "$HUB_PROJECT_LINK")"
+    if [[ "$current_target" != /* ]]; then
+      current_target="$(dirname "$HUB_PROJECT_LINK")/$current_target"
+    fi
+    resolved_target="$(absolute_path "$current_target" 2>/dev/null || true)"
+    if [[ "$resolved_target" == "$REPO_MEMORY_DIR" ]]; then
+      echo "Exists: $HUB_PROJECT_LINK -> $REPO_MEMORY_DIR"
+      return
+    fi
+  fi
+
+  if [[ ! -e "$HUB_PROJECT_LINK" && ! -L "$HUB_PROJECT_LINK" ]]; then
+    ln -s "$REPO_MEMORY_DIR" "$HUB_PROJECT_LINK"
+    echo "Created hub symlink: $HUB_PROJECT_LINK -> $REPO_MEMORY_DIR"
     return
   fi
 
-  AGENT_BASICS_PROJECT_DIR="$TARGET_DIR" \
-  AGENT_BASICS_EMBEDDING_PORT="$LOCAL_EMBEDDING_PORT" \
-  "$TARGET_DIR/.agents/openviking/venv/bin/python" "$TARGET_DIR/.agents/openviking/embedding-server.py" >"$log_file" 2>&1 &
-  printf "%s\n" "$!" > "$pid_file"
-}
-
-verify_local_embedding_runtime() {
-  local attempt
-  local response
-
-  for attempt in 1 2 3 4 5; do
-    if curl -fsS "http://127.0.0.1:$LOCAL_EMBEDDING_PORT/health" >/dev/null 2>&1; then
-      break
-    fi
-    sleep 1
-  done
-
-  if ! response="$(curl -fsS "http://127.0.0.1:$LOCAL_EMBEDDING_PORT/v1/embeddings" \
-    -H "Content-Type: application/json" \
-    -d "{\"model\":\"$LOCAL_EMBEDDING_MODEL_NAME\",\"input\":\"agent-basics local embedding health check\"}")"; then
-    echo "Error: local embedding health check failed." >&2
-    cat ".agents/openviking/setup-state/embedding-server.log" >&2 2>/dev/null || true
-    exit 1
+  echo "MemoryHub project path already exists and does not point at this repo: $HUB_PROJECT_LINK"
+  if ! confirm_action "Move the existing path aside and create the agent-basics symlink?"; then
+    echo "Keeping existing MemoryHub project path. Registering repo-local path directly instead." >&2
+    HUB_PROJECT_LINK="$REPO_MEMORY_DIR"
+    return
   fi
 
-  "$TARGET_DIR/.agents/openviking/venv/bin/python" -c '
+  local backup_path
+  backup_path="$MEMORYHUB_PROJECTS_DIR/$PROJECT_NAME.backup.$(date +%Y%m%d%H%M%S)"
+  mv "$HUB_PROJECT_LINK" "$backup_path"
+  ln -s "$REPO_MEMORY_DIR" "$HUB_PROJECT_LINK"
+  echo "Moved existing hub path to: $backup_path"
+  echo "Created hub symlink: $HUB_PROJECT_LINK -> $REPO_MEMORY_DIR"
+}
+
+memoryhub_project_exists() {
+  local list_file
+  list_file="$(mktemp "${TMPDIR:-/tmp}/agent-basics-memoryhub-projects.XXXXXX.json")"
+
+  if ! MEMORYHUB_CONFIG_DIR="$MEMORYHUB_CONFIG_DIR" "$MEMORYHUB_BIN" project list --json > "$list_file"; then
+    rm -f "$list_file"
+    return 1
+  fi
+
+  if python3 - "$PROJECT_NAME" "$list_file" <<'PY'
 import json
 import sys
 
-payload = json.loads(sys.argv[1])
-embedding = payload["data"][0]["embedding"]
-if len(embedding) != 512:
-    raise RuntimeError(f"Expected 512-dimensional embedding, got {len(embedding)}")
-print("Local embedding health check passed")
-' "$response"
+project_name = sys.argv[1]
+list_file = sys.argv[2]
+payload = json.loads(open(list_file, encoding="utf-8").read())
+projects = payload.get("projects", [])
+sys.exit(0 if any(project.get("name") == project_name for project in projects) else 1)
+PY
+  then
+    rm -f "$list_file"
+    return 0
+  fi
+
+  rm -f "$list_file"
+  return 1
 }
 
-ensure_openviking_ready() {
-  local ov_config
-  local ov_cli_config
-  ov_config="$TARGET_DIR/.agents/openviking/ov.conf"
-  ov_cli_config="$TARGET_DIR/.agents/openviking/ovcli.conf"
-
-  create_openviking_layout
-  ensure_local_embedding_model
-  ensure_llama_cpp_command
-  create_embedding_server
-  ensure_openviking_command
-
-  export OPENVIKING_CONFIG_FILE="$ov_config"
-  export OPENVIKING_CLI_CONFIG_FILE="$ov_cli_config"
-
-  if [[ ! -f "$ov_config" || ! -f "$ov_cli_config" ]]; then
-    create_default_openviking_config "$ov_config" "$ov_cli_config"
-  fi
-
-  start_embedding_server
-  openviking-server doctor
-  verify_local_embedding_runtime
-}
-
-ensure_openviking_ready
-
-migrate_legacy_context_to_openviking() {
-  local migration_needed=0
-  local archive_dir
-
-  if [[ -f ".agents/DOCUMENTATIONS.md" ]]; then
-    migration_needed=1
-  fi
-  if [[ -f ".agents/MEMORY.md" ]]; then
-    migration_needed=1
-  fi
-
-  if [[ "$migration_needed" -eq 0 ]]; then
+register_memoryhub_project() {
+  if memoryhub_project_exists; then
+    echo "MemoryHub project already registered: $PROJECT_NAME"
     return
   fi
 
-  echo "Migrating legacy .agents markdown context into OpenViking."
-  OPENVIKING_CONFIG_FILE="$OPENVIKING_CONFIG_FILE" \
-  OPENVIKING_CLI_CONFIG_FILE="$OPENVIKING_CLI_CONFIG_FILE" \
-  "$TARGET_DIR/.agents/openviking/venv/bin/python" <<'PY'
-from pathlib import Path
-
-from openviking.client.local import LocalClient
-from openviking_cli.utils import run_async
-
-
-ROOT = Path.cwd()
-
-
-async def mkdir_p(client, parts):
-    current = ""
-    for part in parts:
-        current = f"{current}/{part}" if current else part
-        try:
-            await client.mkdir(f"viking://{current}")
-        except Exception:
-            pass
-
-
-async def write_if_file(client, source, target_uri):
-    path = ROOT / source
-    if not path.exists():
-        return False
-    await write_uri(client, target_uri, path.read_text(encoding="utf-8"))
-    return True
-
-
-async def write_uri(client, target_uri, content):
-    mode = "replace"
-    try:
-        await client.stat(target_uri)
-    except Exception:
-        mode = "create"
-    await client.write(target_uri, content, mode=mode, wait=False)
-    actual = await client.read(target_uri)
-    if actual.rstrip("\n") != content.rstrip("\n"):
-        raise RuntimeError(f"OpenViking verification failed for {target_uri}")
-
-
-async def main():
-    client = LocalClient(path=str(ROOT / ".agents/openviking/data"))
-    await client.initialize()
-    await mkdir_p(client, ["resources", "agent-basics", "documentations"])
-    await mkdir_p(client, ["user", "memories", "preferences"])
-    await mkdir_p(client, ["agent", "memories", "patterns"])
-
-    migrated = []
-    if await write_if_file(
-        client,
-        ".agents/DOCUMENTATIONS.md",
-        "viking://resources/agent-basics/documentations/legacy-documentations.md",
-    ):
-        migrated.append(".agents/DOCUMENTATIONS.md -> viking://resources/agent-basics/documentations/legacy-documentations.md")
-
-    memory_path = ROOT / ".agents/MEMORY.md"
-    if memory_path.exists():
-        memory_text = memory_path.read_text(encoding="utf-8")
-        await write_uri(
-            client,
-            "viking://user/memories/preferences/agent-basics.md",
-            memory_text,
-        )
-        await write_uri(
-            client,
-            "viking://agent/memories/patterns/agent-basics.md",
-            memory_text,
-        )
-        migrated.append(".agents/MEMORY.md -> viking://user/memories/preferences/agent-basics.md")
-        migrated.append(".agents/MEMORY.md -> viking://agent/memories/patterns/agent-basics.md")
-
-    report = "\n".join(migrated) + "\n"
-    report_path = ROOT / ".agents/openviking/setup-state/legacy-markdown-migration.txt"
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(report, encoding="utf-8")
-
-    for line in migrated:
-        print(f"Migrated: {line}")
-
-    await client.close()
-
-
-run_async(main())
-PY
-
-  archive_dir=".agents/openviking/backups/legacy-context-$(date +%Y%m%d%H%M%S)"
-  mkdir -p "$archive_dir"
-  for legacy_file in ".agents/DOCUMENTATIONS.md" ".agents/MEMORY.md"; do
-    if [[ -f "$legacy_file" ]]; then
-      mv "$legacy_file" "$archive_dir/$(basename "$legacy_file")"
-      echo "Archived migrated legacy file: $archive_dir/$(basename "$legacy_file")"
-    fi
-  done
+  MEMORYHUB_CONFIG_DIR="$MEMORYHUB_CONFIG_DIR" "$MEMORYHUB_BIN" project add "$PROJECT_NAME" "$HUB_PROJECT_LINK"
 }
 
-migrate_legacy_context_to_openviking
+ensure_memoryhub_ready() {
+  ensure_memoryhub_command
+  create_memoryhub_layout
+  ensure_hub_symlink
+
+  MEMORYHUB_CONFIG_DIR="$MEMORYHUB_CONFIG_DIR" "$MEMORYHUB_BIN" doctor
+  MEMORYHUB_CONFIG_DIR="$MEMORYHUB_CONFIG_DIR" "$MEMORYHUB_BIN" project list --json >/dev/null
+  register_memoryhub_project
+}
+
+migrate_file_if_missing() {
+  local source_path="$1"
+  local destination_path="$2"
+
+  if [[ ! -f "$source_path" || -f "$destination_path" ]]; then
+    return
+  fi
+
+  mkdir -p "$(dirname "$destination_path")"
+  cp "$source_path" "$destination_path"
+  echo "Migrated: $source_path -> ${destination_path#$TARGET_DIR/}"
+}
+
+migrate_legacy_context_to_memoryhub() {
+  migrate_file_if_missing \
+    ".agents/DOCUMENTATIONS.md" \
+    "$REPO_MEMORY_DIR/resources/legacy-documentations.md"
+  migrate_file_if_missing \
+    ".agents/MEMORY.md" \
+    "$REPO_MEMORY_DIR/user/memories/preferences/$PROJECT_NAME.md"
+  migrate_file_if_missing \
+    ".agents/MEMORY.md" \
+    "$REPO_MEMORY_DIR/agent/memories/patterns/$PROJECT_NAME.md"
+  migrate_file_if_missing \
+    ".agents/openviking/data/viking/default/resources/agent-basics/documentations/legacy-documentations.md" \
+    "$REPO_MEMORY_DIR/resources/legacy-documentations.md"
+  migrate_file_if_missing \
+    ".agents/openviking/data/viking/default/user/default/memories/preferences/agent-basics.md" \
+    "$REPO_MEMORY_DIR/user/memories/preferences/agent-basics.md"
+  migrate_file_if_missing \
+    ".agents/openviking/data/viking/default/agent/default/memories/patterns/agent-basics.md" \
+    "$REPO_MEMORY_DIR/agent/memories/patterns/agent-basics.md"
+
+  cat > "$REPO_MEMORY_DIR/resources/agent-basics/setup/last-setup.md" <<EOT
+# agent-basics setup
+
+- Project: $PROJECT_NAME
+- Repository: $TARGET_DIR
+- MemoryHub config: $MEMORYHUB_CONFIG_DIR
+- Hub project path: $HUB_PROJECT_LINK
+- Repo memory source: $REPO_MEMORY_DIR
+- Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+EOT
+}
 
 create_empty_file_if_missing() {
   local file_path="$1"
@@ -653,27 +448,13 @@ ensure_trailing_blank_line() {
     return
   fi
 
-  # Ensure newline at EOF.
   if [[ -n "$(tail -c 1 "$file_path" 2>/dev/null)" ]]; then
     printf "\n" >> "$file_path"
   fi
 
-  # Ensure one additional empty trailing line.
   if [[ -n "$(tail -n 1 "$file_path")" ]]; then
     printf "\n" >> "$file_path"
   fi
-}
-
-backup_existing_file() {
-  local file_path="$1"
-  local timestamp
-  local backup_name
-  timestamp="$(date +%Y%m%d%H%M%S)"
-  backup_name="${file_path//\//__}.$timestamp.bak"
-
-  mkdir -p .agents/openviking/backups
-  cp "$file_path" ".agents/openviking/backups/$backup_name"
-  echo "Backed up existing file: .agents/openviking/backups/$backup_name"
 }
 
 print_conflict_options() {
@@ -704,29 +485,12 @@ prompt_conflict_action() {
     print_conflict_options "$file_path" >&2
     read -r -p "Selection [k/r/a/m/s]: " choice
     case "$choice" in
-      k|K)
-        printf "k\n"
-        return
-        ;;
-      r|R)
-        printf "r\n"
-        return
-        ;;
-      a|A)
-        printf "a\n"
-        return
-        ;;
-      m|M)
-        printf "m\n"
-        return
-        ;;
-      s|S)
-        printf "s\n"
-        return
-        ;;
-      *)
-        echo "Invalid choice: $choice" >&2
-        ;;
+      k|K) printf "k\n"; return ;;
+      r|R) printf "r\n"; return ;;
+      a|A) printf "a\n"; return ;;
+      m|M) printf "m\n"; return ;;
+      s|S) printf "s\n"; return ;;
+      *) echo "Invalid choice: $choice" >&2 ;;
     esac
   done
 }
@@ -738,8 +502,9 @@ manual_merge_file() {
   local editor
   local apply_choice
 
-  merge_file="$(mktemp "${TMPDIR:-/tmp}/agent-basics-merge.XXXXXX.md")"
+  merge_file="$REPO_MEMORY_DIR/merge-sessions/$(basename "$destination_path").$(date +%Y%m%d%H%M%S).md"
   editor="${EDITOR:-vi}"
+  mkdir -p "$(dirname "$merge_file")"
 
   {
     printf "<<<<<<< existing: %s\n" "$destination_path"
@@ -825,6 +590,26 @@ copy_or_merge_markdown_file() {
   esac
 }
 
+append_gitignore_entry_if_missing() {
+  local entry="$1"
+
+  if [[ ! -e ".gitignore" ]]; then
+    printf "%s\n" "$entry" > .gitignore
+    echo "Created: .gitignore"
+    return
+  fi
+
+  if grep -Fxq "$entry" .gitignore; then
+    echo "No changes: .gitignore already contains $entry"
+  else
+    printf "\n%s\n" "$entry" >> .gitignore
+    echo "Appended entry to .gitignore: $entry"
+  fi
+}
+
+ensure_memoryhub_ready
+migrate_legacy_context_to_memoryhub
+
 agents_template="$(create_template_file "agents")"
 instructions_template="$(create_template_file "instructions")"
 trap 'rm -f "$agents_template" "$instructions_template"' EXIT
@@ -833,18 +618,10 @@ copy_or_merge_markdown_file "$agents_template" "Agents.md"
 copy_or_merge_markdown_file "$instructions_template" ".agents/INSTRUCTIONS.md"
 create_empty_file_if_missing ".agents/TODO.md"
 
-gitignore_entry=".agents/TODO.md"
-if [[ ! -e ".gitignore" ]]; then
-  printf "%s\n" "$gitignore_entry" > .gitignore
-  echo "Created: .gitignore"
-else
-  if grep -Fxq "$gitignore_entry" .gitignore; then
-    echo "No changes: .gitignore already contains $gitignore_entry"
-  else
-    printf "\n%s\n" "$gitignore_entry" >> .gitignore
-    echo "Appended entry to .gitignore: $gitignore_entry"
-  fi
-fi
+append_gitignore_entry_if_missing ".agents/TODO.md"
+append_gitignore_entry_if_missing ".agents/memoryhub/backups/"
+append_gitignore_entry_if_missing ".agents/memoryhub/merge-sessions/"
+append_gitignore_entry_if_missing ".agents/memoryhub/setup-state/"
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "Git repository already initialized"
@@ -853,6 +630,6 @@ else
   echo "Initialized empty Git repository"
 fi
 
-for markdown_file in "Agents.md" ".agents/INSTRUCTIONS.md" ".agents/TODO.md" ".agents/openviking/README.md"; do
+for markdown_file in "Agents.md" ".agents/INSTRUCTIONS.md" ".agents/TODO.md" ".agents/memoryhub/README.md"; do
   ensure_trailing_blank_line "$markdown_file"
 done

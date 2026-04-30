@@ -4,7 +4,7 @@
 
 > **THIS SETUP WILL INCREASE TOKEN USAGE IN EXCHANGE FOR MORE RELIABLE AGENT OPERATIONS**
 
-`agent-basics` depends on [OpenViking](https://github.com/volcengine/OpenViking). If OpenViking is not installed and configured, setup stops instead of falling back to markdown memory files.
+`agent-basics` depends on a central MemoryHub local memory hub. In this repo, MemoryHub is the dependency that owns the single memory runtime and embedding/index stack for all agent-basics projects. If MemoryHub is not installed and configured, setup stops instead of falling back to loose markdown memory files.
 
 ## How it works
 
@@ -15,34 +15,34 @@ The command will check for the existence for, and if they're not present, add th
 ├── .agents
 │   ├── INSTRUCTIONS.md
 │   ├── TODO.md
-│   └── openviking
+│   └── memoryhub
 │       ├── README.md
+│       ├── agent
+│       │   ├── memories
+│       │   └── skills
 │       ├── backups
-│       ├── data
-│       │   └── viking
-│       ├── exports
 │       ├── merge-sessions
-│       ├── models
-│       │   └── bge-small-zh-v1.5-q4_k_m.gguf
-│       └── setup-state
+│       ├── resources
+│       ├── setup-state
+│       └── user
+│           └── memories
 ├── .gitignore
 └── Agents.md
 ```
 
-Setup installs OpenViking into `.agents/openviking/venv`, copies the repo-local GGUF embedding model into `.agents/openviking/models`, uses `llama.cpp` to serve the model through a local OpenAI-compatible embedding shim, initializes project-local OpenViking configuration under `.agents/openviking` when needed, runs `openviking-server doctor`, verifies a real local embedding call, migrates legacy `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` content into OpenViking when those files exist, and then checks if the folder is a git repo. If not, then it sets it up as one.
+Setup installs or reuses one central MemoryHub installation under `MEMORYHUB_CONFIG_DIR`, defaulting to `$HOME/.memoryhub`. Each project keeps its memory markdown in `.agents/memoryhub/`; the hub references that directory through `$MEMORYHUB_CONFIG_DIR/projects/<project-name>`. Setup registers the project with MemoryHub, migrates legacy `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` content into `.agents/memoryhub/` when those files exist, and then checks if the folder is a git repo. If not, then it sets it up as one.
 
-OpenViking commands for a project should run with:
+MemoryHub commands should run with:
 
 ```bash
-export PATH="$PWD/.agents/openviking/venv/bin:$PATH"
-export OPENVIKING_CONFIG_FILE="$PWD/.agents/openviking/ov.conf"
-export OPENVIKING_CLI_CONFIG_FILE="$PWD/.agents/openviking/ovcli.conf"
+export MEMORYHUB_CONFIG_DIR="${MEMORYHUB_CONFIG_DIR:-$HOME/.memoryhub}"
+export PATH="$MEMORYHUB_CONFIG_DIR/venv/bin:$PATH"
 ```
 
-The default embedding model is `bge-small-zh-v1.5-q4_k_m.gguf`, a 512-dimensional local GGUF model stored under `.agents/openviking/models`. On macOS, setup uses Homebrew `llama.cpp`; the embedding shim first tries Metal through `llama-embedding` and falls back to `--device none` when Metal is unavailable.
+The central MemoryHub installation owns the database, semantic index, embedding provider, MCP/API surface, and runtime state. Project repositories own their markdown memory source.
 
 The script writes `Agents.md` and `.agents/INSTRUCTIONS.md` from embedded templates. When an existing markdown file differs from the template, it prompts per file to keep the existing file, replace it after creating a backup, append the template after creating a backup, manually merge both versions in `$EDITOR`, or save the incoming template beside the existing file as `*.agent-basics.new`.
-For `.gitignore`, the script is non-interactive: it appends `.agents/TODO.md` only when missing; if present, it does nothing.
+For `.gitignore`, the script is non-interactive: it appends `.agents/TODO.md` and transient `.agents/memoryhub/` state paths only when missing; if present, it does nothing.
 
 ## Install via custom Homebrew tap
 
@@ -74,7 +74,7 @@ brew upgrade agent-basics
 
 - ### DOCUMENTATIONS.MD
 
-    Removed from the agent-basics structure. Agents should store documentation source URLs in OpenViking under `viking://resources/`.
+    Removed from the agent-basics structure. Agents should store documentation source URLs in MemoryHub under `.agents/memoryhub/resources/`.
 
 - ### TODO.md
 
@@ -82,4 +82,4 @@ brew upgrade agent-basics
 
 - ### MEMORY.md
 
-    Removed from the agent-basics structure. Agents should store user memories under `viking://user/memories/` and agent-learned memories under `viking://agent/memories/`.
+    Removed from the agent-basics structure. Agents should store user memories under `.agents/memoryhub/user/memories/` and agent-learned memories under `.agents/memoryhub/agent/memories/`.

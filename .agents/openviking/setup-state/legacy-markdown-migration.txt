@@ -1,3 +1,0 @@
-.agents/DOCUMENTATIONS.md -> viking://resources/agent-basics/documentations/legacy-documentations.md
-.agents/MEMORY.md -> viking://user/memories/preferences/agent-basics.md
-.agents/MEMORY.md -> viking://agent/memories/patterns/agent-basics.md

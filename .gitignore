@@ -1,13 +1,8 @@
 .agents/TODO.md
-.agents/openviking/backups/
-.agents/openviking/data/_system/
-.agents/openviking/data/vectordb/
-.agents/openviking/data/viking/default/temp/
-.agents/openviking/exports/
-.agents/openviking/merge-sessions/
-.agents/openviking/setup-state/*.log
-.agents/openviking/setup-state/*.pid
-.agents/openviking/venv/
+.agents/memoryhub/backups/
+.agents/memoryhub/merge-sessions/
+.agents/memoryhub/setup-state/
+.agents/openviking/
 .vscode
 .DS_Store
 ._*

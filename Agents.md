@@ -2,16 +2,18 @@
 
 - **DO NOT, UNDER ANY CIRCUMSTANCES, UNLESS EXPLICITLY INSTRUCTED BY THE USER**, modify this file or ./.agents/INSTRUCTIONS.md
 - Follow the instructions of ./.agents/INSTRUCTIONS.md
-- OpenViking is mandatory for this project. Do not use agent-basics workflows until OpenViking is installed, initialized, and healthy.
-- Before running OpenViking commands for this repo, export `PATH="$PWD/.agents/openviking/venv/bin:$PATH"`, `OPENVIKING_CONFIG_FILE="$PWD/.agents/openviking/ov.conf"`, and `OPENVIKING_CLI_CONFIG_FILE="$PWD/.agents/openviking/ovcli.conf"`.
-- Find up-to-date documentations for any library, framework and programming languages used in this project, and record their source URLs in OpenViking under `viking://resources/`.
-- While you write code, **CONSTANTLY** refer to documentation sources recorded in OpenViking to make sure you're writing accurate, working and standard-complying code.
-- Store user-specific memories in OpenViking under `viking://user/memories/`, using the documented categories such as `profile.md`, `preferences/`, `entities/`, and `events/`.
-- Store agent-learned memories in OpenViking under `viking://agent/memories/`, using the documented categories such as `cases/`, `patterns/`, `tools/`, and `skills/`.
-- Store static project knowledge, documents, and other reference resources in OpenViking under `viking://resources/`.
-- Store reusable agent capabilities and workflows in OpenViking under `viking://agent/skills/`.
-- If the user's message refers to anything that may have been part of a past conversation but is not present in your context, search OpenViking memory before answering.
-- Anything the user asks you to remember must be recorded in OpenViking memory.
+- MemoryHub is mandatory for this project. Do not use agent-basics workflows until the central MemoryHub installation is installed, initialized, and healthy.
+- MemoryHub is the central OpenViking-backed memory hub for agent-basics projects. Use one hub installation and one embedding/runtime stack instead of per-repo OpenViking installs.
+- Before running MemoryHub commands for this repo, export `MEMORYHUB_CONFIG_DIR="${MEMORYHUB_CONFIG_DIR:-$HOME/.memoryhub}"` and add `${MEMORYHUB_CONFIG_DIR}/venv/bin` to `PATH` when that virtualenv exists.
+- Keep this repo's MemoryHub markdown source under `.agents/memoryhub/`. The central hub should reference it through a symlink under `$MEMORYHUB_CONFIG_DIR/projects/`.
+- Find up-to-date documentations for any library, framework and programming languages used in this project, and record their source URLs in MemoryHub resources.
+- While you write code, **CONSTANTLY** refer to documentation sources recorded in MemoryHub to make sure you're writing accurate, working and standard-complying code.
+- Store user-specific memories in MemoryHub under `.agents/memoryhub/user/memories/`, using categories such as `profile.md`, `preferences/`, `entities/`, and `events/`.
+- Store agent-learned memories in MemoryHub under `.agents/memoryhub/agent/memories/`, using categories such as `cases/`, `patterns/`, `tools/`, and `skills/`.
+- Store static project knowledge, documents, and other reference resources in MemoryHub under `.agents/memoryhub/resources/`.
+- Store reusable agent capabilities and workflows in MemoryHub under `.agents/memoryhub/agent/skills/`.
+- If the user's message refers to anything that may have been part of a past conversation but is not present in your context, search MemoryHub before answering.
+- Anything the user asks you to remember must be recorded in MemoryHub memory.
 - If you have **ANY** questions or concerns, **IMMEDIATELY** clarify with the user.
 - Before making any changes to the codebase, THOROUGHLY plan out your work, write down every step you're going to take in ./.agents/TODO.md, and follow it during your work.
 - Read a file fully before editing it.

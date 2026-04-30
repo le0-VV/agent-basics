@@ -2,54 +2,51 @@ class AgentBasics < Formula
   desc "1 command to setup a directory for reliable agent operations"
   homepage "https://github.com/le0-VV/agent-basics"
   head "https://github.com/le0-VV/agent-basics.git", branch: "main"
-  depends_on "llama.cpp"
+  depends_on "uv"
 
   def install
-    libexec.install ".agents/openviking/models"
     libexec.install "setup-macos.sh"
 
     (bin/"agent-basics").write <<~EOS
       #!/usr/bin/env bash
-      export AGENT_BASICS_MODEL_DIR="#{libexec}/models"
       exec "#{libexec}/setup-macos.sh" "$@"
     EOS
   end
 
   test do
     project_dir = testpath/"demo-project"
-    ov_bin = project_dir/".agents/openviking/venv/bin"
-    ov_bin.mkpath
-    (ov_bin/"openviking-server").write <<~EOS
+    memoryhub_config_dir = testpath/".memoryhub"
+    memoryhub_bin = memoryhub_config_dir/"venv/bin"
+    memoryhub_bin.mkpath
+    (memoryhub_bin/"memoryhub").write <<~EOS
       #!/usr/bin/env bash
       set -euo pipefail
-      case "$1" in
+      case "$*" in
         doctor)
           exit 0
           ;;
+        "project list --json")
+          printf '{"projects":[]}'
+          ;;
+        project\\ add*)
+          exit 0
+          ;;
         *)
+          echo "unexpected memoryhub command: $*" >&2
           exit 1
           ;;
       esac
     EOS
-    (ov_bin/"python").write <<~EOS
-      #!/usr/bin/env bash
-      set -euo pipefail
-      exec /usr/bin/python3 "$@"
-    EOS
-    chmod 0755, ov_bin/"openviking-server"
-    chmod 0755, ov_bin/"python"
+    chmod 0755, memoryhub_bin/"memoryhub"
 
-    (project_dir/".agents/openviking").mkpath
-    (project_dir/".agents/openviking/ov.conf").write "\n"
-    (project_dir/".agents/openviking/ovcli.conf").write "\n"
-
-    system bin/"agent-basics", project_dir
+    system({ "MEMORYHUB_CONFIG_DIR" => memoryhub_config_dir.to_s }, bin/"agent-basics", project_dir)
 
     assert_predicate project_dir/".agents", :exist?
-    assert_predicate project_dir/".agents/openviking", :exist?
+    assert_predicate project_dir/".agents/memoryhub", :exist?
     assert_predicate project_dir/"Agents.md", :exist?
     assert_predicate project_dir/".agents/INSTRUCTIONS.md", :exist?
     assert_predicate project_dir/".gitignore", :exist?
+    assert_predicate memoryhub_config_dir/"projects/demo-project", :symlink?
     refute_predicate project_dir/".agents/DOCUMENTATIONS.md", :exist?
     refute_predicate project_dir/".agents/MEMORY.md", :exist?
   end
