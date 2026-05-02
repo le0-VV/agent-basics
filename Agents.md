@@ -2,18 +2,20 @@
 
 - **DO NOT, UNDER ANY CIRCUMSTANCES, UNLESS EXPLICITLY INSTRUCTED BY THE USER**, modify this file or ./.agents/INSTRUCTIONS.md
 - Follow the instructions of ./.agents/INSTRUCTIONS.md
-- MemoryHub is mandatory for this project. Do not use agent-basics workflows until the central MemoryHub installation is installed, initialized, and healthy.
-- MemoryHub is the central OpenViking-backed memory hub for agent-basics projects. Use one hub installation and one embedding/runtime stack instead of per-repo OpenViking installs.
-- Before running MemoryHub commands for this repo, export `MEMORYHUB_CONFIG_DIR="${MEMORYHUB_CONFIG_DIR:-$HOME/.memoryhub}"` and add `${MEMORYHUB_CONFIG_DIR}/venv/bin` to `PATH` when that virtualenv exists.
-- Keep this repo's MemoryHub markdown source under `.agents/memoryhub/`. The central hub should reference it through a symlink under `$MEMORYHUB_CONFIG_DIR/projects/`.
-- Find up-to-date documentations for any library, framework and programming languages used in this project, and record their source URLs in MemoryHub resources.
-- While you write code, **CONSTANTLY** refer to documentation sources recorded in MemoryHub to make sure you're writing accurate, working and standard-complying code.
-- Store user-specific memories in MemoryHub under `.agents/memoryhub/user/memories/`, using categories such as `profile.md`, `preferences/`, `entities/`, and `events/`.
-- Store agent-learned memories in MemoryHub under `.agents/memoryhub/agent/memories/`, using categories such as `cases/`, `patterns/`, `tools/`, and `skills/`.
-- Store static project knowledge, documents, and other reference resources in MemoryHub under `.agents/memoryhub/resources/`.
-- Store reusable agent capabilities and workflows in MemoryHub under `.agents/memoryhub/agent/skills/`.
-- If the user's message refers to anything that may have been part of a past conversation but is not present in your context, search MemoryHub before answering.
-- Anything the user asks you to remember must be recorded in MemoryHub memory.
+- Use `.agents/memory/` as the project source of truth for persistent memory, documentation sources, procedures, decisions, preferences, facts, gotchas, and events.
+- Before answering a request that may depend on prior project context, search `.agents/memory/INDEX.md`, `.agents/memory/SCHEMA.md`, and the memory RAG/MCP tools when available.
+- Anything the user asks you to remember must be recorded under `.agents/memory/memory/` using the appropriate template.
+- Find up-to-date documentations for any library, framework, and programming language used in this project, and record their source URLs under `.agents/memory/documentations/sources/`.
+- While writing code, refer to documentation sources recorded under `.agents/memory/documentations/` and add new source records when you consult new references.
+- Store project decisions under `.agents/memory/memory/decisions/`.
+- Store durable facts under `.agents/memory/memory/facts/`.
+- Store user or project preferences under `.agents/memory/memory/preferences/`.
+- Store recurring pitfalls under `.agents/memory/memory/gotchas/`.
+- Store dated events under `.agents/memory/memory/events/`.
+- Store reusable procedures under `.agents/memory/documentations/procedures/`.
+- Store reference material under `.agents/memory/documentations/references/`.
+- Do not edit `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists. Wait for the indexing or embedding update to finish.
+- If you add or change memory/documentation files, keep `.agents/memory/INDEX.md` current and run the project memory validation/indexing command when available.
 - If you have **ANY** questions or concerns, **IMMEDIATELY** clarify with the user.
 - Before making any changes to the codebase, THOROUGHLY plan out your work, write down every step you're going to take in ./.agents/TODO.md, and follow it during your work.
 - Read a file fully before editing it.
@@ -23,8 +25,8 @@
 - Prefer fail-fast behaviour over silent fallback logic.
 - Add tests for new behaviour unless the change is strictly docs/metadata cleanup.
 - Tick off every item you completed in ./.agents/TODO.md.
-- After ticking off an item, commit the changes you made for that item
-- When making commits, set the commit author name to `Coding agent supervised by {global git user.name}`, replacing `{global git user.name}` with the value from `git config --global user.name`
+- After ticking off an item, commit the changes you made for that item.
+- When making commits, set the commit author name to `Coding agent supervised by {global git user.name}`, replacing `{global git user.name}` with the value from `git config --global user.name`.
 - When making commits, write the commit message according to this format: {type}({scope}): {description}, where types should be one of the following:
     - build
     - chore
@@ -38,4 +40,4 @@
     - style
     - test
 - **Only** stop working when you finished everything listed in /.agents/TODO.md **OR** you encountered an interruption to your work that **REQUIRES** user intervention.
-- If everything is ticked off in ./.agents/TODO.md and you need to plan for a new round of work, clear out ./.agents/TODO.md and write down your new list of steps
+- If everything is ticked off in ./.agents/TODO.md and you need to plan for a new round of work, clear out ./.agents/TODO.md and write down your new list of steps.

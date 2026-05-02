@@ -374,14 +374,14 @@
           '- Follow the existing project style.',
           '- Check README.md before editing.',
           '- Commit with conventional commit messages.',
-          '- Keep local notes in .agents/MEMORY.md.'
+          '- Keep project notes under .agents/memory/.'
         ],
         proposed: [
           '# **YOU MUST:**',
           '',
           '- Follow the instructions of ./.agents/INSTRUCTIONS.md',
-          '- Use OpenViking as the long-term context and memory store.',
-          '- Keep OpenViking-related files under .agents.',
+          '- Use .agents/memory/ as the long-term context and memory store.',
+          '- Keep generated RAG files under .agents/memory/rag/.',
           '- Commit using the supervised agent author name.',
           '- Keep diffs narrow and task-focused.'
         ]
@@ -398,9 +398,9 @@
         proposed: [
           '# INSTRUCTIONS',
           '',
-          '- Use OpenViking for persistent memory and project context.',
-          '- Store user-specific memories under `viking://user/memories/`.',
-          '- Store project references under `viking://resources/`.',
+          '- Use `.agents/memory/` for persistent memory and project context.',
+          '- Store durable memories under `.agents/memory/memory/`.',
+          '- Store project references under `.agents/memory/documentations/`.',
           '- Ask before destructive changes.',
           '- Keep markdown files ending with an empty trailing line.'
         ]
@@ -609,4 +609,3 @@
   </script>
 </body>
 </html>
-

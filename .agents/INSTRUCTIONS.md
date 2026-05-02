@@ -7,32 +7,29 @@ You **MUST** ALWAYS:
 - If you encounter a character limit, **DO** an **ABRUPT** stop; I will send a "continue" as a new message
 - You will be **PENALISED** for wrong answers
 - You **DENIED** to overlook the critical context
-- Use MemoryHub for persistent memory and project context
+- Use `.agents/memory/` for persistent project memory and documentation context
 - ALWAYS follow Answering rules
 
-## MemoryHub Rules
+## Memory Rules
 
-- MemoryHub is mandatory for this project. Do not continue agent-basics workflows until the central MemoryHub installation is installed, initialized, and healthy.
-- MemoryHub is the central OpenViking-backed memory hub for agent-basics projects. Do not install a separate OpenViking runtime, embedding model, or vector stack per repository.
-- Use `MEMORYHUB_CONFIG_DIR="${MEMORYHUB_CONFIG_DIR:-$HOME/.memoryhub}"` for the central hub configuration and database.
-- Add `$MEMORYHUB_CONFIG_DIR/venv/bin` to the front of `PATH` when invoking the central `memoryhub` executable installed by `setup-macos.sh`.
-- This repo's MemoryHub markdown source belongs under `.agents/memoryhub/`.
-- The central hub should expose this repo through a symlink at `$MEMORYHUB_CONFIG_DIR/projects/agent-basics` pointing back to `.agents/memoryhub/`.
-- `setup-macos.sh` uses `EDITOR` for manual markdown conflict merges. If provider credentials or model endpoints are referenced through MemoryHub environment variables, document the exact variable names here before use and never commit raw secret values.
-- Required MemoryHub environment variables:
-  - `MEMORYHUB_CONFIG_DIR`: central MemoryHub config, database, venv, project symlink, and runtime state directory.
-  - `MEMORYHUB_MCP_PROJECT`: optional project constraint when an agent or MCP server must be pinned to one project.
-  - `MEMORYHUB_SEMANTIC_EMBEDDING_PROVIDER`, `MEMORYHUB_SEMANTIC_EMBEDDING_MODEL`, `MEMORYHUB_SEMANTIC_EMBEDDING_DIMENSIONS`, and `MEMORYHUB_SEMANTIC_EMBEDDING_BATCH_SIZE`: optional semantic search overrides. Do not set these unless the selected MemoryHub provider requires them.
-- Validate MemoryHub with `memoryhub doctor` and `memoryhub project list --json` before migrating project content.
-- Migrate legacy `.agents/DOCUMENTATIONS.md` content into `.agents/memoryhub/resources/legacy-documentations.md` before deleting the file.
-- Migrate legacy `.agents/MEMORY.md` content into `.agents/memoryhub/user/memories/preferences/agent-basics.md` and `.agents/memoryhub/agent/memories/patterns/agent-basics.md` before deleting the file.
-- This repo's legacy markdown migration is represented in `.agents/memoryhub/`; the old `.agents/openviking/` tree is no longer part of the canonical structure.
-- Store user-specific memories under `.agents/memoryhub/user/memories/`.
-- Store agent-learned memories under `.agents/memoryhub/agent/memories/`.
-- Store static project references and documents under `.agents/memoryhub/resources/`.
-- Store reusable agent skills and workflows under `.agents/memoryhub/agent/skills/`.
-- Use concise markdown entries with clear titles, dates when relevant, and enough source context to make the memory useful later.
-- Search MemoryHub when the user refers to previous work, preferences, prior conversations, or project context that is not in the visible chat.
+- `.agents/memory/` is the only canonical memory and documentation source tree created by agent-basics.
+- Treat markdown under `.agents/memory/` as source of truth. Treat RAG indexes, vector databases, and embedding API runtime files as generated retrieval support.
+- Read `.agents/memory/SCHEMA.md` before creating or changing memory files.
+- Use `.agents/memory/templates/` when recording new entries.
+- Search `.agents/memory/INDEX.md`, then the project memory RAG/MCP tools when available, whenever the user refers to previous work, preferences, prior conversations, vague project context, or decisions not visible in the current chat.
+- Store durable memories under `.agents/memory/memory/`.
+- Store documentation sources, procedures, and references under `.agents/memory/documentations/`.
+- Record source URLs for external libraries, tools, APIs, frameworks, and standards under `.agents/memory/documentations/sources/`.
+- Keep `.agents/memory/INDEX.md` updated whenever you add, move, or remove entries.
+- Do not write memory or documentation files while `.agents/memory/rag/write.lock/` exists. Wait until the lock is released, then re-check the relevant source files before editing.
+- If an embedding API is configured, use `.agents/memory/rag/embedding.json` to find the provider, base URL, model name, dimensions, and API key environment variable.
+- Never commit raw embedding provider secret values. Store only the environment variable name, such as `AGENT_BASICS_EMBEDDING_API_KEY`.
+- Supported embedding setup modes:
+  - Existing OpenAI-compatible API: set `AGENT_BASICS_EMBEDDING_BASE_URL`, `AGENT_BASICS_EMBEDDING_MODEL`, and optionally `AGENT_BASICS_EMBEDDING_API_KEY`.
+  - Repo-local HuggingFace model API: set `AGENT_BASICS_EMBEDDING_HF_MODEL` to a HuggingFace model id or `https://huggingface.co/<owner>/<model>` URL.
+- `AGENT_BASICS_EMBEDDING_TIMEOUT=0` means wait indefinitely for local embedding API validation. Use a positive number of seconds only when a fail-fast setup is desired.
+- `AGENT_BASICS_EMBEDDING_MIN_DIMENSIONS` defaults to `64` and is used to reject embedding models that are too small for useful retrieval.
+- Validate the embedding setup after installation by calling the configured `/v1/embeddings` endpoint or by running the repo-local model verifier.
 
 ## Answering Rules
 

@@ -1,7 +1,11 @@
 .agents/TODO.md
-.agents/memoryhub/backups/
-.agents/memoryhub/merge-sessions/
-.agents/memoryhub/setup-state/
+.agents/memory/backups/
+.agents/memory/merge-sessions/
+.agents/memory/rag/write.lock/
+.agents/memory/rag/*.sqlite
+.agents/memory/rag/*.sqlite-*
+.agents/memory/rag/embedding-api/venv/
+.agents/memory/rag/embedding-api/models/
 .agents/openviking/
 .vscode
 .DS_Store

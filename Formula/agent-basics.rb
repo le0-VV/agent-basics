@@ -14,39 +14,84 @@ class AgentBasics < Formula
   end
 
   test do
-    project_dir = testpath/"demo-project"
-    memoryhub_config_dir = testpath/".memoryhub"
-    memoryhub_bin = memoryhub_config_dir/"venv/bin"
-    memoryhub_bin.mkpath
-    (memoryhub_bin/"memoryhub").write <<~EOS
-      #!/usr/bin/env bash
-      set -euo pipefail
-      case "$*" in
-        doctor)
-          exit 0
-          ;;
-        "project list --json")
-          printf '{"projects":[]}'
-          ;;
-        project\\ add*)
-          exit 0
-          ;;
-        *)
-          echo "unexpected memoryhub command: $*" >&2
-          exit 1
-          ;;
-      esac
-    EOS
-    chmod 0755, memoryhub_bin/"memoryhub"
+    require "json"
+    require "socket"
 
-    system({ "MEMORYHUB_CONFIG_DIR" => memoryhub_config_dir.to_s }, bin/"agent-basics", project_dir)
+    project_dir = testpath/"demo-project"
+    server = TCPServer.new("127.0.0.1", 0)
+    port = server.addr[1]
+    pid = fork do
+      loop do
+        socket = server.accept
+        request_line = socket.gets
+        headers = {}
+
+        while (line = socket.gets)
+          break if line == "\r\n"
+
+          key, value = line.split(":", 2)
+          headers[key.downcase] = value.strip if key && value
+        end
+
+        content_length = headers.fetch("content-length", "0").to_i
+        socket.read(content_length) if content_length.positive?
+
+        if request_line&.include?("POST /v1/embeddings")
+          body = JSON.generate({
+            object: "list",
+            data: [
+              {
+                object: "embedding",
+                embedding: Array.new(64) { |index| index.to_f / 100.0 },
+                index: 0,
+              },
+            ],
+            model: "test-embedding",
+            usage: {
+              prompt_tokens: 0,
+              total_tokens: 0,
+            },
+          })
+          status = "200 OK"
+        else
+          body = JSON.generate({ error: "not found" })
+          status = "404 Not Found"
+        end
+
+        socket.write "HTTP/1.1 #{status}\r\n"
+        socket.write "Content-Type: application/json\r\n"
+        socket.write "Content-Length: #{body.bytesize}\r\n"
+        socket.write "Connection: close\r\n\r\n"
+        socket.write body
+        socket.close
+      end
+    end
+    server.close
+
+    begin
+      system(
+        {
+          "AGENT_BASICS_EMBEDDING_BASE_URL" => "http://127.0.0.1:#{port}/v1",
+          "AGENT_BASICS_EMBEDDING_MODEL" => "test-embedding",
+          "AGENT_BASICS_EMBEDDING_API_KEY" => "",
+        },
+        bin/"agent-basics",
+        project_dir,
+      )
+    ensure
+      Process.kill("TERM", pid)
+      Process.wait(pid)
+    end
 
     assert_predicate project_dir/".agents", :exist?
-    assert_predicate project_dir/".agents/memoryhub", :exist?
+    assert_predicate project_dir/".agents/memory", :exist?
+    assert_predicate project_dir/".agents/memory/SCHEMA.md", :exist?
+    assert_predicate project_dir/".agents/memory/INDEX.md", :exist?
+    assert_predicate project_dir/".agents/memory/rag/embedding.json", :exist?
     assert_predicate project_dir/"Agents.md", :exist?
     assert_predicate project_dir/".agents/INSTRUCTIONS.md", :exist?
     assert_predicate project_dir/".gitignore", :exist?
-    assert_predicate memoryhub_config_dir/"projects/demo-project", :symlink?
+    refute_predicate project_dir/".agents/memoryhub", :exist?
     refute_predicate project_dir/".agents/DOCUMENTATIONS.md", :exist?
     refute_predicate project_dir/".agents/MEMORY.md", :exist?
   end
