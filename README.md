@@ -38,7 +38,7 @@ The command checks for the existence of, and if needed adds, the following struc
 │       │   └── references
 │       └── rag
 │           ├── agent-memory.py
-│           ├── embedding.json
+│           ├── config.json
 │           ├── index.sqlite
 │           └── manifest.json
 ├── .gitignore
@@ -62,7 +62,9 @@ export AGENT_BASICS_EMBEDDING_API_KEY=""
 ./setup-macos.sh /path/to/project
 ```
 
-`AGENT_BASICS_EMBEDDING_TIMEOUT=0` means wait indefinitely for the embedding API response. Set it to a positive number of seconds if you want setup to fail faster.
+Setup writes durable RAG runtime settings into `.agents/memory/rag/config.json`. `runtime.embedding_timeout_seconds: 0` means wait indefinitely for embedding API responses. Set it to a positive number of seconds if you want setup and RAG commands to fail faster.
+
+Environment variables are still accepted for noninteractive setup, secrets, and one-off overrides, but they are not the durable project configuration.
 
 Or provide a HuggingFace model id or URL. Setup installs a repo-local Python virtualenv, pulls the model, verifies that it can produce finite vectors, and writes a small OpenAI-compatible API under `.agents/memory/rag/embedding-api/`.
 
@@ -145,7 +147,7 @@ brew upgrade agent-basics
 
 - ### `.agents/memory/rag/`
 
-  Generated retrieval support. `embedding.json` records the active embedding provider. Local HuggingFace model APIs are generated under `embedding-api/`.
+  Generated retrieval support plus project RAG config. `config.json` records the active embedding provider and runtime settings. Local HuggingFace model APIs are generated under `embedding-api/`.
 
 - ### TODO.md
 

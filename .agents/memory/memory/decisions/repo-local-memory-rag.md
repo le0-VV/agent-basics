@@ -25,10 +25,11 @@ Structured markdown gives agents a predictable place to record durable context. 
 
 - Setup must create the memory schema, templates, and directory layout.
 - Setup must validate an existing embedding API or install a repo-local HuggingFace embedding API.
+- Durable RAG provider and runtime settings belong in `.agents/memory/rag/config.json`; environment variables are setup inputs, secret pointers, or one-off overrides.
 - Agents must wait when `.agents/memory/rag/write.lock/` exists.
 - Future MCP/RAG tooling should cite markdown source files for every returned result.
 
 ## Related
 
 - `.agents/memory/SCHEMA.md`
-- `.agents/memory/rag/embedding.json`
+- `.agents/memory/rag/config.json`

@@ -30,7 +30,7 @@ Generated RAG indexes, vector stores, model caches, and embedding API virtualenv
     references/
   rag/
     agent-memory.py
-    embedding.json
+    config.json
     index.sqlite
     manifest.json
     write.lock/
@@ -82,11 +82,11 @@ Supported commands:
 
 Generated files such as `index.sqlite` and `manifest.json` are rebuildable cache state and should not be committed.
 
-## Embedding Configuration
+## RAG Configuration
 
-`.agents/memory/rag/embedding.json` records the active embedding provider.
+`.agents/memory/rag/config.json` records the active embedding provider and durable runtime settings.
 
-External API mode stores:
+The `embedding` object stores:
 
 - `provider`
 - `base_url`
@@ -94,10 +94,16 @@ External API mode stores:
 - `dimensions`
 - `api_key_env`
 
-Repo-local HuggingFace mode additionally stores:
+Repo-local HuggingFace mode additionally stores these fields in `embedding`:
 
 - `service_dir`
 - `start_command`
 - `cache_dir`
+
+The `runtime` object stores:
+
+- `embedding_timeout_seconds`
+- `embedding_batch_size`
+- `embedding_minimum_dimensions`
 
 The API key value must stay in the environment and must not be committed.

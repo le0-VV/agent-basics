@@ -145,13 +145,14 @@ You **MUST** ALWAYS:
 - Record source URLs for external libraries, tools, APIs, frameworks, and standards under `.agents/memory/documentations/sources/`.
 - Keep `.agents/memory/INDEX.md` updated whenever you add, move, or remove entries.
 - Do not write memory or documentation files while `.agents/memory/rag/write.lock/` exists. Wait until the lock is released, then re-check the relevant source files before editing.
-- If an embedding API is configured, use `.agents/memory/rag/embedding.json` to find the provider, base URL, model name, dimensions, and API key environment variable.
+- If an embedding API is configured, use `.agents/memory/rag/config.json` to find the provider, base URL, model name, dimensions, runtime settings, and API key environment variable.
 - Never commit raw embedding provider secret values. Store only the environment variable name, such as `AGENT_BASICS_EMBEDDING_API_KEY`.
 - Supported embedding setup modes:
   - Existing OpenAI-compatible API: set `AGENT_BASICS_EMBEDDING_BASE_URL`, `AGENT_BASICS_EMBEDDING_MODEL`, and optionally `AGENT_BASICS_EMBEDDING_API_KEY`.
   - Repo-local HuggingFace model API: set `AGENT_BASICS_EMBEDDING_HF_MODEL` to a HuggingFace model id or `https://huggingface.co/<owner>/<model>` URL.
-- `AGENT_BASICS_EMBEDDING_TIMEOUT=0` means wait indefinitely for local embedding API validation. Use a positive number of seconds only when a fail-fast setup is desired.
-- `AGENT_BASICS_EMBEDDING_MIN_DIMENSIONS` defaults to `64` and is used to reject embedding models that are too small for useful retrieval.
+- `runtime.embedding_timeout_seconds: 0` means wait indefinitely for local embedding API validation. Use a positive number of seconds only when a fail-fast setup is desired.
+- `runtime.embedding_minimum_dimensions` defaults to `64` and is used to reject embedding models that are too small for useful retrieval.
+- Environment variables with the same names remain setup-time inputs or explicit one-off overrides; do not rely on them as the durable project configuration.
 - Validate the embedding setup after installation by calling the configured `/v1/embeddings` endpoint or by running the repo-local model verifier.
 
 ## Answering Rules
@@ -209,7 +210,7 @@ Generated RAG indexes, vector stores, model caches, and embedding API virtualenv
     references/
   rag/
     agent-memory.py
-    embedding.json
+    config.json
     index.sqlite
     manifest.json
     write.lock/
@@ -263,9 +264,9 @@ Generated files such as `index.sqlite` and `manifest.json` are rebuildable cache
 
 ## Embedding Configuration
 
-`.agents/memory/rag/embedding.json` records the active embedding provider.
+`.agents/memory/rag/config.json` records the active embedding provider and durable RAG runtime settings.
 
-External API mode stores:
+The `embedding` object stores:
 
 - `provider`
 - `base_url`
@@ -273,11 +274,17 @@ External API mode stores:
 - `dimensions`
 - `api_key_env`
 
-Repo-local HuggingFace mode additionally stores:
+Repo-local HuggingFace mode additionally stores these fields in `embedding`:
 
 - `service_dir`
 - `start_command`
 - `cache_dir`
+
+The `runtime` object stores:
+
+- `embedding_timeout_seconds`
+- `embedding_batch_size`
+- `embedding_minimum_dimensions`
 
 The API key value must stay in the environment and must not be committed.
 EOT
@@ -592,13 +599,14 @@ Structured markdown gives agents a predictable place to record durable context. 
 
 - Setup must create the memory schema, templates, and directory layout.
 - Setup must validate an existing embedding API or install a repo-local HuggingFace embedding API.
+- Durable RAG provider and runtime settings belong in `.agents/memory/rag/config.json`; environment variables are setup inputs, secret pointers, or one-off overrides.
 - Agents must wait when `.agents/memory/rag/write.lock/` exists.
 - Future MCP/RAG tooling should cite markdown source files for every returned result.
 
 ## Related
 
 - `.agents/memory/SCHEMA.md`
-- `.agents/memory/rag/embedding.json`
+- `.agents/memory/rag/config.json`
 EOT
       ;;
     agent-basics-doc-sources)
@@ -656,13 +664,13 @@ summary: Start the generated local embedding API when agent-basics was configure
 
 ## When To Use
 
-Use this when `.agents/memory/rag/embedding.json` has provider `huggingface-local`.
+Use this when `.agents/memory/rag/config.json` has embedding provider `huggingface-local`.
 
 ## Steps
 
 1. From the repository root, run `.agents/memory/rag/embedding-api/start.sh`.
 2. Keep that process running while agents need semantic memory retrieval.
-3. Use the configured base URL from `.agents/memory/rag/embedding.json`, usually `http://127.0.0.1:8765/v1`.
+3. Use the configured base URL from `.agents/memory/rag/config.json`, usually `http://127.0.0.1:8765/v1`.
 
 ## Verification
 
@@ -670,7 +678,7 @@ Call `/health`, `/v1/models`, or `/v1/embeddings` on the local service.
 
 ## Related
 
-- `.agents/memory/rag/embedding.json`
+- `.agents/memory/rag/config.json`
 - `.agents/memory/rag/embedding-api/README.md`
 EOT
       ;;
@@ -1253,7 +1261,7 @@ normalize_hf_model_id() {
   printf "%s\n" "$input"
 }
 
-write_embedding_config() {
+write_rag_config() {
   local provider="$1"
   local base_url="$2"
   local model="$3"
@@ -1262,37 +1270,61 @@ write_embedding_config() {
   local service_dir="$6"
   local cache_dir="$7"
   local start_command="$8"
+  local timeout_seconds="${AGENT_BASICS_EMBEDDING_TIMEOUT:-0}"
+  local batch_size="${AGENT_BASICS_EMBEDDING_BATCH_SIZE:-16}"
+  local minimum_dimensions="${AGENT_BASICS_EMBEDDING_MIN_DIMENSIONS:-64}"
 
   mkdir -p "$RAG_DIR"
-  python3 - "$RAG_DIR/embedding.json" "$provider" "$base_url" "$model" "$dimensions" "$api_key_env" "$service_dir" "$cache_dir" "$start_command" <<'PY'
+  python3 - "$RAG_DIR/config.json" "$provider" "$base_url" "$model" "$dimensions" "$api_key_env" "$service_dir" "$cache_dir" "$start_command" "$timeout_seconds" "$batch_size" "$minimum_dimensions" <<'PY'
 from __future__ import annotations
 
 import json
 import sys
 from datetime import datetime, timezone
 
-path, provider, base_url, model, dimensions, api_key_env, service_dir, cache_dir, start_command = sys.argv[1:]
+(
+    path,
+    provider,
+    base_url,
+    model,
+    dimensions,
+    api_key_env,
+    service_dir,
+    cache_dir,
+    start_command,
+    timeout_seconds,
+    batch_size,
+    minimum_dimensions,
+) = sys.argv[1:]
 payload = {
-    "provider": provider,
-    "base_url": base_url,
-    "model": model,
-    "dimensions": int(dimensions),
-    "api_key_env": api_key_env,
+    "version": 1,
+    "embedding": {
+        "provider": provider,
+        "base_url": base_url,
+        "model": model,
+        "dimensions": int(dimensions),
+        "api_key_env": api_key_env,
+    },
+    "runtime": {
+        "embedding_timeout_seconds": 0 if timeout_seconds in {"", "0", "none", "None"} else float(timeout_seconds),
+        "embedding_batch_size": int(batch_size),
+        "embedding_minimum_dimensions": int(minimum_dimensions),
+    },
     "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
 }
 
 if service_dir:
-    payload["service_dir"] = service_dir
+    payload["embedding"]["service_dir"] = service_dir
 if cache_dir:
-    payload["cache_dir"] = cache_dir
+    payload["embedding"]["cache_dir"] = cache_dir
 if start_command:
-    payload["start_command"] = start_command
+    payload["embedding"]["start_command"] = start_command
 
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(payload, handle, indent=2, sort_keys=True)
     handle.write("\n")
 PY
-  echo "Wrote embedding configuration: .agents/memory/rag/embedding.json"
+  echo "Wrote RAG configuration: .agents/memory/rag/config.json"
 }
 
 validate_embedding_api() {
@@ -1393,7 +1425,7 @@ configure_existing_embedding_api() {
 
   echo "Validating embedding API: $base_url model=$model"
   dimensions="$(validate_embedding_api "$base_url" "$model" "$api_key")"
-  write_embedding_config "openai-compatible-api" "$base_url" "$model" "$dimensions" "$api_key_env" "" "" ""
+  write_rag_config "openai-compatible-api" "$base_url" "$model" "$dimensions" "$api_key_env" "" "" ""
   echo "Embedding API is valid. Dimension: $dimensions"
 }
 
@@ -1433,7 +1465,7 @@ configure_huggingface_embedding_api() {
     "$EMBEDDING_API_DIR/venv/bin/python" "$EMBEDDING_API_DIR/verify_model.py"
   )"
 
-  write_embedding_config \
+  write_rag_config \
     "huggingface-local" \
     "http://127.0.0.1:8765/v1" \
     "$model_id" \
@@ -1505,19 +1537,30 @@ EOT
   done
 }
 
-read_embedding_config_field() {
+read_rag_config_field() {
   local field="$1"
 
-  python3 - "$RAG_DIR/embedding.json" "$field" <<'PY'
+  python3 - "$RAG_DIR/config.json" "$RAG_DIR/embedding.json" "$field" <<'PY'
 from __future__ import annotations
 
 import json
 import sys
 
-path, field = sys.argv[1:]
-with open(path, "r", encoding="utf-8") as handle:
-    payload = json.load(handle)
-print(payload.get(field, ""))
+config_path, legacy_path, field = sys.argv[1:]
+try:
+    with open(config_path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+except FileNotFoundError:
+    with open(legacy_path, "r", encoding="utf-8") as handle:
+        payload = {"embedding": json.load(handle), "runtime": {}}
+
+value = payload
+for part in field.split("."):
+    if not isinstance(value, dict):
+        value = ""
+        break
+    value = value.get(part, "")
+print(value)
 PY
 }
 
@@ -1529,24 +1572,26 @@ start_repo_local_embedding_api_for_setup() {
   local api_key=""
   local start_command
   local dimensions
-  local timeout_seconds="${AGENT_BASICS_EMBEDDING_TIMEOUT:-0}"
+  local timeout_seconds
   local start_time="$SECONDS"
   local elapsed
   local timeout_limit
 
-  if [[ ! -f "$RAG_DIR/embedding.json" ]]; then
+  if [[ ! -f "$RAG_DIR/config.json" && ! -f "$RAG_DIR/embedding.json" ]]; then
     return
   fi
 
-  provider="$(read_embedding_config_field "provider")"
+  provider="$(read_rag_config_field "embedding.provider")"
   if [[ "$provider" != "huggingface-local" ]]; then
     return
   fi
 
-  base_url="$(read_embedding_config_field "base_url")"
-  model="$(read_embedding_config_field "model")"
-  api_key_env="$(read_embedding_config_field "api_key_env")"
-  start_command="$(read_embedding_config_field "start_command")"
+  base_url="$(read_rag_config_field "embedding.base_url")"
+  model="$(read_rag_config_field "embedding.model")"
+  api_key_env="$(read_rag_config_field "embedding.api_key_env")"
+  start_command="$(read_rag_config_field "embedding.start_command")"
+  timeout_seconds="${AGENT_BASICS_EMBEDDING_TIMEOUT:-$(read_rag_config_field "runtime.embedding_timeout_seconds")}"
+  timeout_seconds="${timeout_seconds:-0}"
 
   if [[ -z "$start_command" ]]; then
     echo "Error: local embedding config is missing start_command." >&2
@@ -1672,6 +1717,6 @@ agent-basics setup complete.
 Memory source:
   .agents/memory/
 
-Embedding config:
-  .agents/memory/rag/embedding.json
+RAG config:
+  .agents/memory/rag/config.json
 EOT

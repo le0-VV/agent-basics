@@ -26,9 +26,16 @@ RAG_DIR = MEMORY_ROOT / "rag"
 DB_PATH = RAG_DIR / "index.sqlite"
 TMP_DB_PATH = RAG_DIR / "index.tmp.sqlite"
 MANIFEST_PATH = RAG_DIR / "manifest.json"
-EMBEDDING_CONFIG_PATH = RAG_DIR / "embedding.json"
+RAG_CONFIG_PATH = RAG_DIR / "config.json"
+LEGACY_EMBEDDING_CONFIG_PATH = RAG_DIR / "embedding.json"
 LOCK_DIR = RAG_DIR / "write.lock"
 TOOL_PATH = RAG_DIR / "agent-memory.py"
+
+DEFAULT_RUNTIME_CONFIG = {
+    "embedding_batch_size": 16,
+    "embedding_timeout_seconds": 0,
+    "embedding_minimum_dimensions": 64,
+}
 
 REQUIRED_FILES = [
     MEMORY_ROOT / "SCHEMA.md",
@@ -238,23 +245,69 @@ def validate_or_raise() -> None:
         raise AgentBasicsError("\n".join(errors))
 
 
-def load_embedding_config(required: bool = True) -> dict[str, Any]:
-    config = read_json(EMBEDDING_CONFIG_PATH, None)
-    if config is None:
-        if required:
-            raise AgentBasicsError(f"missing embedding config: {relpath(EMBEDDING_CONFIG_PATH)}")
-        return {}
+def normalize_rag_config(config: dict[str, Any], source_path: Path) -> dict[str, Any]:
+    if "embedding" in config:
+        embedding = config.get("embedding")
+        runtime = config.get("runtime", {})
+    else:
+        embedding = config
+        runtime = {}
+
+    if not isinstance(embedding, dict):
+        raise AgentBasicsError(f"{relpath(source_path)} missing `embedding` object")
+    if not isinstance(runtime, dict):
+        raise AgentBasicsError(f"{relpath(source_path)} `runtime` must be an object")
+
     for key in ["base_url", "model", "dimensions"]:
-        if key not in config:
-            raise AgentBasicsError(f"{relpath(EMBEDDING_CONFIG_PATH)} missing `{key}`")
-    return config
+        if key not in embedding:
+            raise AgentBasicsError(f"{relpath(source_path)} missing embedding `{key}`")
+
+    normalized_runtime = dict(DEFAULT_RUNTIME_CONFIG)
+    normalized_runtime.update(runtime)
+    return {
+        "version": int(config.get("version", 1)),
+        "embedding": embedding,
+        "runtime": normalized_runtime,
+    }
+
+
+def load_rag_config(required: bool = True) -> dict[str, Any]:
+    config = read_json(RAG_CONFIG_PATH, None)
+    if config is not None:
+        return normalize_rag_config(config, RAG_CONFIG_PATH)
+
+    legacy_config = read_json(LEGACY_EMBEDDING_CONFIG_PATH, None)
+    if legacy_config is not None:
+        return normalize_rag_config({"version": 1, "embedding": legacy_config, "runtime": {}}, LEGACY_EMBEDDING_CONFIG_PATH)
+
+    if required:
+        raise AgentBasicsError(f"missing RAG config: {relpath(RAG_CONFIG_PATH)}")
+    return {}
+
+
+def load_embedding_config(required: bool = True) -> dict[str, Any]:
+    config = load_rag_config(required=required)
+    return config.get("embedding", {}) if config else {}
+
+
+def load_runtime_config() -> dict[str, Any]:
+    config = load_rag_config(required=False)
+    if not config:
+        return dict(DEFAULT_RUNTIME_CONFIG)
+    return dict(config["runtime"])
 
 
 def embedding_timeout() -> Optional[float]:
-    raw = os.environ.get("AGENT_BASICS_EMBEDDING_TIMEOUT", "0")
+    runtime = load_runtime_config()
+    raw = os.environ.get("AGENT_BASICS_EMBEDDING_TIMEOUT", str(runtime["embedding_timeout_seconds"]))
     if raw in {"", "0", "none", "None"}:
         return None
     return float(raw)
+
+
+def embedding_batch_size() -> int:
+    runtime = load_runtime_config()
+    return int(os.environ.get("AGENT_BASICS_EMBEDDING_BATCH_SIZE", str(runtime["embedding_batch_size"])))
 
 
 def embed_texts(texts: list[str], config: dict[str, Any]) -> list[list[float]]:
@@ -393,8 +446,9 @@ def source_hashes() -> dict[str, str]:
 
 
 def config_hash() -> str:
-    config = read_json(EMBEDDING_CONFIG_PATH, {})
-    safe_config = {key: config.get(key) for key in ["provider", "base_url", "model", "dimensions", "api_key_env"]}
+    config = load_rag_config(required=False)
+    embedding = config.get("embedding", {}) if config else {}
+    safe_config = {key: embedding.get(key) for key in ["provider", "base_url", "model", "dimensions", "api_key_env"]}
     return sha256_text(json.dumps(safe_config, sort_keys=True))
 
 
@@ -483,7 +537,7 @@ def rebuild_index(assume_locked: bool = False) -> None:
         config = load_embedding_config(required=True)
         chunks = build_chunks()
         vectors: list[list[float]] = []
-        batch_size = int(os.environ.get("AGENT_BASICS_EMBEDDING_BATCH_SIZE", "16"))
+        batch_size = embedding_batch_size()
         for offset in range(0, len(chunks), batch_size):
             batch = chunks[offset : offset + batch_size]
             vectors.extend(embed_texts([chunk["content"] for chunk in batch], config))
@@ -761,10 +815,14 @@ def command_search(args: argparse.Namespace) -> None:
 def command_doctor(args: argparse.Namespace) -> None:
     errors = validate_layout() + validate_entries()
     stale = index_is_stale()
-    config = load_embedding_config(required=False)
+    rag_config = load_rag_config(required=False)
+    config = rag_config.get("embedding", {}) if rag_config else {}
+    runtime = rag_config.get("runtime", dict(DEFAULT_RUNTIME_CONFIG)) if rag_config else dict(DEFAULT_RUNTIME_CONFIG)
     status = {
         "layout_valid": not errors,
         "errors": errors,
+        "config_path": relpath(RAG_CONFIG_PATH if RAG_CONFIG_PATH.exists() else LEGACY_EMBEDDING_CONFIG_PATH),
+        "runtime": runtime,
         "embedding_config": bool(config),
         "index_exists": DB_PATH.exists(),
         "index_stale": stale,
