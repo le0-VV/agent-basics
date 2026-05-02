@@ -3,6 +3,10 @@ set -euo pipefail
 
 TARGET_DIR="${1:-$(pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+agents_template=""
+instructions_template=""
+LOCAL_EMBEDDING_PID=""
+LOCAL_EMBEDDING_LOG=""
 
 if [[ ! -d "$TARGET_DIR" ]]; then
   mkdir -p "$TARGET_DIR"
@@ -24,6 +28,15 @@ require_interactive() {
     echo "Run agent-basics in an interactive terminal or provide the required environment variables for this step." >&2
     exit 1
   fi
+}
+
+cleanup_setup() {
+  if [[ -n "${LOCAL_EMBEDDING_PID:-}" ]]; then
+    kill "$LOCAL_EMBEDDING_PID" >/dev/null 2>&1 || true
+    wait "$LOCAL_EMBEDDING_PID" >/dev/null 2>&1 || true
+  fi
+
+  rm -f "${agents_template:-}" "${instructions_template:-}"
 }
 
 slugify() {
@@ -1492,11 +1505,100 @@ EOT
   done
 }
 
+read_embedding_config_field() {
+  local field="$1"
+
+  python3 - "$RAG_DIR/embedding.json" "$field" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+
+path, field = sys.argv[1:]
+with open(path, "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+print(payload.get(field, ""))
+PY
+}
+
+start_repo_local_embedding_api_for_setup() {
+  local provider
+  local base_url
+  local model
+  local api_key_env
+  local api_key=""
+  local start_command
+  local dimensions
+  local timeout_seconds="${AGENT_BASICS_EMBEDDING_TIMEOUT:-0}"
+  local start_time="$SECONDS"
+  local elapsed
+  local timeout_limit
+
+  if [[ ! -f "$RAG_DIR/embedding.json" ]]; then
+    return
+  fi
+
+  provider="$(read_embedding_config_field "provider")"
+  if [[ "$provider" != "huggingface-local" ]]; then
+    return
+  fi
+
+  base_url="$(read_embedding_config_field "base_url")"
+  model="$(read_embedding_config_field "model")"
+  api_key_env="$(read_embedding_config_field "api_key_env")"
+  start_command="$(read_embedding_config_field "start_command")"
+
+  if [[ -z "$start_command" ]]; then
+    echo "Error: local embedding config is missing start_command." >&2
+    exit 1
+  fi
+
+  if [[ -n "$api_key_env" ]]; then
+    api_key="${!api_key_env-}"
+  fi
+
+  LOCAL_EMBEDDING_LOG="$(mktemp "${TMPDIR:-/tmp}/agent-basics-embedding-api.XXXXXX")"
+  echo "Starting repo-local embedding API for setup rebuild: $start_command"
+  echo "Embedding API log: $LOCAL_EMBEDDING_LOG"
+
+  "$start_command" > "$LOCAL_EMBEDDING_LOG" 2>&1 &
+  LOCAL_EMBEDDING_PID="$!"
+
+  while true; do
+    if ! kill -0 "$LOCAL_EMBEDDING_PID" >/dev/null 2>&1; then
+      echo "Error: repo-local embedding API exited before it became ready." >&2
+      cat "$LOCAL_EMBEDDING_LOG" >&2
+      exit 1
+    fi
+
+    if dimensions="$(validate_embedding_api "$base_url" "$model" "$api_key" 2>/dev/null)"; then
+      echo "Repo-local embedding API is ready. Dimension: $dimensions"
+      return
+    fi
+
+    case "$timeout_seconds" in
+      ""|0|none|None)
+        ;;
+      *)
+        elapsed=$((SECONDS - start_time))
+        timeout_limit="${timeout_seconds%.*}"
+        if (( elapsed >= timeout_limit )); then
+          echo "Error: timed out waiting for repo-local embedding API after ${timeout_seconds}s." >&2
+          cat "$LOCAL_EMBEDDING_LOG" >&2
+          exit 1
+        fi
+        ;;
+    esac
+
+    sleep 1
+  done
+}
+
 create_memory_layout
 
 agents_template="$(create_template_file "agents")"
 instructions_template="$(create_template_file "instructions")"
-trap 'rm -f "$agents_template" "$instructions_template"' EXIT
+trap cleanup_setup EXIT
 
 copy_or_merge_markdown_file "$agents_template" "Agents.md"
 copy_or_merge_markdown_file "$instructions_template" ".agents/INSTRUCTIONS.md"
@@ -1561,6 +1663,7 @@ while IFS= read -r markdown_file; do
   ensure_trailing_blank_line "$markdown_file"
 done < <(find "Agents.md" ".agents" -type f -name "*.md" 2>/dev/null | sort)
 
+start_repo_local_embedding_api_for_setup
 ".agents/memory/rag/agent-memory.py" rebuild
 
 cat <<EOT
