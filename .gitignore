@@ -2,6 +2,7 @@
 .agents/memory/backups/
 .agents/memory/merge-sessions/
 .agents/memory/rag/write.lock/
+.agents/memory/rag/manifest.json
 .agents/memory/rag/*.sqlite
 .agents/memory/rag/*.sqlite-*
 .agents/memory/rag/embedding-api/venv/

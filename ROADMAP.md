@@ -41,7 +41,10 @@ Use one visible project-local memory tree:
     │   ├── procedures/
     │   └── references/
     └── rag/
+        ├── agent-memory.py
         ├── embedding.json
+        ├── index.sqlite
+        ├── manifest.json
         └── write.lock/
 ```
 
@@ -70,18 +73,19 @@ HuggingFace local mode:
 
 ## RAG And Locking
 
-The RAG layer should be a generated cache over `.agents/memory/`.
+The RAG layer is a generated cache over `.agents/memory/`.
 
-Planned behavior:
+Current v1 behavior:
 
 - Use `.agents/memory/rag/write.lock/` as the exclusive lock directory.
 - Memory writers must wait while the lock exists.
 - Indexers hold the lock while hashing, chunking, embedding, and replacing generated indexes.
-- Index replacement should be atomic.
-- If source files change during indexing, the indexer should restart before releasing the lock.
+- Index replacement is atomic.
+- `.agents/memory/rag/agent-memory.py` provides `validate`, `rebuild`, `search`, `record`, `doctor`, and `install-hooks`.
+- Setup installs git hooks that validate memory before commit and rebuild the index after committed memory changes.
 - Stale lock repair should be explicit, not automatic.
 
-Initial retrieval should be hybrid:
+Initial retrieval is hybrid:
 
 - Full-text search for exact terms, file paths, commands, URLs, tags, and package names.
 - Embeddings for vague or semantically similar user requests.
@@ -126,9 +130,12 @@ Prefer block-level ordering with line-level highlighting:
 5. Copy legacy `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` content into `.agents/memory/` migration entries when those files exist.
 6. Configure embeddings through existing API mode or HuggingFace local mode.
 7. Write `.agents/memory/rag/embedding.json`.
-8. Add generated runtime paths to `.gitignore`.
-9. Initialize git when needed.
-10. Report final paths and next agent migration tasks.
+8. Copy `.agents/memory/rag/agent-memory.py` into the target project.
+9. Add generated runtime paths to `.gitignore`.
+10. Initialize git when needed.
+11. Install local git hooks.
+12. Build the initial RAG index.
+13. Report final paths and next agent migration tasks.
 
 ## CLI Modes
 

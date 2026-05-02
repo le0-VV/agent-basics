@@ -37,7 +37,10 @@ The command checks for the existence of, and if needed adds, the following struc
 │       │   ├── procedures
 │       │   └── references
 │       └── rag
-│           └── embedding.json
+│           ├── agent-memory.py
+│           ├── embedding.json
+│           ├── index.sqlite
+│           └── manifest.json
 ├── .gitignore
 └── Agents.md
 ```
@@ -83,6 +86,26 @@ The generated service exposes:
 The script writes `Agents.md`, `.agents/INSTRUCTIONS.md`, `.agents/memory/SCHEMA.md`, `.agents/memory/INDEX.md`, and memory templates from embedded text. When an existing markdown file differs from the template, it prompts per file to keep the existing file, replace it after creating a backup, append the template after creating a backup, manually merge both versions in `$EDITOR`, or save the incoming template beside the existing file as `*.agent-basics.new`.
 
 For `.gitignore`, the script is non-interactive: it appends transient memory/RAG paths only when missing.
+
+## Memory CLI
+
+Setup installs `.agents/memory/rag/agent-memory.py` into each project.
+
+Common commands:
+
+```bash
+.agents/memory/rag/agent-memory.py validate
+.agents/memory/rag/agent-memory.py rebuild
+.agents/memory/rag/agent-memory.py search "what did we decide about memory?"
+.agents/memory/rag/agent-memory.py record decision "Use repo-local memory" --content "Markdown remains source of truth."
+.agents/memory/rag/agent-memory.py doctor --online
+```
+
+The generated index uses SQLite FTS plus embedding vectors from the configured embedding API. Setup also installs local git hooks:
+
+- `pre-commit`: validate changed `.agents/memory/` entries.
+- `post-commit`: rebuild the index after committed memory changes.
+- `post-merge` and `post-checkout`: rebuild when the memory tree is stale after branch changes.
 
 ## Install via custom Homebrew tap
 

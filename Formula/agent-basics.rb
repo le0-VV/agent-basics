@@ -6,6 +6,7 @@ class AgentBasics < Formula
 
   def install
     libexec.install "setup-macos.sh"
+    libexec.install ".agents/memory/rag/agent-memory.py"
 
     (bin/"agent-basics").write <<~EOS
       #!/usr/bin/env bash
@@ -34,18 +35,21 @@ class AgentBasics < Formula
         end
 
         content_length = headers.fetch("content-length", "0").to_i
-        socket.read(content_length) if content_length.positive?
+        request_body = content_length.positive? ? socket.read(content_length) : ""
 
         if request_line&.include?("POST /v1/embeddings")
+          payload = JSON.parse(request_body)
+          inputs = payload.fetch("input")
+          inputs = [inputs] if inputs.is_a?(String)
           body = JSON.generate({
             object: "list",
-            data: [
+            data: inputs.each_with_index.map do |_input, index|
               {
                 object: "embedding",
-                embedding: Array.new(64) { |index| index.to_f / 100.0 },
-                index: 0,
-              },
-            ],
+                embedding: Array.new(64) { |dimension| dimension.to_f / 100.0 },
+                index: index,
+              }
+            end,
             model: "test-embedding",
             usage: {
               prompt_tokens: 0,
@@ -88,6 +92,9 @@ class AgentBasics < Formula
     assert_predicate project_dir/".agents/memory/SCHEMA.md", :exist?
     assert_predicate project_dir/".agents/memory/INDEX.md", :exist?
     assert_predicate project_dir/".agents/memory/rag/embedding.json", :exist?
+    assert_predicate project_dir/".agents/memory/rag/agent-memory.py", :exist?
+    assert_predicate project_dir/".agents/memory/rag/index.sqlite", :exist?
+    assert_predicate project_dir/".git/hooks/pre-commit", :exist?
     assert_predicate project_dir/"Agents.md", :exist?
     assert_predicate project_dir/".agents/INSTRUCTIONS.md", :exist?
     assert_predicate project_dir/".gitignore", :exist?
