@@ -25,6 +25,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 ## Documentation Sources
 
 - [agent-basics documentation sources](documentations/sources/agent-basics.md)
+- [Legacy OpenViking documentation index](documentations/sources/legacy-openviking-documentations.md)
 
 ## Procedures
 

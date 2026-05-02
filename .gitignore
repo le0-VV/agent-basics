@@ -6,7 +6,6 @@
 .agents/memory/rag/*.sqlite-*
 .agents/memory/rag/embedding-api/venv/
 .agents/memory/rag/embedding-api/models/
-.agents/openviking/
 .vscode
 .DS_Store
 ._*
