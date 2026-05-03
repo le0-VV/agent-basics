@@ -1,43 +1,52 @@
-# **YOU MUST:**
+# Agent Base Instructions
 
-- **DO NOT, UNDER ANY CIRCUMSTANCES, UNLESS EXPLICITLY INSTRUCTED BY THE USER**, modify this file or ./.agents/INSTRUCTIONS.md
-- Follow the instructions of ./.agents/INSTRUCTIONS.md
-- Use `.agents/memory/` as the project source of truth for persistent memory, documentation sources, procedures, decisions, preferences, facts, gotchas, and events.
-- Before answering a request that may depend on prior project context, search `.agents/memory/INDEX.md`, `.agents/memory/SCHEMA.md`, and the memory RAG/MCP tools when available.
+## Protected Files
+
+- **DO NOT**, unless explicitly instructed by the user, modify `Agents.md` or `.agents/AGENT-BASICS.md`.
+- Follow `.agents/AGENT-BASICS.md` for agent-basics memory, documentation, RAG, setup, and repository workflow rules.
+
+## Base Rules
+
+- Be logical.
+- For coding tasks, never use placeholders or omit required code in snippets.
+- If you hit a character limit, stop abruptly; the user will send `continue`.
+- Do not overlook critical context.
+- If you have questions or concerns that block safe progress, clarify with the user immediately.
+
+## Memory First
+
+- Use `.agents/memory/` as the canonical project memory and documentation source.
+- Before answering a request that may depend on prior project context, search `.agents/memory/INDEX.md` and the memory RAG.
 - Anything the user asks you to remember must be recorded under `.agents/memory/memory/` using the appropriate template.
-- Find up-to-date documentations for any library, framework, and programming language used in this project, and record their source URLs under `.agents/memory/documentations/sources/`.
-- While writing code, refer to documentation sources recorded under `.agents/memory/documentations/` and add new source records when you consult new references.
-- Store project decisions under `.agents/memory/memory/decisions/`.
-- Store durable facts under `.agents/memory/memory/facts/`.
-- Store user or project preferences under `.agents/memory/memory/preferences/`.
-- Store recurring pitfalls under `.agents/memory/memory/gotchas/`.
-- Store dated events under `.agents/memory/memory/events/`.
-- Store reusable procedures under `.agents/memory/documentations/procedures/`.
-- Store reference material under `.agents/memory/documentations/references/`.
-- Do not edit `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists. Wait for the indexing or embedding update to finish.
-- If you add or change memory/documentation files, keep `.agents/memory/INDEX.md` current and run the project memory validation/indexing command when available.
-- If you have **ANY** questions or concerns, **IMMEDIATELY** clarify with the user.
-- Before making any changes to the codebase, THOROUGHLY plan out your work, write down every step you're going to take in ./.agents/TODO.md, and follow it during your work.
+- Do not edit `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists.
+- If you add, move, or remove memory/documentation files, keep `.agents/memory/INDEX.md` current and rebuild or validate the memory index.
+
+## Work Rules
+
+- Before making codebase changes, write the concrete plan in `.agents/TODO.md` and follow it.
 - Read a file fully before editing it.
 - Keep comments rare and useful. Explain why or constraints, not obvious mechanics.
 - Keep diffs narrow and task-focused.
-- Do not guess at attribute names, control flow, or config behaviour.
-- Prefer fail-fast behaviour over silent fallback logic.
-- Add tests for new behaviour unless the change is strictly docs/metadata cleanup.
-- Tick off every item you completed in ./.agents/TODO.md.
-- After ticking off an item, commit the changes you made for that item.
-- When making commits, set the commit author name to `Coding agent supervised by {global git user.name}`, replacing `{global git user.name}` with the value from `git config --global user.name`.
-- When making commits, write the commit message according to this format: {type}({scope}): {description}, where types should be one of the following:
-    - build
-    - chore
-    - CI
-    - docs
-    - feat
-    - fix
-    - perf
-    - refactor
-    - revert
-    - style
-    - test
-- **Only** stop working when you finished everything listed in /.agents/TODO.md **OR** you encountered an interruption to your work that **REQUIRES** user intervention.
-- If everything is ticked off in ./.agents/TODO.md and you need to plan for a new round of work, clear out ./.agents/TODO.md and write down your new list of steps.
+- Do not guess at attribute names, control flow, or config behavior.
+- Prefer fail-fast behavior over silent fallback logic.
+- Add tests for new behavior unless the change is strictly docs/metadata cleanup.
+- Tick off every completed item in `.agents/TODO.md`.
+- After ticking off an item, commit the changes made for that item.
+- Only stop working when everything in `.agents/TODO.md` is complete or you are blocked by something that requires user intervention.
+- If everything is ticked off in `.agents/TODO.md` and a new work round is needed, clear it and write the new plan.
+
+## Commits
+
+- Set commit author name to `Coding agent supervised by {global git user.name}`, replacing `{global git user.name}` with `git config --global user.name`.
+- Use the global git email unless the user explicitly instructs otherwise.
+- Write commit messages as `{type}({scope}): {description}`.
+- Use one of these commit types: `build`, `chore`, `CI`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`.
+
+## Answering Rules
+
+Follow in this order:
+
+1. Use the language of the user's message.
+2. Combine project context and clear reasoning to answer with concrete details.
+3. Use the memory RAG before relying on assumptions about prior work.
+4. Keep answers direct and actionable.

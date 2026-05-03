@@ -4,7 +4,7 @@ set -euo pipefail
 TARGET_DIR="${1:-$(pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 agents_template=""
-instructions_template=""
+agent_basics_template=""
 LOCAL_EMBEDDING_PID=""
 LOCAL_EMBEDDING_LOG=""
 
@@ -36,7 +36,7 @@ cleanup_setup() {
     wait "$LOCAL_EMBEDDING_PID" >/dev/null 2>&1 || true
   fi
 
-  rm -f "${agents_template:-}" "${instructions_template:-}"
+  rm -f "${agents_template:-}" "${agent_basics_template:-}"
 }
 
 slugify() {
@@ -74,15 +74,103 @@ create_template_file() {
   case "$name" in
     agents)
       cat > "$template_file" <<'EOT'
-# **YOU MUST:**
+# Agent Base Instructions
 
-- **DO NOT, UNDER ANY CIRCUMSTANCES, UNLESS EXPLICITLY INSTRUCTED BY THE USER**, modify this file or ./.agents/INSTRUCTIONS.md
-- Follow the instructions of ./.agents/INSTRUCTIONS.md
-- Use `.agents/memory/` as the project source of truth for persistent memory, documentation sources, procedures, decisions, preferences, facts, gotchas, and events.
-- Before answering a request that may depend on prior project context, search `.agents/memory/INDEX.md`, `.agents/memory/SCHEMA.md`, and the memory RAG/MCP tools when available.
+## Protected Files
+
+- **DO NOT**, unless explicitly instructed by the user, modify `Agents.md` or `.agents/AGENT-BASICS.md`.
+- Follow `.agents/AGENT-BASICS.md` for agent-basics memory, documentation, RAG, setup, and repository workflow rules.
+
+## Base Rules
+
+- Be logical.
+- For coding tasks, never use placeholders or omit required code in snippets.
+- If you hit a character limit, stop abruptly; the user will send `continue`.
+- Do not overlook critical context.
+- If you have questions or concerns that block safe progress, clarify with the user immediately.
+
+## Memory First
+
+- Use `.agents/memory/` as the canonical project memory and documentation source.
+- Before answering a request that may depend on prior project context, search `.agents/memory/INDEX.md` and the memory RAG.
 - Anything the user asks you to remember must be recorded under `.agents/memory/memory/` using the appropriate template.
-- Find up-to-date documentations for any library, framework, and programming language used in this project, and record their source URLs under `.agents/memory/documentations/sources/`.
-- While writing code, refer to documentation sources recorded under `.agents/memory/documentations/` and add new source records when you consult new references.
+- Do not edit `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists.
+- If you add, move, or remove memory/documentation files, keep `.agents/memory/INDEX.md` current and rebuild or validate the memory index.
+
+## Work Rules
+
+- Before making codebase changes, write the concrete plan in `.agents/TODO.md` and follow it.
+- Read a file fully before editing it.
+- Keep comments rare and useful. Explain why or constraints, not obvious mechanics.
+- Keep diffs narrow and task-focused.
+- Do not guess at attribute names, control flow, or config behavior.
+- Prefer fail-fast behavior over silent fallback logic.
+- Add tests for new behavior unless the change is strictly docs/metadata cleanup.
+- Tick off every completed item in `.agents/TODO.md`.
+- After ticking off an item, commit the changes made for that item.
+- Only stop working when everything in `.agents/TODO.md` is complete or you are blocked by something that requires user intervention.
+- If everything is ticked off in `.agents/TODO.md` and a new work round is needed, clear it and write the new plan.
+
+## Commits
+
+- Set commit author name to `Coding agent supervised by {global git user.name}`, replacing `{global git user.name}` with `git config --global user.name`.
+- Use the global git email unless the user explicitly instructs otherwise.
+- Write commit messages as `{type}({scope}): {description}`.
+- Use one of these commit types: `build`, `chore`, `CI`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`.
+
+## Answering Rules
+
+Follow in this order:
+
+1. Use the language of the user's message.
+2. Combine project context and clear reasoning to answer with concrete details.
+3. Use the memory RAG before relying on assumptions about prior work.
+4. Keep answers direct and actionable.
+EOT
+      ;;
+    agent-basics)
+      cat > "$template_file" <<'EOT'
+# agent-basics Operating Manual
+
+This file contains agent-basics-specific operating rules. `Agents.md` contains the base agent contract.
+
+## Memory And Documentation
+
+- `.agents/memory/` is the only canonical memory and documentation source tree created by agent-basics.
+- Treat markdown under `.agents/memory/` as source of truth. Treat RAG indexes, vector databases, and embedding API runtime files as generated retrieval support.
+- Read `.agents/memory/SCHEMA.md` before creating or changing memory files.
+- Use `.agents/memory/templates/` when recording new entries.
+- Search `.agents/memory/INDEX.md`, then the project memory RAG, whenever the user refers to previous work, preferences, prior conversations, vague project context, or decisions not visible in the current chat.
+- Use an MCP memory server first when one is configured. Until then, use `.agents/memory/rag/agent-memory.py search "<query>"`.
+- Store durable memories under `.agents/memory/memory/`.
+- Store documentation sources, procedures, and references under `.agents/memory/documentations/`.
+- Record source URLs for external libraries, tools, APIs, frameworks, and standards under `.agents/memory/documentations/sources/`.
+- Keep `.agents/memory/INDEX.md` updated whenever you add, move, or remove entries.
+- Do not write memory or documentation files while `.agents/memory/rag/write.lock/` exists. Wait until the lock is released, then re-check the relevant source files before editing.
+
+## RAG Configuration
+
+- `.agents/memory/rag/config.json` is the durable RAG configuration file.
+- Use `config.json` to find the embedding provider, base URL, model name, dimensions, runtime settings, and API key environment variable.
+- Environment variables are setup inputs, secret pointers, or one-off overrides. Do not rely on them as the durable project configuration.
+- Never commit raw embedding provider secret values. Store only the environment variable name, such as `AGENT_BASICS_EMBEDDING_API_KEY`.
+- `runtime.embedding_timeout_seconds: 0` means wait indefinitely for local embedding API validation and RAG embedding calls.
+- `runtime.embedding_minimum_dimensions` defaults to `64` and rejects embedding models that are too small for useful retrieval.
+- Validate the embedding setup after installation by calling the configured `/v1/embeddings` endpoint or by running `.agents/memory/rag/agent-memory.py doctor --online`.
+
+## Memory CLI
+
+Use `.agents/memory/rag/agent-memory.py` for repo-local memory operations:
+
+- `validate`: check layout and front matter.
+- `rebuild`: rebuild the generated SQLite RAG cache.
+- `search "<query>"`: run hybrid embedding and full-text retrieval.
+- `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index.
+- `doctor --online`: report layout, config, manifest, index, and embedding endpoint health.
+- `install-hooks`: install local git hooks for memory validation and stale-index rebuilds.
+
+## Recording Rules
+
 - Store project decisions under `.agents/memory/memory/decisions/`.
 - Store durable facts under `.agents/memory/memory/facts/`.
 - Store user or project preferences under `.agents/memory/memory/preferences/`.
@@ -90,90 +178,15 @@ create_template_file() {
 - Store dated events under `.agents/memory/memory/events/`.
 - Store reusable procedures under `.agents/memory/documentations/procedures/`.
 - Store reference material under `.agents/memory/documentations/references/`.
-- Do not edit `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists. Wait for the indexing or embedding update to finish.
-- If you add or change memory/documentation files, keep `.agents/memory/INDEX.md` current and run the project memory validation/indexing command when available.
-- If you have **ANY** questions or concerns, **IMMEDIATELY** clarify with the user.
-- Before making any changes to the codebase, THOROUGHLY plan out your work, write down every step you're going to take in ./.agents/TODO.md, and follow it during your work.
-- Read a file fully before editing it.
-- Keep comments rare and useful. Explain why or constraints, not obvious mechanics.
-- Keep diffs narrow and task-focused.
-- Do not guess at attribute names, control flow, or config behaviour.
-- Prefer fail-fast behaviour over silent fallback logic.
-- Add tests for new behaviour unless the change is strictly docs/metadata cleanup.
-- Tick off every item you completed in ./.agents/TODO.md.
-- After ticking off an item, commit the changes you made for that item.
-- When making commits, set the commit author name to `Coding agent supervised by {global git user.name}`, replacing `{global git user.name}` with the value from `git config --global user.name`.
-- When making commits, write the commit message according to this format: {type}({scope}): {description}, where types should be one of the following:
-    - build
-    - chore
-    - CI
-    - docs
-    - feat
-    - fix
-    - perf
-    - refactor
-    - revert
-    - style
-    - test
-- **Only** stop working when you finished everything listed in /.agents/TODO.md **OR** you encountered an interruption to your work that **REQUIRES** user intervention.
-- If everything is ticked off in ./.agents/TODO.md and you need to plan for a new round of work, clear out ./.agents/TODO.md and write down your new list of steps.
-EOT
-      ;;
-    instructions)
-      cat > "$template_file" <<'EOT'
-# INSTRUCTIONS
+- Keep one durable idea per file.
+- Do not store secrets.
 
-You **MUST** ALWAYS:
+## Documentation Discipline
 
-- **BE LOGICAL**
-- **ONLY IF** you working with coding tasks: I have no fingers and the placeholders trauma: **NEVER** use placeholders or omit the code (in any code snippets)
-- If you encounter a character limit, **DO** an **ABRUPT** stop; I will send a "continue" as a new message
-- You will be **PENALISED** for wrong answers
-- You **DENIED** to overlook the critical context
-- Use `.agents/memory/` for persistent project memory and documentation context
-- ALWAYS follow Answering rules
-
-## Memory Rules
-
-- `.agents/memory/` is the only canonical memory and documentation source tree created by agent-basics.
-- Treat markdown under `.agents/memory/` as source of truth. Treat RAG indexes, vector databases, and embedding API runtime files as generated retrieval support.
-- Read `.agents/memory/SCHEMA.md` before creating or changing memory files.
-- Use `.agents/memory/templates/` when recording new entries.
-- Search `.agents/memory/INDEX.md`, then the project memory RAG/MCP tools when available, whenever the user refers to previous work, preferences, prior conversations, vague project context, or decisions not visible in the current chat.
-- Store durable memories under `.agents/memory/memory/`.
-- Store documentation sources, procedures, and references under `.agents/memory/documentations/`.
-- Record source URLs for external libraries, tools, APIs, frameworks, and standards under `.agents/memory/documentations/sources/`.
-- Keep `.agents/memory/INDEX.md` updated whenever you add, move, or remove entries.
-- Do not write memory or documentation files while `.agents/memory/rag/write.lock/` exists. Wait until the lock is released, then re-check the relevant source files before editing.
-- If an embedding API is configured, use `.agents/memory/rag/config.json` to find the provider, base URL, model name, dimensions, runtime settings, and API key environment variable.
-- Never commit raw embedding provider secret values. Store only the environment variable name, such as `AGENT_BASICS_EMBEDDING_API_KEY`.
-- Supported embedding setup modes:
-  - Existing OpenAI-compatible API: set `AGENT_BASICS_EMBEDDING_BASE_URL`, `AGENT_BASICS_EMBEDDING_MODEL`, and optionally `AGENT_BASICS_EMBEDDING_API_KEY`.
-  - Repo-local HuggingFace model API: set `AGENT_BASICS_EMBEDDING_HF_MODEL` to a HuggingFace model id or `https://huggingface.co/<owner>/<model>` URL.
-- `runtime.embedding_timeout_seconds: 0` means wait indefinitely for local embedding API validation. Use a positive number of seconds only when a fail-fast setup is desired.
-- `runtime.embedding_minimum_dimensions` defaults to `64` and is used to reject embedding models that are too small for useful retrieval.
-- Environment variables with the same names remain setup-time inputs or explicit one-off overrides; do not rely on them as the durable project configuration.
-- Validate the embedding setup after installation by calling the configured `/v1/embeddings` endpoint or by running the repo-local model verifier.
-
-## Answering Rules
-
-Follow in the strict order:
-
-1. **USE** the language of my message
-2. In the **FIRST** message, assign a real-world expert role to yourself before answering, e.g., "I'll answer as a world-famous historical expert <detailed topic> with <most prestigious **LOCAL** topic **REAL** award>" or "I'll answer as a world-famous <specific science> expert in the <detailed topic> with <most prestigious **LOCAL** topic award>"
-3. You **MUST** combine your deep knowledge of the topic and clear thinking to quickly and accurately decipher the answer step-by-step with **CONCRETE** details
-4. I'm going to tip $1,000,000 for the best reply
-5. Your answer is critical for my career
-6. ALWAYS use an Answering example for a first message structure
-
-## Answering example
-
-**IF THE CHAT LOG IS EMPTY:**
-<I'll answer as the world-famous %**REAL** specific field% expert with %most prestigious **REAL** **LOCAL** award%>
-
-**TL;DR**: <TL;DR, skip for rewriting>
-
-<Step-by-step answer with CONCRETE details and key context>
+- Find up-to-date documentation for any library, framework, API, tool, or programming language used in the project.
+- Record documentation source URLs under `.agents/memory/documentations/sources/`.
+- While writing code, refer to documentation sources recorded under `.agents/memory/documentations/`.
+- Add a new source record when you consult a new external reference that matters for future work.
 EOT
       ;;
     memory-schema)
@@ -799,6 +812,7 @@ Choose how to handle it:
   r  replace it with the agent-basics template after creating a backup
   a  append the agent-basics template after creating a backup
   m  manually merge both versions in \$EDITOR after creating a backup
+  w  use the local web merge UI after creating a backup
   s  save the agent-basics template beside the existing file as $file_path.agent-basics.new
 EOT
 }
@@ -811,12 +825,13 @@ prompt_conflict_action() {
 
   while true; do
     print_conflict_options "$file_path" >&2
-    read -r -p "Selection [k/r/a/m/s]: " choice
+    read -r -p "Selection [k/r/a/m/w/s]: " choice
     case "$choice" in
       k|K) printf "k\n"; return ;;
       r|R) printf "r\n"; return ;;
       a|A) printf "a\n"; return ;;
       m|M) printf "m\n"; return ;;
+      w|W) printf "w\n"; return ;;
       s|S) printf "s\n"; return ;;
       *) echo "Invalid choice: $choice" >&2 ;;
     esac
@@ -852,6 +867,359 @@ manual_merge_file() {
         backup_existing_file "$destination_path"
         cp "$merge_file" "$destination_path"
         echo "Applied manual merge: $destination_path"
+        return
+        ;;
+      n|N)
+        echo "Kept existing file unchanged. Merge draft remains at: $merge_file"
+        return
+        ;;
+      *)
+        echo "Invalid choice: $apply_choice"
+        ;;
+    esac
+  done
+}
+
+web_merge_file() {
+  local source_path="$1"
+  local destination_path="$2"
+  local merge_file
+  local server_script
+  local apply_choice
+
+  require_interactive "$destination_path needs an interactive terminal for the web merge UI."
+
+  merge_file="$REPO_MEMORY_ROOT/merge-sessions/$(basename "$destination_path").$(date +%Y%m%d%H%M%S).web.md"
+  server_script="$(mktemp "${TMPDIR:-/tmp}/agent-basics-web-merge.XXXXXX.py")"
+  mkdir -p "$(dirname "$merge_file")"
+
+  cat > "$server_script" <<'PY'
+from __future__ import annotations
+
+import html
+import json
+import os
+import sys
+import threading
+import webbrowser
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+
+source_path = Path(sys.argv[1])
+destination_path = Path(sys.argv[2])
+merge_path = Path(sys.argv[3])
+
+existing_text = destination_path.read_text(encoding="utf-8") if destination_path.exists() else ""
+proposed_text = source_path.read_text(encoding="utf-8")
+
+
+def page() -> bytes:
+    payload = {
+        "file": str(destination_path),
+        "existing": existing_text.splitlines(),
+        "proposed": proposed_text.splitlines(),
+    }
+    data = json.dumps(payload)
+    title = html.escape(str(destination_path))
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent-basics markdown merge</title>
+<style>
+:root {{
+  color-scheme: light;
+  --border: #c9ced6;
+  --text: #172033;
+  --muted: #5e6a7d;
+  --same: #dff5e6;
+  --diff: #ffe0e0;
+  --picked: #e5edff;
+  --panel: #f8fafc;
+}}
+* {{ box-sizing: border-box; }}
+body {{
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--text);
+  background: white;
+}}
+header {{
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}}
+h1 {{ margin: 0; font-size: 18px; }}
+header span {{ color: var(--muted); font-size: 13px; }}
+button {{
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+}}
+button.primary {{ background: #1f5eff; color: white; border-color: #1f5eff; }}
+.toolbar {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+.grid {{
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+}}
+.panel {{
+  min-height: 70vh;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}}
+.panel h2 {{
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--border);
+  background: white;
+}}
+.list {{ padding: 8px; max-height: 68vh; overflow: auto; }}
+.row {{
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: start;
+  margin-bottom: 6px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}}
+.row.same {{ background: var(--same); }}
+.row.diff {{ background: var(--diff); }}
+.row.picked {{ background: var(--picked); }}
+.line-no {{ color: var(--muted); user-select: none; }}
+.row-actions {{ display: flex; gap: 4px; }}
+.row-actions button {{ padding: 2px 6px; }}
+textarea {{
+  width: 100%;
+  min-height: 300px;
+  padding: 10px;
+  resize: vertical;
+  border: 0;
+  border-top: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}}
+.status {{ padding: 0 20px 14px; color: var(--muted); font-size: 13px; }}
+@media (max-width: 980px) {{
+  .grid {{ grid-template-columns: 1fr; }}
+  .panel {{ min-height: auto; }}
+}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>agent-basics markdown merge</h1>
+    <span>{title}</span>
+  </div>
+  <div class="toolbar">
+    <button id="use-existing">Use existing</button>
+    <button id="use-proposed">Use agent-basics</button>
+    <button id="clear">Clear</button>
+    <button class="primary" id="save">Save merge draft</button>
+  </div>
+</header>
+<main class="grid">
+  <section class="panel">
+    <h2>Existing project</h2>
+    <div class="list" id="existing"></div>
+  </section>
+  <section class="panel">
+    <h2>Final ordered file</h2>
+    <div class="list" id="final"></div>
+    <textarea id="preview" spellcheck="false"></textarea>
+  </section>
+  <section class="panel">
+    <h2>agent-basics proposed</h2>
+    <div class="list" id="proposed"></div>
+  </section>
+</main>
+<div class="status" id="status">Pick lines from either side, reorder with arrows, edit the preview if needed, then save.</div>
+<script>
+const data = {data};
+const same = new Set(data.existing.filter((line) => data.proposed.includes(line)));
+let selected = data.proposed.map((text, index) => ({{ text, source: 'proposed', id: `${{index}}-proposed-${{Math.random()}}` }}));
+
+function rowClass(text, picked = false) {{
+  if (picked) return 'row picked';
+  return same.has(text) ? 'row same' : 'row diff';
+}}
+
+function makeRow(text, index, source) {{
+  const row = document.createElement('div');
+  row.className = rowClass(text);
+  const number = document.createElement('span');
+  number.className = 'line-no';
+  number.textContent = String(index + 1).padStart(3, ' ');
+  const body = document.createElement('span');
+  body.textContent = text || ' ';
+  const actions = document.createElement('span');
+  actions.className = 'row-actions';
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.textContent = '+';
+  add.title = 'Add line to final file';
+  add.addEventListener('click', () => {{
+    selected.push({{ text, source, id: `${{Date.now()}}-${{Math.random()}}` }});
+    render();
+  }});
+  actions.append(add);
+  row.append(number, body, actions);
+  return row;
+}}
+
+function makeFinalRow(item, index) {{
+  const row = document.createElement('div');
+  row.className = rowClass(item.text, true);
+  const number = document.createElement('span');
+  number.className = 'line-no';
+  number.textContent = String(index + 1).padStart(3, ' ');
+  const body = document.createElement('span');
+  body.textContent = item.text || ' ';
+  const actions = document.createElement('span');
+  actions.className = 'row-actions';
+  const up = document.createElement('button');
+  up.type = 'button';
+  up.textContent = 'up';
+  up.disabled = index === 0;
+  up.addEventListener('click', () => {{
+    [selected[index - 1], selected[index]] = [selected[index], selected[index - 1]];
+    render();
+  }});
+  const down = document.createElement('button');
+  down.type = 'button';
+  down.textContent = 'down';
+  down.disabled = index === selected.length - 1;
+  down.addEventListener('click', () => {{
+    [selected[index + 1], selected[index]] = [selected[index], selected[index + 1]];
+    render();
+  }});
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.textContent = 'x';
+  remove.addEventListener('click', () => {{
+    selected.splice(index, 1);
+    render();
+  }});
+  actions.append(up, down, remove);
+  row.append(number, body, actions);
+  return row;
+}}
+
+function render() {{
+  const existing = document.querySelector('#existing');
+  const proposed = document.querySelector('#proposed');
+  const final = document.querySelector('#final');
+  existing.replaceChildren(...data.existing.map((line, index) => makeRow(line, index, 'existing')));
+  proposed.replaceChildren(...data.proposed.map((line, index) => makeRow(line, index, 'proposed')));
+  final.replaceChildren(...selected.map(makeFinalRow));
+  document.querySelector('#preview').value = selected.map((item) => item.text).join('\\n') + '\\n';
+}}
+
+document.querySelector('#use-existing').addEventListener('click', () => {{
+  selected = data.existing.map((text, index) => ({{ text, source: 'existing', id: `${{index}}-existing-${{Math.random()}}` }}));
+  render();
+}});
+document.querySelector('#use-proposed').addEventListener('click', () => {{
+  selected = data.proposed.map((text, index) => ({{ text, source: 'proposed', id: `${{index}}-proposed-${{Math.random()}}` }}));
+  render();
+}});
+document.querySelector('#clear').addEventListener('click', () => {{
+  selected = [];
+  render();
+}});
+document.querySelector('#preview').addEventListener('input', (event) => {{
+  selected = event.target.value.replace(/\\n$/, '').split('\\n').map((text, index) => ({{ text, source: 'preview', id: `${{index}}-preview-${{Math.random()}}` }}));
+  document.querySelector('#final').replaceChildren(...selected.map(makeFinalRow));
+}});
+document.querySelector('#save').addEventListener('click', async () => {{
+  const response = await fetch('/save', {{ method: 'POST', body: document.querySelector('#preview').value }});
+  const text = await response.text();
+  document.querySelector('#status').textContent = text;
+}});
+render();
+</script>
+</body>
+</html>
+""".encode("utf-8")
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+    def do_GET(self) -> None:
+        if self.path != "/":
+            self.send_response(404)
+            self.end_headers()
+            return
+        content = page()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def do_POST(self) -> None:
+        if self.path != "/save":
+            self.send_response(404)
+            self.end_headers()
+            return
+        length = int(self.headers.get("Content-Length", "0"))
+        content = self.rfile.read(length).decode("utf-8")
+        merge_path.parent.mkdir(parents=True, exist_ok=True)
+        if content and not content.endswith("\n\n"):
+            content = content.rstrip("\n") + "\n\n"
+        merge_path.write_text(content, encoding="utf-8")
+        body = f"Saved merge draft to {merge_path}. You can return to the terminal.".encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
+
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+url = f"http://127.0.0.1:{server.server_address[1]}/"
+print(f"Open the merge UI: {url}", flush=True)
+if os.environ.get("AGENT_BASICS_OPEN_MERGE_UI", "1") != "0":
+    webbrowser.open(url)
+server.serve_forever()
+PY
+
+  python3 "$server_script" "$source_path" "$destination_path" "$merge_file"
+  rm -f "$server_script"
+
+  if [[ ! -s "$merge_file" ]]; then
+    echo "No merge draft was saved. Existing file remains unchanged."
+    return
+  fi
+
+  while true; do
+    read -r -p "Apply web merge draft to $destination_path? [y/n]: " apply_choice
+    case "$apply_choice" in
+      y|Y)
+        backup_existing_file "$destination_path"
+        cp "$merge_file" "$destination_path"
+        echo "Applied web merge: $destination_path"
         return
         ;;
       n|N)
@@ -911,11 +1279,21 @@ copy_or_merge_markdown_file() {
     m)
       manual_merge_file "$source_path" "$destination_path"
       ;;
+    w)
+      web_merge_file "$source_path" "$destination_path"
+      ;;
     s)
       cp "$source_path" "$destination_path.agent-basics.new"
       echo "Saved incoming template: $destination_path.agent-basics.new"
       ;;
   esac
+}
+
+seed_agent_basics_from_legacy_instructions() {
+  if [[ -f ".agents/INSTRUCTIONS.md" && ! -e ".agents/AGENT-BASICS.md" ]]; then
+    cp ".agents/INSTRUCTIONS.md" ".agents/AGENT-BASICS.md"
+    echo "Seeded .agents/AGENT-BASICS.md from legacy .agents/INSTRUCTIONS.md"
+  fi
 }
 
 copy_memory_template_if_missing() {
@@ -1642,11 +2020,12 @@ start_repo_local_embedding_api_for_setup() {
 create_memory_layout
 
 agents_template="$(create_template_file "agents")"
-instructions_template="$(create_template_file "instructions")"
+agent_basics_template="$(create_template_file "agent-basics")"
 trap cleanup_setup EXIT
 
 copy_or_merge_markdown_file "$agents_template" "Agents.md"
-copy_or_merge_markdown_file "$instructions_template" ".agents/INSTRUCTIONS.md"
+seed_agent_basics_from_legacy_instructions
+copy_or_merge_markdown_file "$agent_basics_template" ".agents/AGENT-BASICS.md"
 create_empty_file_if_missing ".agents/TODO.md"
 
 copy_memory_template_if_missing "memory-schema" ".agents/memory/SCHEMA.md"

@@ -5,6 +5,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 ## Decisions
 
 - [Use repo-local structured memory with generated RAG support](memory/decisions/repo-local-memory-rag.md)
+- [Keep root Agents.md as the agent entrypoint](memory/decisions/20260503-keep-root-agents-md-as-the-agent-entrypoint.md)
 
 ## Facts
 

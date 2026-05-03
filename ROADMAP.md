@@ -17,7 +17,7 @@ Use one visible project-local memory tree:
 
 ```text
 .agents/
-├── INSTRUCTIONS.md
+├── AGENT-BASICS.md
 ├── TODO.md
 └── memory/
     ├── SCHEMA.md
@@ -42,7 +42,7 @@ Use one visible project-local memory tree:
     │   └── references/
     └── rag/
         ├── agent-memory.py
-        ├── embedding.json
+        ├── config.json
         ├── index.sqlite
         ├── manifest.json
         └── write.lock/
@@ -59,7 +59,7 @@ Existing API mode:
 3. Optionally read the secret from `AGENT_BASICS_EMBEDDING_API_KEY` or another env var named by `AGENT_BASICS_EMBEDDING_API_KEY_ENV`.
 4. Call `/v1/embeddings`.
 5. Verify the response has OpenAI-compatible shape and a finite numeric vector.
-6. Write `.agents/memory/rag/embedding.json`.
+6. Write `.agents/memory/rag/config.json`.
 
 HuggingFace local mode:
 
@@ -69,7 +69,7 @@ HuggingFace local mode:
 4. Pull the model into `.agents/memory/rag/embedding-api/models`.
 5. Verify the model loads and produces finite vectors with enough dimensions.
 6. Generate a small OpenAI-compatible embedding API.
-7. Write `.agents/memory/rag/embedding.json`.
+7. Write `.agents/memory/rag/config.json`.
 
 ## RAG And Locking
 
@@ -100,8 +100,8 @@ The first supported scope is intentionally narrow:
 
 - Existing `Agents.md`
 - agent-basics proposed `Agents.md`
-- Existing `.agents/INSTRUCTIONS.md`
-- agent-basics proposed `.agents/INSTRUCTIONS.md`
+- Existing `.agents/AGENT-BASICS.md` or legacy `.agents/INSTRUCTIONS.md`
+- agent-basics proposed `.agents/AGENT-BASICS.md`
 
 The UI should let users:
 
@@ -114,6 +114,7 @@ The UI should let users:
 - Preview the final markdown before applying changes.
 - Apply changes only after creating backups under `.agents/memory/backups/`.
 - Save an unresolved merge session under `.agents/memory/merge-sessions/`.
+- Setup should offer this local web merge UI directly from markdown conflict prompts, with `$EDITOR` as a fallback.
 
 Prefer block-level ordering with line-level highlighting:
 
@@ -125,11 +126,11 @@ Prefer block-level ordering with line-level highlighting:
 
 1. Start from `setup-macos.sh`.
 2. Create `.agents/memory/` and its source-of-truth layout.
-3. Scan for existing `Agents.md`, `.agents/INSTRUCTIONS.md`, `.agents/memory/SCHEMA.md`, `.agents/memory/INDEX.md`, and memory templates.
+3. Scan for existing root `Agents.md`, `.agents/AGENT-BASICS.md`, legacy `.agents/INSTRUCTIONS.md`, `.agents/memory/SCHEMA.md`, `.agents/memory/INDEX.md`, and memory templates.
 4. If any markdown file conflicts with the embedded template, prompt for keep, replace, append, manual merge, or save-beside.
 5. Copy legacy `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` content into `.agents/memory/` migration entries when those files exist.
 6. Configure embeddings through existing API mode or HuggingFace local mode.
-7. Write `.agents/memory/rag/embedding.json`.
+7. Write `.agents/memory/rag/config.json`.
 8. Copy `.agents/memory/rag/agent-memory.py` into the target project.
 9. Add generated runtime paths to `.gitignore`.
 10. Initialize git when needed.
@@ -150,7 +151,7 @@ Non-interactive mode should remain conservative. It can validate and fail with a
 
 The first demo is a static browser prototype that proves the markdown merge interaction:
 
-- Two file tabs: `Agents.md` and `.agents/INSTRUCTIONS.md`
+- Two file tabs: root `Agents.md` and `.agents/AGENT-BASICS.md`
 - Existing and proposed line sources
 - Green identical-line highlighting
 - Red differing-line highlighting

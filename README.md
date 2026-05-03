@@ -13,7 +13,7 @@ The command checks for the existence of, and if needed adds, the following struc
 ```text
 .
 ├── .agents
-│   ├── INSTRUCTIONS.md
+│   ├── AGENT-BASICS.md
 │   ├── TODO.md
 │   └── memory
 │       ├── SCHEMA.md
@@ -85,7 +85,7 @@ The generated service exposes:
 - `GET /v1/models`
 - `POST /v1/embeddings`
 
-The script writes `Agents.md`, `.agents/INSTRUCTIONS.md`, `.agents/memory/SCHEMA.md`, `.agents/memory/INDEX.md`, and memory templates from embedded text. When an existing markdown file differs from the template, it prompts per file to keep the existing file, replace it after creating a backup, append the template after creating a backup, manually merge both versions in `$EDITOR`, or save the incoming template beside the existing file as `*.agent-basics.new`.
+The script writes root `Agents.md`, `.agents/AGENT-BASICS.md`, `.agents/memory/SCHEMA.md`, `.agents/memory/INDEX.md`, and memory templates from embedded text. When an existing markdown file differs from the template, it prompts per file to keep the existing file, replace it after creating a backup, append the template after creating a backup, manually merge both versions in `$EDITOR`, use a local web merge UI, or save the incoming template beside the existing file as `*.agent-basics.new`.
 
 For `.gitignore`, the script is non-interactive: it appends transient memory/RAG paths only when missing.
 
@@ -127,11 +127,11 @@ brew upgrade agent-basics
 
 - ### Agents.md
 
-  Basic instructions telling the agent to follow further instructions and use `.agents/memory/` for project memory and documentation.
+  The project-root agent entrypoint. Keep this file at the repository root so agents discover it reliably. It contains the base agent contract and points to `.agents/AGENT-BASICS.md` for agent-basics operating details.
 
-- ### INSTRUCTIONS.md
+- ### `.agents/AGENT-BASICS.md`
 
-  A slightly modified version of the [custom instruction made by u/Shir_man](https://www.reddit.com/r/ChatGPT/comments/1fv59m7/im_stupid_and_spent_200_to_mmlubenchmark_my/), plus agent-basics memory rules.
+  The agent-basics operating manual: memory layout, RAG config, memory CLI, recording rules, and documentation discipline.
 
 - ### `.agents/memory/SCHEMA.md`
 

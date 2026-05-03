@@ -91,12 +91,12 @@ class AgentBasics < Formula
     assert_predicate project_dir/".agents/memory", :exist?
     assert_predicate project_dir/".agents/memory/SCHEMA.md", :exist?
     assert_predicate project_dir/".agents/memory/INDEX.md", :exist?
-    assert_predicate project_dir/".agents/memory/rag/embedding.json", :exist?
+    assert_predicate project_dir/".agents/memory/rag/config.json", :exist?
     assert_predicate project_dir/".agents/memory/rag/agent-memory.py", :exist?
     assert_predicate project_dir/".agents/memory/rag/index.sqlite", :exist?
     assert_predicate project_dir/".git/hooks/pre-commit", :exist?
     assert_predicate project_dir/"Agents.md", :exist?
-    assert_predicate project_dir/".agents/INSTRUCTIONS.md", :exist?
+    assert_predicate project_dir/".agents/AGENT-BASICS.md", :exist?
     assert_predicate project_dir/".gitignore", :exist?
     refute_predicate project_dir/".agents/memoryhub", :exist?
     refute_predicate project_dir/".agents/DOCUMENTATIONS.md", :exist?

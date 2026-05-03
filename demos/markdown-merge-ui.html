@@ -320,7 +320,7 @@
 
     <nav class="tabs" aria-label="Files">
       <button class="tab active" data-file="agents">Agents.md</button>
-      <button class="tab" data-file="instructions">.agents/INSTRUCTIONS.md</button>
+      <button class="tab" data-file="instructions">.agents/AGENT-BASICS.md</button>
     </nav>
 
     <section class="workspace">
@@ -379,7 +379,7 @@
         proposed: [
           '# **YOU MUST:**',
           '',
-          '- Follow the instructions of ./.agents/INSTRUCTIONS.md',
+          '- Follow .agents/AGENT-BASICS.md for agent-basics operating details.',
           '- Use .agents/memory/ as the long-term context and memory store.',
           '- Keep generated RAG files under .agents/memory/rag/.',
           '- Commit using the supervised agent author name.',
@@ -388,7 +388,7 @@
       },
       instructions: {
         existing: [
-          '# INSTRUCTIONS',
+          '# agent-basics Operating Manual',
           '',
           '- Answer concisely.',
           '- Ask before destructive changes.',
@@ -396,7 +396,7 @@
           '- Keep markdown files ending with an empty trailing line.'
         ],
         proposed: [
-          '# INSTRUCTIONS',
+          '# agent-basics Operating Manual',
           '',
           '- Use `.agents/memory/` for persistent memory and project context.',
           '- Store durable memories under `.agents/memory/memory/`.',
@@ -601,7 +601,7 @@
     });
 
     document.querySelector('#apply-demo').addEventListener('click', () => {
-      const fileName = state.file === 'agents' ? 'Agents.md' : '.agents/INSTRUCTIONS.md';
+      const fileName = state.file === 'agents' ? 'Agents.md' : '.agents/AGENT-BASICS.md';
       window.alert(`Demo only: production setup would back up and write ${fileName}.`);
     });
 
