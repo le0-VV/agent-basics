@@ -1,114 +1,242 @@
 # Roadmap
 
-`agent-basics` should become a repo-native memory setup tool for agent-ready projects. The project source of truth is structured markdown under `.agents/memory/`; generated RAG state helps agents retrieve vague or semantically related context.
+`agent-basics` is a repo-local programming harness for AI coding agents.
 
-## Product Principles
+The project should not grow into a second memory engine. OpenViking should own memory, resources, skills, semantic organization, and retrieval when it is viable. `agent-basics` should own the repository contract around that engine: setup, configuration, agent rules, tool wiring, long-horizon work state, validation, migration, and stable commands that agents can call with minimal permission friction.
 
-- `agent-basics` is the one-command Rust binary entry point for macOS users; `setup-macos.sh` remains an embedded setup implementation detail until setup is ported natively.
-- `.agents/memory/` is the canonical memory and documentation source tree.
-- Memory entries are predictable markdown files with front matter, templates, and a maintained index.
-- RAG indexes, embedding databases, model caches, and embedding API virtualenvs are generated support state and must be rebuildable from markdown.
-- Agent-facing memory access should go through the memory MCP server first; direct CLI usage is for setup, hooks, manual recovery, and fallback.
-- Homebrew builds and installs one stable systemwide `agent-basics` binary so users can configure MCP once as `agent-basics mcp` and set only the repository working directory.
-- Setup requires an embedding provider: either an existing OpenAI-compatible embeddings API or a HuggingFace model that setup can pull and run locally.
-- Existing user instructions must be treated as valuable project data. Setup should provide review, ordering, and merge controls before changing them.
+## Product Direction
 
-## Memory Layout
+- `agent-basics` is the one-command Rust binary entry point.
+- OpenViking is the required memory and context backend.
+- `agent-basics` installs, verifies, configures, and wraps OpenViking for each repository.
+- Repository-specific OpenViking state lives under `.agents/`.
+- Agents access OpenViking through `agent-basics mcp` or stable `agent-basics ov ...` commands, not by ad hoc shell commands.
+- Root `Agents.md` remains the universal agent entrypoint.
+- `.agents/AGENT-BASICS.md` contains the agent-basics operating contract that root `Agents.md` points to.
+- `ROADMAP.md` records long-horizon project direction.
+- `.agents/TODO.md` records current cross-session work state.
+- `Skills.md` or `.agents/skills/` should describe repeated workflows, but executable work should be routed through stable `agent-basics` commands.
+- Setup and upgrade must treat existing user instructions as valuable project data and provide safe merge/review paths.
 
-Use one visible project-local memory tree:
+## What agent-basics Is
+
+`agent-basics` is the harness layer around a repository.
+
+It answers practical questions:
+
+- What instructions should agents load first?
+- Which memory/context backend should agents use?
+- How is the backend installed and checked?
+- How do agents start, checkpoint, and finish long work?
+- How do agents record useful findings for future sessions?
+- Which commands are safe, stable, and worth approving once?
+- Which repository files are generated, source-of-truth, or user-owned?
+- How are setup conflicts reviewed without overwriting user knowledge?
+
+## What agent-basics Is Not
+
+`agent-basics` should avoid becoming:
+
+- A full OpenViking replacement.
+- A second long-term memory database.
+- A second recursive context organizer.
+- A full agentic coding runner before the repo harness is solid.
+- A vendor-specific prompt bundle that only works in one agent app.
+
+Custom markdown memory and mini-RAG work should be treated as transitional unless it remains useful as a compatibility or fallback layer.
+
+## OpenViking Integration
+
+The primary architecture should be:
 
 ```text
-.agents/
-├── AGENT-BASICS.md
-├── TODO.md
-└── memory/
-    ├── SCHEMA.md
-    ├── INDEX.md
-    ├── templates/
-    │   ├── decision.md
-    │   ├── fact.md
-    │   ├── preference.md
-    │   ├── source.md
-    │   ├── procedure.md
-    │   ├── gotcha.md
-    │   └── event.md
-    ├── memory/
-    │   ├── decisions/
-    │   ├── facts/
-    │   ├── preferences/
-    │   ├── gotchas/
-    │   └── events/
-    ├── documentations/
-    │   ├── sources/
-    │   ├── procedures/
-    │   └── references/
-    └── rag/
-        ├── agent-memory.py
-        ├── memory-mcp.py
-        ├── config.json
-        ├── index.sqlite
-        ├── manifest.json
-        └── write.lock/
+Agent client
+  -> root Agents.md
+  -> agent-basics MCP or CLI
+  -> repo-aware OpenViking gateway
+  -> repo-local OpenViking files under .agents/
 ```
 
-## Embedding Setup
+`agent-basics` should provide a repo-aware gateway instead of asking every agent to call OpenViking directly.
 
-Setup supports two required paths.
+Responsibilities:
 
-Existing API mode:
+- Detect whether OpenViking is installed.
+- Install or guide installation when it is missing.
+- Create repo-local OpenViking config and data paths under `.agents/`.
+- Verify the configured LLM/VLM and embedding providers.
+- Configure local providers such as LM Studio when available.
+- Run OpenViking doctor/health checks.
+- Expose agent-safe MCP tools for search, record, resource add, skill add, ingest, and doctor.
+- Keep raw OpenViking executable/config details out of normal agent workflows.
 
-1. Read setup inputs from `agent-basics setup --embedding-mode api`.
-2. Read `--embedding-base-url`.
-3. Read `--embedding-model`.
-4. Optionally read the secret from the env var named by `--embedding-api-key-env`.
-5. Call `/v1/embeddings`.
-6. Verify the response has OpenAI-compatible shape and a finite numeric vector.
-7. Write `.agents/memory/rag/config.json`.
+OpenViking should own:
 
-HuggingFace local mode:
+- Memory storage and retrieval.
+- Resource ingestion.
+- Semantic summaries.
+- Skill/resource/memory organization.
+- Embedding indexes and vector search.
 
-1. Read setup inputs from `agent-basics setup --embedding-mode huggingface`.
-2. Read `--embedding-hf-model` as either `owner/model` or `https://huggingface.co/owner/model`.
-3. Install a repo-local virtualenv under `.agents/memory/rag/embedding-api/venv`.
-4. Install `sentence-transformers`, `fastapi`, and `uvicorn`.
-5. Pull the model into `.agents/memory/rag/embedding-api/models`.
-6. Verify the model loads and produces finite vectors with enough dimensions.
-7. Generate a small OpenAI-compatible embedding API.
-8. Write `.agents/memory/rag/config.json`.
+`agent-basics` should own:
 
-## RAG And Locking
+- Repo setup and upgrade.
+- Instruction files.
+- Workflow rules.
+- MCP wrapper.
+- Git hooks and validation.
+- Long-horizon task state.
+- Merge UI and conflict safety.
+- Stable commands and skill workflows.
 
-The RAG layer is a generated cache over `.agents/memory/`.
+## Repository Layout
 
-Current v1 behavior:
+Target layout:
 
-- Use `.agents/memory/rag/write.lock/` as the exclusive lock directory.
-- Memory writers must wait while the lock exists.
-- Indexers hold the lock while hashing, chunking, embedding, and replacing generated indexes.
-- Index replacement is atomic.
-- `agent-basics mcp` exposes `memory_search`, `memory_record`, `memory_doctor`, `memory_rebuild`, and `memory_validate` as the primary agent-facing interface when installed.
-- `agent-basics memory ...` provides CLI support for setup, hooks, manual recovery, and fallback operations when installed.
-- `.agents/memory/rag/memory-mcp.py` and `.agents/memory/rag/agent-memory.py` remain repo-local fallbacks for source checkouts and generated hooks.
-- Setup installs git hooks that validate memory before commit and rebuild the index after committed memory changes.
-- Stale lock repair should be explicit, not automatic.
+```text
+.
+├── Agents.md
+├── ROADMAP.md
+├── Skills.md
+└── .agents/
+    ├── AGENT-BASICS.md
+    ├── TODO.md
+    ├── config.toml
+    ├── openviking/
+    │   ├── ov.conf
+    │   ├── data/
+    │   └── locks/
+    ├── skills/
+    │   ├── prework.md
+    │   ├── memory-update.md
+    │   └── finish-work.md
+    ├── runs/
+    │   └── <run-id>/
+    │       ├── state.json
+    │       ├── CHECKPOINT.md
+    │       └── handoff.md
+    ├── merge-sessions/
+    └── backups/
+```
 
-Initial retrieval is hybrid:
+The existing `.agents/memory/` tree remains important until OpenViking integration is proven and migration is implemented. The roadmap target is to demote custom RAG files to migration/fallback support, then remove them when OpenViking covers the needed behavior.
 
-- Full-text search for exact terms, file paths, commands, URLs, tags, and package names.
-- Embeddings for vague or semantically similar user requests.
-- Metadata filters from front matter.
-- Results must cite source markdown paths and snippets.
+## Enforcement Model
+
+There is no universal way to force every agent client to perform pre-work and post-work routines. `agent-basics` should use progressive enforcement.
+
+Guidance:
+
+- Root `Agents.md` and `.agents/AGENT-BASICS.md` define expected behavior.
+- `Skills.md` and `.agents/skills/` define repeatable workflows.
+
+Structured happy path:
+
+- `agent-basics run start`
+- `agent-basics ov search`
+- `agent-basics ov record`
+- `agent-basics run checkpoint`
+- `agent-basics verify`
+- `agent-basics run finish`
+
+Boundary enforcement:
+
+- Git hooks validate setup, memory/backend health, stale ingest state, and TODO/run consistency.
+- CI can enforce the same checks before merge.
+- Client-specific hooks can inject context or run checks where supported.
+
+True enforcement:
+
+- A future `agent-basics run "<task>"` runner could own the agent loop and enforce every pre/post routine.
+- This should remain a later milestone, not the first implementation target.
+
+## Long-Horizon Work
+
+Long work needs state that survives chat compaction, branch switches, and agent handoff.
+
+`ROADMAP.md`:
+
+- Project direction.
+- Design choices.
+- Open questions.
+- Milestones and non-goals.
+
+`.agents/TODO.md`:
+
+- Current work plan.
+- Cross-session checklist.
+- Must be updated while work progresses.
+- Should be cleared and rewritten when a new work round starts.
+
+`.agents/runs/<run-id>/`:
+
+- Machine-readable run state.
+- Human-readable checkpoint.
+- Handoff note for the next agent/session.
+- Links to OpenViking memory/resource records created during the run.
+
+Near-term commands:
+
+- `agent-basics run start [--task "..."]`
+- `agent-basics run status`
+- `agent-basics run checkpoint`
+- `agent-basics run finish`
+- `agent-basics run handoff`
+
+## Skills And Stable Commands
+
+Skills should reduce repeated prompt overhead and tell agents which workflow to follow. They should not be the only mechanism for reliability.
+
+Initial skills:
+
+- `prework`: read instructions, inspect TODO, query OpenViking, update the plan.
+- `memory-update`: decide what is durable, record it through OpenViking, verify ingest.
+- `finish-work`: run validation, update TODO, record findings, prepare/commit changes.
+
+Each skill should point to stable commands. The goal is for users to approve command prefixes such as:
+
+```bash
+agent-basics ov
+agent-basics run
+agent-basics verify
+agent-basics commit
+```
+
+instead of approving many small command variations.
+
+## Setup Flow
+
+`agent-basics setup [directory]` should:
+
+1. Detect project root and git state.
+2. Detect existing `Agents.md`, `.agents/AGENT-BASICS.md`, legacy `.agents/INSTRUCTIONS.md`, `.agents/memory/`, and existing OpenViking state.
+3. Check whether OpenViking is installed.
+4. Install OpenViking or stop with clear instructions when installation is not allowed.
+5. Configure repo-local OpenViking files under `.agents/openviking/`.
+6. Configure LLM/VLM and embedding providers.
+7. Verify providers with a doctor check.
+8. Write or merge root `Agents.md`.
+9. Write or merge `.agents/AGENT-BASICS.md`.
+10. Write `.agents/config.toml`.
+11. Create `.agents/TODO.md`, `.agents/skills/`, `.agents/runs/`, `.agents/backups/`, and `.agents/merge-sessions/`.
+12. Configure `agent-basics mcp` for the repository where possible.
+13. Install git hooks.
+14. Ingest initial project instructions and selected documentation into OpenViking.
+15. Report final paths, health, and next agent actions.
+
+`agent-basics upgrade [directory]` should perform the same checks but treat every existing file as user-owned unless the user explicitly accepts a merge or replacement.
 
 ## Migration UI
 
 Build an interactive local web UI for existing projects that already contain agent instruction files.
 
-The first supported scope is intentionally narrow:
+Initial scope:
 
-- Existing `Agents.md`
-- agent-basics proposed `Agents.md`
-- Existing `.agents/AGENT-BASICS.md` or legacy `.agents/INSTRUCTIONS.md`
-- agent-basics proposed `.agents/AGENT-BASICS.md`
+- Existing root `Agents.md`.
+- Proposed root `Agents.md`.
+- Existing `.agents/AGENT-BASICS.md` or legacy `.agents/INSTRUCTIONS.md`.
+- Proposed `.agents/AGENT-BASICS.md`.
+- Existing `.agents/memory/` markdown that may need migration into OpenViking.
 
 The UI should let users:
 
@@ -116,61 +244,116 @@ The UI should let users:
 - See identical lines highlighted in green.
 - See differing or conflicting lines highlighted in red.
 - Pick which lines or blocks belong in the final file.
-- Reorder selected instructions before writing the final file.
+- Reorder selected instructions before writing.
 - Preserve custom instruction ordering.
-- Preview the final markdown before applying changes.
-- Apply changes only after creating backups under `.agents/memory/backups/`.
-- Save an unresolved merge session under `.agents/memory/merge-sessions/`.
-- Setup should offer this local web merge UI directly from markdown conflict prompts, with `$EDITOR` as a fallback.
-
-Prefer block-level ordering with line-level highlighting:
-
-- Headings and bullet groups are movable blocks.
-- Individual lines remain selectable for fine-grained conflict resolution.
-- The output preview should show exactly what will be written.
-
-## Setup Flow
-
-1. Start from `agent-basics setup`; internally it runs `setup-macos.sh`.
-2. Create `.agents/memory/` and its source-of-truth layout.
-3. Scan for existing root `Agents.md`, `.agents/AGENT-BASICS.md`, legacy `.agents/INSTRUCTIONS.md`, `.agents/memory/SCHEMA.md`, `.agents/memory/INDEX.md`, and memory templates.
-4. If any markdown file conflicts with the embedded template, prompt for keep, replace, append, manual merge, or save-beside.
-5. Copy legacy `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` content into `.agents/memory/` migration entries when those files exist.
-6. Configure embeddings through existing API mode or HuggingFace local mode.
-7. Write `.agents/memory/rag/config.json`.
-8. Copy `.agents/memory/rag/agent-memory.py` and `.agents/memory/rag/memory-mcp.py` into the target project.
-9. Add generated runtime paths to `.gitignore`.
-10. Initialize git when needed.
-11. Install local git hooks.
-12. Build the initial RAG index.
-13. Report final paths and next agent migration tasks.
+- Preview final markdown before applying changes.
+- Save backups under `.agents/backups/`.
+- Save unresolved sessions under `.agents/merge-sessions/`.
+- Launch from setup conflict prompts.
+- Fall back to `$EDITOR` when the web UI cannot run.
 
 ## CLI Modes
 
-- `agent-basics setup [directory]`: interactive setup for a new repository.
-- `agent-basics upgrade [directory]`: rerun setup on an existing repository and safely handle overlapping files.
-- `agent-basics [directory]`: compatibility shortcut for setup.
-- `agent-basics memory <command>`: run memory/RAG operations such as `validate`, `rebuild`, `search`, `record`, `doctor`, and `install-hooks`.
-- `agent-basics doctor [--online]`: shortcut for memory health checks.
-- `agent-basics mcp`: run the stdio memory MCP server for the current working repository.
-- `agent-basics --repo <directory> <command>`: run an operation against another repository.
+Core commands:
 
-Planned:
+- `agent-basics setup [directory]`
+- `agent-basics upgrade [directory]`
+- `agent-basics doctor [--online]`
+- `agent-basics mcp`
+- `agent-basics ov <command>`
+- `agent-basics run <command>`
+- `agent-basics verify`
+- `agent-basics commit`
 
-- `agent-basics setup --dry-run <directory>`: detect setup status and show pending file changes without writing.
-- `agent-basics setup --merge-ui <directory>`: open the markdown merge UI directly.
+OpenViking wrapper commands:
 
-Non-interactive mode should remain conservative. It can validate and fail with a clear report, but it should not overwrite or merge instruction files without an explicit reviewed plan.
+- `agent-basics ov doctor`
+- `agent-basics ov search <query>`
+- `agent-basics ov record`
+- `agent-basics ov add-resource <path-or-url>`
+- `agent-basics ov add-skill <path>`
+- `agent-basics ov ingest-changed`
+- `agent-basics ov status`
 
-## Demo Milestone
+Migration commands:
 
-The first demo is a static browser prototype that proves the markdown merge interaction:
+- `agent-basics setup --dry-run <directory>`
+- `agent-basics setup --merge-ui <directory>`
+- `agent-basics migrate memory-to-openviking`
 
-- Two file tabs: root `Agents.md` and `.agents/AGENT-BASICS.md`
-- Existing and proposed line sources
-- Green identical-line highlighting
-- Red differing-line highlighting
-- Pick, remove, and reorder controls
-- Final markdown preview
+Compatibility commands:
 
-This demo is not the production migration engine. It is a UX checkpoint before adding local server wiring, file writes, backup/session persistence, and memory/RAG validation.
+- `agent-basics memory <command>` remains only while the custom markdown/RAG layer exists.
+- `.agents/memory/rag/agent-memory.py` and `.agents/memory/rag/memory-mcp.py` are source-checkout fallbacks until they are removed or replaced by OpenViking-backed equivalents.
+
+## Model Runtime
+
+The local runtime target is LM Studio first, with other OpenAI-compatible providers allowed.
+
+`agent-basics` should be able to:
+
+- Detect available LM Studio models.
+- Load and unload models through LM Studio's native REST API when the user allows it.
+- Verify OpenAI-compatible chat and embedding endpoints.
+- Configure OpenViking with the selected chat/VLM model and embedding model.
+- Keep model/provider settings in config files, not scattered environment variables.
+- Store only secret environment variable names, never raw secret values.
+
+Known local setup:
+
+- Chat/VLM: `google/gemma-4-e4b`
+- Embeddings: `text-embedding-embeddinggemma-300m-qat`
+- LM Studio base URL: `http://127.0.0.1:1234`
+
+Gemma 4 should be used with shallow structured-output schemas for routing and setup helpers. Deterministic code must validate and apply the result.
+
+## Milestones
+
+Milestone 1: roadmap and architecture reset.
+
+- Treat OpenViking as the target memory backend.
+- Mark custom mini-RAG as transitional.
+- Define stable harness responsibilities.
+- Define long-horizon run state.
+- Define initial skills and stable command surfaces.
+
+Milestone 2: OpenViking setup proof.
+
+- Install and configure OpenViking through `agent-basics`.
+- Create repo-local OpenViking state under `.agents/openviking/`.
+- Verify LM Studio chat/VLM and embedding providers.
+- Ingest this repo's current agent instructions and documentation.
+- Prove search/record through a repo-aware wrapper.
+
+Milestone 3: MCP gateway.
+
+- Implement `agent-basics mcp` as the repo-aware OpenViking gateway.
+- Require `repo_path` or current working directory resolution per tool call.
+- Expose search, record, add-resource, add-skill, ingest, and doctor tools.
+- Add tests for path safety and repo isolation.
+
+Milestone 4: long-horizon workflow.
+
+- Implement `agent-basics run start/status/checkpoint/finish/handoff`.
+- Add `.agents/runs/` state.
+- Update agent instructions to require run state for non-trivial work.
+- Add git hook checks for incomplete or stale run state.
+
+Milestone 5: skills and command approval reduction.
+
+- Add `Skills.md` or `.agents/skills/`.
+- Create prework, memory-update, and finish-work skills.
+- Route each skill to stable `agent-basics` commands.
+- Dogfood in sample repos and measure approval prompt reduction.
+
+Milestone 6: migration UI.
+
+- Wire the markdown merge prototype into setup.
+- Support safe review of `Agents.md` and `.agents/AGENT-BASICS.md`.
+- Support migration of legacy `.agents/memory/` markdown into OpenViking.
+- Preserve backups and unresolved merge sessions.
+
+Milestone 7: optional runner.
+
+- Evaluate whether a full `agent-basics run "<task>"` agent runner is worth building.
+- Only proceed if plugins, hooks, MCP, and git boundaries are not enough.

@@ -1,10 +1,10 @@
 ---
-id: decision-20260503-defer-memory-rebuilds-for-routine-mcp-records
+id: decision-1777766400-defer-memory-rebuilds-for-routine-mcp-records
 type: decision
 title: Defer memory rebuilds for routine MCP records
 status: accepted
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, memory, mcp, approvals]
 summary: MCP memory_record defers RAG rebuilds by default so agents can write memory markdown without embedding API approval on every record.
 ---
@@ -25,4 +25,4 @@ New entries are immediately present in markdown and INDEX.md but are not searcha
 
 ## Related
 
-- memory/decisions/20260503-polish-memory-recorder-output.md
+- memory/decisions/1777766400-polish-memory-recorder-output.md

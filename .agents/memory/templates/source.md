@@ -1,10 +1,10 @@
 ---
-id: source-YYYYMMDD-short-name
+id: source-UNIXTIMESTAMP-short-name
 type: source
 title: Documentation source title
 status: active
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
 url: https://example.com

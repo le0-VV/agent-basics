@@ -1,10 +1,10 @@
 ---
-id: decision-20260503-retire-the-agent-mailbox
+id: decision-1777766400-retire-the-agent-mailbox
 type: decision
 title: Retire the agent mailbox
 status: accepted
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, memory, coordination, cleanup]
 summary: The MemoryHub-era agent-mailbox folder is retired; durable coordination belongs in .agents/memory and operational handoffs use git.
 ---

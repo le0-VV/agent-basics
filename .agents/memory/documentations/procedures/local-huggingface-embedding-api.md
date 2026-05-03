@@ -1,10 +1,10 @@
 ---
-id: procedure-20260503-local-huggingface-embedding-api
+id: procedure-1777766400-local-huggingface-embedding-api
 type: procedure
 title: Run the repo-local HuggingFace embedding API
 status: active
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [embeddings, huggingface, rag]
 summary: Start the generated local embedding API when agent-basics was configured with a HuggingFace model.
 ---

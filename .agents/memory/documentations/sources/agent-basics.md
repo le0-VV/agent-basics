@@ -1,10 +1,10 @@
 ---
-id: source-20260503-agent-basics-documentation-sources
+id: source-1777766400-agent-basics-documentation-sources
 type: source
 title: agent-basics documentation sources
 status: active
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, bash, git, homebrew, embeddings, mcp, rust]
 summary: Source URLs used by agent-basics setup, packaging, embedding API, Rust binary, and MCP work.
 ---

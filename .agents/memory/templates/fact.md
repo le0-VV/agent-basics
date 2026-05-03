@@ -1,10 +1,10 @@
 ---
-id: fact-YYYYMMDD-short-name
+id: fact-UNIXTIMESTAMP-short-name
 type: fact
 title: Short fact title
 status: active
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
 ---

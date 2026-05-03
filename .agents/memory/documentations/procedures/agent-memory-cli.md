@@ -1,10 +1,10 @@
 ---
-id: procedure-20260503-agent-memory-cli
+id: procedure-1777766400-agent-memory-cli
 type: procedure
 title: Use the agent-basics memory CLI
 status: active
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, memory, rag, cli]
 summary: Use `agent-basics memory` or `.agents/memory/rag/agent-memory.py` for setup, git hooks, manual recovery, and fallback memory operations.
 ---

@@ -1,10 +1,10 @@
 ---
-id: decision-20260503-repo-local-memory-rag
+id: decision-1777766400-repo-local-memory-rag
 type: decision
 title: Use repo-local structured memory with generated RAG support
 status: accepted
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, memory, rag, embeddings]
 summary: agent-basics keeps memory as repo markdown and uses generated embedding/RAG support for vague recall.
 ---

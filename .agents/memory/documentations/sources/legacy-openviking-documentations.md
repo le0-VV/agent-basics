@@ -1,10 +1,10 @@
 ---
-id: source-20260503-legacy-openviking-documentations
+id: source-1777766400-legacy-openviking-documentations
 type: source
 title: Legacy OpenViking documentation index
 status: migrated
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [legacy, openviking, documentation, migration]
 summary: Documentation source URLs preserved from the old OpenViking-backed legacy documentation index.
 ---

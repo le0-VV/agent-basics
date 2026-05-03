@@ -1,10 +1,10 @@
 ---
-id: decision-20260503-use-rust-for-the-agent-basics-binary
+id: decision-1777766400-use-rust-for-the-agent-basics-binary
 type: decision
 title: Use Rust for the agent-basics binary
 status: accepted
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, rust, cli, distribution]
 summary: agent-basics is distributed as a Rust binary that embeds the setup, memory CLI, and MCP server while setup internals are still being ported.
 ---

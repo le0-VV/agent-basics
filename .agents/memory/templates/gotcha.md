@@ -1,10 +1,10 @@
 ---
-id: gotcha-YYYYMMDD-short-name
+id: gotcha-UNIXTIMESTAMP-short-name
 type: gotcha
 title: Short gotcha title
 status: active
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
 ---

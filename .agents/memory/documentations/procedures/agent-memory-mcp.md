@@ -1,10 +1,10 @@
 ---
-id: procedure-20260503-agent-memory-mcp
+id: procedure-1777766400-agent-memory-mcp
 type: procedure
 title: Use the agent-basics memory MCP server
 status: active
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, memory, rag, mcp]
 summary: Use `agent-basics mcp` or `.agents/memory/rag/memory-mcp.py` as the primary agent-facing memory interface.
 ---

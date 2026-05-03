@@ -1,13 +1,13 @@
 ---
-id: event-20260503-gemma-4-categorization-test
+id: event-1777766400-gemma-4-categorization-test
 type: event
 title: Gemma 4 categorization test
 status: recorded
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [memory, rag, lm-studio, gemma-4, categorization]
 summary: Gemma 4 through LM Studio classified agent-basics memory categories accurately when constrained by JSON schema, but free-form JSON output was slow and wrapped in markdown fences.
-event_date: 2026-05-03
+event_timestamp: 1777766400
 ---
 
 # Gemma 4 categorization test

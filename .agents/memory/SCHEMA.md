@@ -42,7 +42,8 @@ Generated RAG indexes, vector stores, model caches, and embedding API virtualenv
 - Every entry must be markdown.
 - Every entry must start with YAML front matter.
 - Every entry must have `id`, `type`, `title`, `status`, `created`, `updated`, `tags`, and `summary`.
-- Use ISO dates: `YYYY-MM-DD`.
+- Use Unix timestamp seconds for `created`, `updated`, and event timestamps.
+- Event entries must use `event_timestamp`, not `event_date`.
 - Keep one durable idea per file.
 - Prefer short, searchable headings.
 - Link related entries with relative paths.

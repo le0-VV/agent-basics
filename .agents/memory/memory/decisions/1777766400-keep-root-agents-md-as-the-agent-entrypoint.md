@@ -1,10 +1,10 @@
 ---
-id: decision-20260503-keep-root-agents-md-as-the-agent-entrypoint
+id: decision-1777766400-keep-root-agents-md-as-the-agent-entrypoint
 type: decision
 title: Keep root Agents.md as the agent entrypoint
 status: accepted
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, instructions, setup]
 summary: agent-basics keeps Agents.md at the project root because agents reliably discover root instruction files
 ---

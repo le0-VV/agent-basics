@@ -1,13 +1,13 @@
 ---
-id: event-20260503-dogfood-sample-subagent-run
+id: event-1777766400-dogfood-sample-subagent-run
 type: event
 title: Dogfood sample subagent run
 status: recorded
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, dogfood, subagents, setup]
 summary: Two sample repos were set up with agent-basics and exercised by subagents; setup worked, one worker completed independently, and Python workers exposed completion/rebuild friction.
-event_date: 2026-05-03
+event_timestamp: 1777766400
 ---
 
 # Dogfood sample subagent run
@@ -24,4 +24,4 @@ Immediate fix: `post-commit`, `post-merge`, and `post-checkout` hooks now warn o
 
 ## Related
 
-- memory/decisions/20260503-defer-memory-rebuilds-for-routine-mcp-records.md
+- memory/decisions/1777766400-defer-memory-rebuilds-for-routine-mcp-records.md

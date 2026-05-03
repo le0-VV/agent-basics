@@ -92,12 +92,12 @@ def relpath(path: Path) -> str:
     return path.resolve().relative_to(ROOT.resolve()).as_posix()
 
 
+def unix_timestamp() -> str:
+    return str(int(dt.datetime.now(dt.timezone.utc).timestamp()))
+
+
 def utc_now() -> str:
-    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def today() -> str:
-    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+    return unix_timestamp()
 
 
 def slugify(value: str) -> str:
@@ -206,8 +206,6 @@ def validate_layout() -> list[str]:
 def validate_entries() -> list[str]:
     errors: list[str] = []
     seen_ids: dict[str, Path] = {}
-    date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-
     for path in iter_entry_files():
         metadata, _ = parse_frontmatter(read_text(path))
         display_path = relpath(path)
@@ -234,10 +232,22 @@ def validate_entries() -> list[str]:
             if expected_root not in path.resolve().parents:
                 errors.append(f"{display_path}: type `{entry_type}` belongs under {relpath(expected_root)}")
 
-        for key in ["created", "updated"]:
+        timestamp_keys = ["created", "updated"]
+        if "event_date" in metadata:
+            errors.append(f"{display_path}: use `event_timestamp`, not `event_date`")
+        if entry_type == "event":
+            timestamp_keys.append("event_timestamp")
+
+        for key in timestamp_keys:
             value = str(metadata.get(key, ""))
-            if value and not date_pattern.match(value):
-                errors.append(f"{display_path}: `{key}` must use YYYY-MM-DD")
+            if value:
+                try:
+                    if int(value) < 0:
+                        raise ValueError
+                except ValueError:
+                    errors.append(f"{display_path}: `{key}` must use Unix timestamp seconds")
+            elif key == "event_timestamp":
+                errors.append(f"{display_path}: missing required front matter key `event_timestamp`")
 
         tags = metadata.get("tags")
         if tags is not None and not isinstance(tags, list):
@@ -716,24 +726,25 @@ def render_entry(
     notes: str | None = None,
     steps: str | None = None,
     related: str | None = None,
+    timestamp: str | None = None,
 ) -> str:
-    current_date = today()
-    entry_id = f"{entry_type}-{current_date.replace('-', '')}-{slugify(title)}"
+    current_timestamp = timestamp or unix_timestamp()
+    entry_id = f"{entry_type}-{current_timestamp}-{slugify(title)}"
     frontmatter = [
         "---",
         f"id: {entry_id}",
         f"type: {entry_type}",
         f"title: {title}",
         f"status: {status}",
-        f"created: {current_date}",
-        f"updated: {current_date}",
+        f"created: {current_timestamp}",
+        f"updated: {current_timestamp}",
         f"tags: {render_tags(tags)}",
         f"summary: {summary}",
     ]
     if source_url:
         frontmatter.append(f"url: {source_url}")
     if entry_type == "event":
-        frontmatter.append(f"event_date: {current_date}")
+        frontmatter.append(f"event_timestamp: {current_timestamp}")
     frontmatter.append("---")
 
     main = content.strip() or summary
@@ -778,10 +789,11 @@ def record_entry(args: argparse.Namespace) -> None:
     summary = args.summary or sentence_summary(content or title)
     status = args.status or DEFAULT_STATUSES.get(entry_type, "active")
     directory = TYPE_DIRECTORIES[entry_type]
-    target = directory / f"{today().replace('-', '')}-{slugify(title)}.md"
+    timestamp = unix_timestamp()
+    target = directory / f"{timestamp}-{slugify(title)}.md"
     suffix = 2
     while target.exists():
-        target = directory / f"{today().replace('-', '')}-{slugify(title)}-{suffix}.md"
+        target = directory / f"{timestamp}-{slugify(title)}-{suffix}.md"
         suffix += 1
 
     with memory_lock():
@@ -800,6 +812,7 @@ def record_entry(args: argparse.Namespace) -> None:
                 args.notes,
                 args.steps,
                 args.related,
+                timestamp,
             ),
         )
         update_index_file(entry_type, title, target)

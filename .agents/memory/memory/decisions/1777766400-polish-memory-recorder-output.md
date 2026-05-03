@@ -1,10 +1,10 @@
 ---
-id: decision-20260503-polish-memory-recorder-output
+id: decision-1777766400-polish-memory-recorder-output
 type: decision
 title: Polish memory recorder output
 status: accepted
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, memory, mcp, usability]
 summary: memory_record and agent-basics memory record now support structured fields so generated entries need less manual cleanup.
 ---
@@ -25,4 +25,4 @@ The CLI and MCP server accept structured fields such as rationale, consequences,
 
 ## Related
 
-- memory/decisions/20260503-use-rust-for-the-agent-basics-binary.md
+- memory/decisions/1777766400-use-rust-for-the-agent-basics-binary.md

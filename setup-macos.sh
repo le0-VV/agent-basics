@@ -281,7 +281,8 @@ Generated RAG indexes, vector stores, model caches, and embedding API virtualenv
 - Every entry must be markdown.
 - Every entry must start with YAML front matter.
 - Every entry must have `id`, `type`, `title`, `status`, `created`, `updated`, `tags`, and `summary`.
-- Use ISO dates: `YYYY-MM-DD`.
+- Use Unix timestamp seconds for `created`, `updated`, and event timestamps.
+- Event entries must use `event_timestamp`, not `event_date`.
 - Keep one durable idea per file.
 - Prefer short, searchable headings.
 - Link related entries with relative paths.
@@ -408,12 +409,12 @@ EOT
     template-decision)
       cat > "$template_file" <<'EOT'
 ---
-id: decision-YYYYMMDD-short-name
+id: decision-UNIXTIMESTAMP-short-name
 type: decision
 title: Short decision title
 status: accepted
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
 ---
@@ -440,12 +441,12 @@ EOT
     template-fact)
       cat > "$template_file" <<'EOT'
 ---
-id: fact-YYYYMMDD-short-name
+id: fact-UNIXTIMESTAMP-short-name
 type: fact
 title: Short fact title
 status: active
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
 ---
@@ -468,12 +469,12 @@ EOT
     template-preference)
       cat > "$template_file" <<'EOT'
 ---
-id: preference-YYYYMMDD-short-name
+id: preference-UNIXTIMESTAMP-short-name
 type: preference
 title: Short preference title
 status: active
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
 ---
@@ -496,12 +497,12 @@ EOT
     template-source)
       cat > "$template_file" <<'EOT'
 ---
-id: source-YYYYMMDD-short-name
+id: source-UNIXTIMESTAMP-short-name
 type: source
 title: Documentation source title
 status: active
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
 url: https://example.com
@@ -527,12 +528,12 @@ EOT
     template-procedure)
       cat > "$template_file" <<'EOT'
 ---
-id: procedure-YYYYMMDD-short-name
+id: procedure-UNIXTIMESTAMP-short-name
 type: procedure
 title: Short procedure title
 status: active
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
 ---
@@ -560,12 +561,12 @@ EOT
     template-gotcha)
       cat > "$template_file" <<'EOT'
 ---
-id: gotcha-YYYYMMDD-short-name
+id: gotcha-UNIXTIMESTAMP-short-name
 type: gotcha
 title: Short gotcha title
 status: active
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
 ---
@@ -592,15 +593,15 @@ EOT
     template-event)
       cat > "$template_file" <<'EOT'
 ---
-id: event-YYYYMMDD-short-name
+id: event-UNIXTIMESTAMP-short-name
 type: event
 title: Short event title
 status: recorded
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
-event_date: YYYY-MM-DD
+event_timestamp: UNIX_TIMESTAMP
 ---
 
 # Short event title
@@ -621,12 +622,12 @@ EOT
     agent-basics-preference)
       cat > "$template_file" <<'EOT'
 ---
-id: preference-20260430-markdown-trailing-line
+id: preference-1777507200-markdown-trailing-line
 type: preference
 title: Keep markdown files ending with an empty trailing line
 status: active
-created: 2026-04-30
-updated: 2026-04-30
+created: 1777507200
+updated: 1777507200
 tags: [markdown, formatting]
 summary: Markdown files should end with an empty trailing line.
 ---
@@ -649,12 +650,12 @@ EOT
     agent-basics-decision)
       cat > "$template_file" <<'EOT'
 ---
-id: decision-20260503-repo-local-memory-rag
+id: decision-1777766400-repo-local-memory-rag
 type: decision
 title: Use repo-local structured memory with generated RAG support
 status: accepted
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, memory, rag, embeddings]
 summary: agent-basics keeps memory as repo markdown and uses generated embedding/RAG support for vague recall.
 ---
@@ -688,12 +689,12 @@ EOT
     agent-basics-doc-sources)
       cat > "$template_file" <<'EOT'
 ---
-id: source-20260503-agent-basics-documentation-sources
+id: source-1777766400-agent-basics-documentation-sources
 type: source
 title: agent-basics documentation sources
 status: active
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, bash, git, homebrew, embeddings, mcp, rust]
 summary: Source URLs used by agent-basics setup, packaging, embedding API, Rust binary, and MCP work.
 ---
@@ -712,6 +713,9 @@ summary: Source URLs used by agent-basics setup, packaging, embedding API, Rust 
 - Rust standard library documentation: https://doc.rust-lang.org/std/
 - The Cargo Book: https://doc.rust-lang.org/cargo/
 - LM Studio OpenAI-compatible embeddings API: https://lmstudio.ai/docs/developer/openai-compat/embeddings
+- LM Studio REST API model management: https://lmstudio.ai/docs/developer/rest
+- LM Studio structured output API: https://lmstudio.ai/docs/app/api/structured-output
+- LM Studio `lms load` CLI: https://lmstudio.ai/docs/cli/local-models/load
 - SentenceTransformers documentation: https://sbert.net/
 - FastAPI documentation: https://fastapi.tiangolo.com/
 - MCP 2025-11-25 lifecycle specification: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle
@@ -733,12 +737,12 @@ EOT
     local-embedding-procedure)
       cat > "$template_file" <<'EOT'
 ---
-id: procedure-20260503-local-huggingface-embedding-api
+id: procedure-1777766400-local-huggingface-embedding-api
 type: procedure
 title: Run the repo-local HuggingFace embedding API
 status: active
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [embeddings, huggingface, rag]
 summary: Start the generated local embedding API when agent-basics was configured with a HuggingFace model.
 ---
@@ -768,12 +772,12 @@ EOT
     agent-memory-mcp-procedure)
       cat > "$template_file" <<'EOT'
 ---
-id: procedure-20260503-agent-memory-mcp
+id: procedure-1777766400-agent-memory-mcp
 type: procedure
 title: Use the agent-basics memory MCP server
 status: active
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, memory, rag, mcp]
 summary: Use `agent-basics mcp` or `.agents/memory/rag/memory-mcp.py` as the primary agent-facing memory interface.
 ---
@@ -826,12 +830,12 @@ EOT
     agent-memory-cli-procedure)
       cat > "$template_file" <<'EOT'
 ---
-id: procedure-20260503-agent-memory-cli
+id: procedure-1777766400-agent-memory-cli
 type: procedure
 title: Use the agent-basics memory CLI
 status: active
-created: 2026-05-03
-updated: 2026-05-03
+created: 1777766400
+updated: 1777766400
 tags: [agent-basics, memory, rag, cli]
 summary: Use `agent-basics memory` or `.agents/memory/rag/agent-memory.py` for setup, git hooks, manual recovery, and fallback memory operations.
 ---
@@ -891,7 +895,7 @@ backup_existing_file() {
   local file_path="$1"
   local timestamp
   local backup_name
-  timestamp="$(date +%Y%m%d%H%M%S)"
+  timestamp="$(date +%s)"
   backup_name="${file_path//\//__}.$timestamp.bak"
 
   mkdir -p "$REPO_MEMORY_ROOT/backups"
@@ -995,7 +999,7 @@ manual_merge_file() {
   local editor
   local apply_choice
 
-  merge_file="$REPO_MEMORY_ROOT/merge-sessions/$(basename "$destination_path").$(date +%Y%m%d%H%M%S).md"
+  merge_file="$REPO_MEMORY_ROOT/merge-sessions/$(basename "$destination_path").$(date +%s).md"
   editor="${EDITOR:-vi}"
   mkdir -p "$(dirname "$merge_file")"
 
@@ -1039,7 +1043,7 @@ web_merge_file() {
 
   require_interactive "$destination_path needs an interactive terminal for the web merge UI."
 
-  merge_file="$REPO_MEMORY_ROOT/merge-sessions/$(basename "$destination_path").$(date +%Y%m%d%H%M%S).web.md"
+  merge_file="$REPO_MEMORY_ROOT/merge-sessions/$(basename "$destination_path").$(date +%s).web.md"
   server_script="$(mktemp "${TMPDIR:-/tmp}/agent-basics-web-merge.XXXXXX.py")"
   mkdir -p "$(dirname "$merge_file")"
 
@@ -1422,7 +1426,7 @@ copy_or_merge_markdown_file() {
       backup_existing_file "$destination_path"
       ensure_trailing_blank_line "$destination_path"
       {
-        printf "<!-- agent-basics template appended on %s -->\n\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf "<!-- agent-basics template appended at Unix timestamp %s -->\n\n" "$(date -u +%s)"
         cat "$source_path"
       } >> "$destination_path"
       echo "Appended template: $destination_path"
@@ -1464,23 +1468,23 @@ migrate_legacy_markdown_if_missing() {
   local title="$4"
   local summary="$5"
   local tags="$6"
-  local today
+  local timestamp
 
   if [[ ! -f "$source_path" || -f "$destination_path" ]]; then
     return
   fi
 
-  today="$(date -u +%Y-%m-%d)"
+  timestamp="$(date -u +%s)"
   mkdir -p "$(dirname "$destination_path")"
 
   {
     printf -- "---\n"
-    printf "id: %s-%s-legacy\n" "$entry_type" "$(slugify "$PROJECT_NAME")"
+    printf "id: %s-%s-%s-legacy\n" "$entry_type" "$timestamp" "$(slugify "$PROJECT_NAME")"
     printf "type: %s\n" "$entry_type"
     printf "title: %s\n" "$title"
     printf "status: migrated\n"
-    printf "created: %s\n" "$today"
-    printf "updated: %s\n" "$today"
+    printf "created: %s\n" "$timestamp"
+    printf "updated: %s\n" "$timestamp"
     printf "tags: %s\n" "$tags"
     printf "summary: %s\n" "$summary"
     printf -- "---\n\n"
@@ -1877,7 +1881,7 @@ payload = {
         "embedding_minimum_dimensions": int(minimum_dimensions),
         "hook_auto_rebuild": False,
     },
-    "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "updated": int(datetime.now(timezone.utc).timestamp()),
 }
 
 if service_dir:

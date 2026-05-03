@@ -5,15 +5,17 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 ## Decisions
 
 - [Use repo-local structured memory with generated RAG support](memory/decisions/repo-local-memory-rag.md)
-- [Keep root Agents.md as the agent entrypoint](memory/decisions/20260503-keep-root-agents-md-as-the-agent-entrypoint.md)
-- [Use Rust for the agent-basics binary](memory/decisions/20260503-use-rust-for-the-agent-basics-binary.md)
-- [Retire the agent mailbox](memory/decisions/20260503-retire-the-agent-mailbox.md)
-- [Polish memory recorder output](memory/decisions/20260503-polish-memory-recorder-output.md)
-- [Defer memory rebuilds for routine MCP records](memory/decisions/20260503-defer-memory-rebuilds-for-routine-mcp-records.md)
+- [Keep root Agents.md as the agent entrypoint](memory/decisions/1777766400-keep-root-agents-md-as-the-agent-entrypoint.md)
+- [Use Rust for the agent-basics binary](memory/decisions/1777766400-use-rust-for-the-agent-basics-binary.md)
+- [Retire the agent mailbox](memory/decisions/1777766400-retire-the-agent-mailbox.md)
+- [Polish memory recorder output](memory/decisions/1777766400-polish-memory-recorder-output.md)
+- [Defer memory rebuilds for routine MCP records](memory/decisions/1777766400-defer-memory-rebuilds-for-routine-mcp-records.md)
+- [Make agent-basics an OpenViking-backed repo harness](memory/decisions/1777852800-make-agent-basics-an-openviking-backed-repo-harness.md)
+- [Use Unix timestamps in memory metadata](memory/decisions/1777826593-use-unix-timestamps-in-memory-metadata.md)
 
 ## Facts
 
-- [LM Studio REST API manages model load state](memory/facts/20260503-lm-studio-rest-api-manages-model-load-state.md)
+- [LM Studio REST API manages model load state](memory/facts/1777766400-lm-studio-rest-api-manages-model-load-state.md)
 
 ## Preferences
 
@@ -25,8 +27,8 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 
 ## Events
 
-- [Dogfood sample subagent run](memory/events/20260503-dogfood-sample-subagent-run.md)
-- [Gemma 4 categorization test](memory/events/20260503-gemma-4-categorization-test.md)
+- [Dogfood sample subagent run](memory/events/1777766400-dogfood-sample-subagent-run.md)
+- [Gemma 4 categorization test](memory/events/1777766400-gemma-4-categorization-test.md)
 
 ## Documentation Sources
 

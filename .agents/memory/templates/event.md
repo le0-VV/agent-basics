@@ -1,13 +1,13 @@
 ---
-id: event-YYYYMMDD-short-name
+id: event-UNIXTIMESTAMP-short-name
 type: event
 title: Short event title
 status: recorded
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
-event_date: YYYY-MM-DD
+event_timestamp: UNIX_TIMESTAMP
 ---
 
 # Short event title

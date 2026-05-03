@@ -1,10 +1,10 @@
 ---
-id: procedure-YYYYMMDD-short-name
+id: procedure-UNIXTIMESTAMP-short-name
 type: procedure
 title: Short procedure title
 status: active
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
 ---

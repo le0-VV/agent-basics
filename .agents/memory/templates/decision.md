@@ -1,10 +1,10 @@
 ---
-id: decision-YYYYMMDD-short-name
+id: decision-UNIXTIMESTAMP-short-name
 type: decision
 title: Short decision title
 status: accepted
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
 ---

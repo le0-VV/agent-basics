@@ -1,10 +1,10 @@
 ---
-id: preference-YYYYMMDD-short-name
+id: preference-UNIXTIMESTAMP-short-name
 type: preference
 title: Short preference title
 status: active
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
 tags: []
 summary: One sentence summary.
 ---
