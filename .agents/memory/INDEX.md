@@ -13,7 +13,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 
 ## Facts
 
-- None yet.
+- [LM Studio REST API manages model load state](memory/facts/20260503-lm-studio-rest-api-manages-model-load-state.md)
 
 ## Preferences
 

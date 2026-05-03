@@ -23,6 +23,9 @@ summary: Source URLs used by agent-basics setup, packaging, embedding API, Rust 
 - Rust standard library documentation: https://doc.rust-lang.org/std/
 - The Cargo Book: https://doc.rust-lang.org/cargo/
 - LM Studio OpenAI-compatible embeddings API: https://lmstudio.ai/docs/developer/openai-compat/embeddings
+- LM Studio REST API model management: https://lmstudio.ai/docs/developer/rest
+- LM Studio structured output API: https://lmstudio.ai/docs/app/api/structured-output
+- LM Studio `lms load` CLI: https://lmstudio.ai/docs/cli/local-models/load
 - SentenceTransformers documentation: https://sbert.net/
 - FastAPI documentation: https://fastapi.tiangolo.com/
 - MCP 2025-11-25 lifecycle specification: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle
