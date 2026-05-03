@@ -8,6 +8,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 - [Keep root Agents.md as the agent entrypoint](memory/decisions/20260503-keep-root-agents-md-as-the-agent-entrypoint.md)
 - [Use Rust for the agent-basics binary](memory/decisions/20260503-use-rust-for-the-agent-basics-binary.md)
 - [Retire the agent mailbox](memory/decisions/20260503-retire-the-agent-mailbox.md)
+- [Polish memory recorder output](memory/decisions/20260503-polish-memory-recorder-output.md)
 
 ## Facts
 

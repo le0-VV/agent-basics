@@ -786,8 +786,9 @@ Use this whenever an MCP-capable agent needs to retrieve prior project context, 
 2. If the systemwide command is unavailable, configure the client to run the absolute repo-local `.agents/memory/rag/memory-mcp.py` path from the repository root.
 3. Call `memory_search` before answering requests that depend on prior project context.
 4. Call `memory_record` when the user asks to remember something or when a durable decision, fact, preference, gotcha, event, source, or procedure should be preserved.
-5. Call `memory_validate` before committing memory changes.
-6. Call `memory_doctor` to inspect layout, config, index freshness, and embedding endpoint health.
+5. Pass structured fields such as `rationale`, `consequences`, `notes`, `steps`, and `related` when they apply, so the recorder can generate polished markdown without manual edits.
+6. Call `memory_validate` before committing memory changes.
+7. Call `memory_doctor` to inspect layout, config, index freshness, and embedding endpoint health.
 
 ## Codex Desktop Configuration
 
@@ -841,7 +842,8 @@ Use this when installing git hooks, running setup, repairing memory manually, or
 2. Run `agent-basics memory rebuild` after memory or documentation entries change.
 3. Run `agent-basics memory search "<query>"` only as a fallback when MCP `memory_search` is unavailable.
 4. Run `agent-basics memory record <type> <title> --content "<content>"` only as a fallback when MCP `memory_record` is unavailable.
-5. Run `agent-basics memory install-hooks` to install local git hooks in a repo.
+5. Prefer structured fields such as `--rationale`, `--consequences`, `--notes`, `--steps`, and `--related` instead of patching generated memory markdown by hand.
+6. Run `agent-basics memory install-hooks` to install local git hooks in a repo.
 
 ## Verification
 

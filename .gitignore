@@ -8,6 +8,8 @@
 .agents/memory/rag/embedding-api/venv/
 .agents/memory/rag/embedding-api/models/
 target/
+__pycache__/
+*.py[cod]
 .vscode
 .DS_Store
 ._*

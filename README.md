@@ -149,7 +149,7 @@ For Codex Desktop custom MCP setup:
 Available tools:
 
 - `memory_search`: search prior project context with hybrid embeddings and full-text retrieval.
-- `memory_record`: record durable memories and rebuild the index.
+- `memory_record`: record durable memories with structured fields and rebuild the index.
 - `memory_doctor`: inspect layout, config, index freshness, and embedding endpoint health.
 - `memory_rebuild`: rebuild the generated SQLite RAG index.
 - `memory_validate`: validate memory layout and front matter.
@@ -164,7 +164,9 @@ Common commands:
 agent-basics memory validate
 agent-basics memory rebuild
 agent-basics memory search "what did we decide about memory?"
-agent-basics memory record decision "Use repo-local memory" --content "Markdown remains source of truth."
+agent-basics memory record decision "Use repo-local memory" \
+  --content "Markdown remains source of truth." \
+  --rationale "Agents need predictable repo-local context."
 agent-basics memory doctor --online
 ```
 

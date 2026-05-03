@@ -114,9 +114,15 @@ def read_text(path: Path) -> str:
 
 def write_text(path: Path, value: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if value and not value.endswith("\n\n"):
-        value = value.rstrip("\n") + "\n\n"
+    if value and not value.endswith("\n"):
+        value = value.rstrip("\n") + "\n"
     path.write_text(value, encoding="utf-8")
+
+
+def write_index_text(value: str) -> None:
+    index_path = MEMORY_ROOT / "INDEX.md"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(value.rstrip("\n") + "\n", encoding="utf-8")
 
 
 def read_json(path: Path, default: Any = None) -> Any:
@@ -651,20 +657,59 @@ def update_index_file(entry_type: str, title: str, path: Path) -> None:
     heading = f"## {section}"
     position = text.find(heading)
     if position == -1:
-        write_text(index_path, text.rstrip() + f"\n\n{heading}\n\n{link}\n")
+        write_index_text(text.rstrip() + f"\n\n{heading}\n\n{link}\n")
         return
     next_heading = text.find("\n## ", position + len(heading))
     section_end = len(text) if next_heading == -1 else next_heading
-    before = text[:section_end].rstrip()
-    after = text[section_end:]
-    if "- None yet." in before[position:]:
-        before = before[:position] + before[position:].replace("- None yet.", link, 1)
+    before_section = text[:position]
+    section_text = text[position:section_end].rstrip()
+    after_section = text[section_end:]
+    if "- None yet." in section_text:
+        section_text = section_text.replace("- None yet.", link, 1)
     else:
-        before = before + "\n" + link
-    write_text(index_path, before + "\n" + after.lstrip("\n"))
+        section_text = section_text + "\n" + link
+    separator = "\n\n" if after_section.strip() else "\n"
+    write_index_text(before_section + section_text + separator + after_section.lstrip("\n"))
 
 
-def render_entry(entry_type: str, title: str, summary: str, tags: str, status: str, content: str, source_url: str) -> str:
+def clean_block(value: str | None) -> str:
+    return (value or "").strip()
+
+
+def add_section(lines: list[str], heading: str, body: str | None) -> None:
+    body = clean_block(body)
+    if not body:
+        return
+    lines.extend(["", f"## {heading}", "", body])
+
+
+def render_related(related: str | None) -> list[str]:
+    lines = ["", "## Related", ""]
+    related = clean_block(related)
+    if not related:
+        return lines + ["- None."]
+    items = [
+        item.strip().removeprefix("-").strip()
+        for item in re.split(r"[\n,]+", related)
+        if item.strip()
+    ]
+    return lines + [f"- {item}" for item in items]
+
+
+def render_entry(
+    entry_type: str,
+    title: str,
+    summary: str,
+    tags: str,
+    status: str,
+    content: str,
+    source_url: str,
+    rationale: str | None = None,
+    consequences: str | None = None,
+    notes: str | None = None,
+    steps: str | None = None,
+    related: str | None = None,
+) -> str:
     current_date = today()
     entry_id = f"{entry_type}-{current_date.replace('-', '')}-{slugify(title)}"
     frontmatter = [
@@ -684,17 +729,33 @@ def render_entry(entry_type: str, title: str, summary: str, tags: str, status: s
         frontmatter.append(f"event_date: {current_date}")
     frontmatter.append("---")
 
-    section = {
-        "decision": "## Decision",
-        "fact": "## Fact",
-        "preference": "## Preference",
-        "gotcha": "## Problem",
-        "event": "## Event",
-        "source": "## Notes",
-        "procedure": "## Steps",
-    }[entry_type]
-
-    lines = frontmatter + ["", f"# {title}", "", section, "", content.strip() or summary, "", "## Related", "", "- None."]
+    main = content.strip() or summary
+    lines = frontmatter + ["", f"# {title}"]
+    if entry_type == "decision":
+        add_section(lines, "Decision", main)
+        add_section(lines, "Rationale", rationale)
+        add_section(lines, "Consequences", consequences)
+    elif entry_type == "fact":
+        add_section(lines, "Fact", main)
+        add_section(lines, "Notes", notes)
+    elif entry_type == "preference":
+        add_section(lines, "Preference", main)
+        add_section(lines, "Rationale", rationale)
+    elif entry_type == "gotcha":
+        add_section(lines, "Problem", main)
+        add_section(lines, "Workaround", notes)
+        add_section(lines, "Impact", consequences)
+    elif entry_type == "event":
+        add_section(lines, "Event", main)
+        add_section(lines, "Notes", notes)
+    elif entry_type == "source":
+        if source_url:
+            add_section(lines, "Source", f"- URL: {source_url}")
+        add_section(lines, "Notes", notes or main)
+    elif entry_type == "procedure":
+        add_section(lines, "Steps", steps or main)
+        add_section(lines, "Notes", notes)
+    lines.extend(render_related(related))
     return "\n".join(lines) + "\n"
 
 
@@ -717,7 +778,23 @@ def record_entry(args: argparse.Namespace) -> None:
         suffix += 1
 
     with memory_lock():
-        write_text(target, render_entry(entry_type, title, summary, args.tags, status, content, args.url or ""))
+        write_text(
+            target,
+            render_entry(
+                entry_type,
+                title,
+                summary,
+                args.tags,
+                status,
+                content,
+                args.url or "",
+                args.rationale,
+                args.consequences,
+                args.notes,
+                args.steps,
+                args.related,
+            ),
+        )
         update_index_file(entry_type, title, target)
         print(f"Recorded {entry_type}: {relpath(target)}")
         if not args.no_rebuild:
@@ -881,6 +958,11 @@ def build_parser() -> argparse.ArgumentParser:
     record_parser.add_argument("--status")
     record_parser.add_argument("--content")
     record_parser.add_argument("--url")
+    record_parser.add_argument("--rationale")
+    record_parser.add_argument("--consequences")
+    record_parser.add_argument("--notes")
+    record_parser.add_argument("--steps")
+    record_parser.add_argument("--related")
     record_parser.add_argument("--no-rebuild", action="store_true")
     record_parser.set_defaults(func=command_record)
 

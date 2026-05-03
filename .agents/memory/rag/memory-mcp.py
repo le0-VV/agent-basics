@@ -71,6 +71,11 @@ TOOLS: list[dict[str, Any]] = [
                 "title": {"type": "string"},
                 "content": {"type": "string"},
                 "summary": {"type": "string"},
+                "rationale": {"type": "string"},
+                "consequences": {"type": "string"},
+                "notes": {"type": "string"},
+                "steps": {"type": "string"},
+                "related": {"type": "string"},
                 "tags": {
                     "oneOf": [
                         {"type": "string"},
@@ -266,7 +271,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         title = require_string(arguments, "title")
         content = require_string(arguments, "content")
         args = ["record", entry_type, title, "--content", content, "--tags", tags_argument(arguments)]
-        for option in ["summary", "status", "url"]:
+        for option in ["summary", "status", "url", "rationale", "consequences", "notes", "steps", "related"]:
             value = optional_string(arguments, option)
             if value is not None:
                 args.extend([f"--{option.replace('_', '-')}", value])
