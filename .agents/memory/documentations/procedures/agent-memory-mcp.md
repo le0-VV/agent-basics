@@ -23,6 +23,25 @@ Use this whenever an MCP-capable agent needs to retrieve prior project context, 
 4. Call `memory_validate` before committing memory changes.
 5. Call `memory_doctor` to inspect layout, config, index freshness, and embedding endpoint health.
 
+## Codex Desktop Configuration
+
+In Settings -> MCP servers -> Connect to a custom MCP, use these fields:
+
+- Name: `agent-basics-memory`
+- Transport: `STDIO`
+- Command to launch: absolute path to `.agents/memory/rag/memory-mcp.py`
+- Arguments: none
+- Environment variables: leave blank unless `.agents/memory/rag/config.json` names an API key variable in `embedding.api_key_env`
+- Environment variable passthrough: same API key variable only when needed
+- Working directory: absolute path to the repository root
+
+For this repository:
+
+- Command to launch: `/Users/leonardw/Projects/agent-basics/.agents/memory/rag/memory-mcp.py`
+- Working directory: `/Users/leonardw/Projects/agent-basics`
+
+Keep this guidance in agent-basics docs and memory procedures. Do not rely on a separate `Skills.md` for baseline setup because skills are optional client-side additions, while repo-local memory MCP setup is part of the agent-basics contract.
+
 ## Verification
 
 Send `initialize`, `tools/list`, and a `tools/call` request for `memory_doctor`. The server should return the `memory_search`, `memory_record`, `memory_doctor`, `memory_rebuild`, and `memory_validate` tools.

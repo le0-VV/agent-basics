@@ -105,6 +105,16 @@ Setup installs `.agents/memory/rag/memory-mcp.py` into each project. Configure M
 }
 ```
 
+For Codex Desktop custom MCP setup:
+
+- Name: `agent-basics-memory`
+- Transport: `STDIO`
+- Command to launch: absolute path to `.agents/memory/rag/memory-mcp.py`
+- Arguments: none
+- Environment variables: leave blank unless `config.json` names an API key variable
+- Environment variable passthrough: same API key variable only when needed
+- Working directory: absolute path to the repository root
+
 Available tools:
 
 - `memory_search`: search prior project context with hybrid embeddings and full-text retrieval.

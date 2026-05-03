@@ -43,6 +43,20 @@ Configure capable agents to run the repo-local MCP server:
 }
 ```
 
+For Codex Desktop custom MCP setup, guide the user to Settings -> MCP servers -> Connect to a custom MCP and use:
+
+- Name: `agent-basics-memory`
+- Transport: `STDIO`
+- Command to launch: absolute path to `.agents/memory/rag/memory-mcp.py`
+- Arguments: none
+- Environment variables: only add the embedding API key variable if `.agents/memory/rag/config.json` names one in `embedding.api_key_env`
+- Environment variable passthrough: the same API key variable, only when needed
+- Working directory: absolute path to the repository root
+
+For this repository, the command is `/Users/leonardw/Projects/agent-basics/.agents/memory/rag/memory-mcp.py` and the working directory is `/Users/leonardw/Projects/agent-basics`.
+
+Keep MCP configuration guidance in this operating manual and memory procedures. Do not rely on a separate `Skills.md` for baseline agent-basics behavior because skills are optional client-side additions, while MCP memory setup is part of the repo contract.
+
 Available MCP tools:
 
 - `memory_search`: run hybrid embedding and full-text retrieval.

@@ -175,6 +175,20 @@ Configure capable agents to run the repo-local MCP server:
 }
 ```
 
+For Codex Desktop custom MCP setup, guide the user to Settings -> MCP servers -> Connect to a custom MCP and use:
+
+- Name: `agent-basics-memory`
+- Transport: `STDIO`
+- Command to launch: absolute path to `.agents/memory/rag/memory-mcp.py`
+- Arguments: none
+- Environment variables: only add the embedding API key variable if `.agents/memory/rag/config.json` names one in `embedding.api_key_env`
+- Environment variable passthrough: the same API key variable, only when needed
+- Working directory: absolute path to the repository root
+
+For a target repository, replace those paths with that repository's absolute `.agents/memory/rag/memory-mcp.py` path and repository root.
+
+Keep MCP configuration guidance in this operating manual and memory procedures. Do not rely on a separate `Skills.md` for baseline agent-basics behavior because skills are optional client-side additions, while MCP memory setup is part of the repo contract.
+
 Available MCP tools:
 
 - `memory_search`: run hybrid embedding and full-text retrieval.
@@ -767,6 +781,22 @@ Use this whenever an MCP-capable agent needs to retrieve prior project context, 
 3. Call `memory_record` when the user asks to remember something or when a durable decision, fact, preference, gotcha, event, source, or procedure should be preserved.
 4. Call `memory_validate` before committing memory changes.
 5. Call `memory_doctor` to inspect layout, config, index freshness, and embedding endpoint health.
+
+## Codex Desktop Configuration
+
+In Settings -> MCP servers -> Connect to a custom MCP, use these fields:
+
+- Name: `agent-basics-memory`
+- Transport: `STDIO`
+- Command to launch: absolute path to `.agents/memory/rag/memory-mcp.py`
+- Arguments: none
+- Environment variables: leave blank unless `.agents/memory/rag/config.json` names an API key variable in `embedding.api_key_env`
+- Environment variable passthrough: same API key variable only when needed
+- Working directory: absolute path to the repository root
+
+For a target repository, replace those paths with that repository's absolute `.agents/memory/rag/memory-mcp.py` path and repository root.
+
+Keep this guidance in agent-basics docs and memory procedures. Do not rely on a separate `Skills.md` for baseline setup because skills are optional client-side additions, while repo-local memory MCP setup is part of the agent-basics contract.
 
 ## Verification
 
@@ -2224,4 +2254,11 @@ RAG config:
 
 Memory MCP server:
   .agents/memory/rag/memory-mcp.py
+
+Codex Desktop custom MCP fields:
+  Name: agent-basics-memory
+  Transport: STDIO
+  Command to launch: $TARGET_DIR/.agents/memory/rag/memory-mcp.py
+  Working directory: $TARGET_DIR
+  Arguments: none
 EOT
