@@ -8,8 +8,10 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 - Treat markdown under `.agents/memory/` as source of truth. Treat RAG indexes, vector databases, model caches, and embedding API runtime files as generated retrieval support.
 - Read `.agents/memory/SCHEMA.md` before creating or changing memory files.
 - Use `.agents/memory/templates/` when recording new entries.
-- Search `.agents/memory/INDEX.md`, then the project memory RAG, whenever the user refers to previous work, preferences, prior conversations, vague project context, or decisions not visible in the current chat.
-- Use an MCP memory server first when one is configured. Until then, use `.agents/memory/rag/agent-memory.py search "<query>"`.
+- Use the repo-local memory MCP server as the primary interface for memory retrieval and recording.
+- Call `memory_search` whenever the user refers to previous work, preferences, prior conversations, vague project context, or decisions not visible in the current chat.
+- Call `memory_record` for durable decisions, facts, preferences, gotchas, events, documentation sources, and procedures.
+- If MCP is unavailable, search `.agents/memory/INDEX.md` and use `.agents/memory/rag/agent-memory.py` as the fallback.
 - Store durable memories under `.agents/memory/memory/`.
 - Store documentation sources, procedures, and references under `.agents/memory/documentations/`.
 - Record source URLs for external libraries, tools, APIs, frameworks, and standards under `.agents/memory/documentations/sources/`.
@@ -24,11 +26,34 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 - Never commit raw embedding provider secret values. Store only the environment variable name, such as `AGENT_BASICS_EMBEDDING_API_KEY`.
 - `runtime.embedding_timeout_seconds: 0` means wait indefinitely for local embedding API validation and RAG embedding calls.
 - `runtime.embedding_minimum_dimensions` defaults to `64` and rejects embedding models that are too small for useful retrieval.
-- Validate the embedding setup after installation by calling the configured `/v1/embeddings` endpoint or by running `.agents/memory/rag/agent-memory.py doctor --online`.
+- Validate the embedding setup after installation through `memory_doctor` with `online: true`, or by running `.agents/memory/rag/agent-memory.py doctor --online` when MCP is unavailable.
+
+## Memory MCP
+
+Configure capable agents to run the repo-local MCP server:
+
+```json
+{
+  "mcpServers": {
+    "agent-basics-memory": {
+      "command": ".agents/memory/rag/memory-mcp.py",
+      "cwd": "."
+    }
+  }
+}
+```
+
+Available MCP tools:
+
+- `memory_search`: run hybrid embedding and full-text retrieval.
+- `memory_record`: create a structured memory entry, update `INDEX.md`, and rebuild the index.
+- `memory_doctor`: report layout, config, manifest, index, and embedding endpoint health.
+- `memory_rebuild`: rebuild the generated SQLite RAG cache.
+- `memory_validate`: check layout and front matter.
 
 ## Memory CLI
 
-Use `.agents/memory/rag/agent-memory.py` for repo-local memory operations:
+Use `.agents/memory/rag/agent-memory.py` for setup, git hooks, manual recovery, and fallback operations when MCP is not available:
 
 - `validate`: check layout and front matter.
 - `rebuild`: rebuild the generated SQLite RAG cache.

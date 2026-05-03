@@ -7,6 +7,7 @@ class AgentBasics < Formula
   def install
     libexec.install "setup-macos.sh"
     libexec.install ".agents/memory/rag/agent-memory.py"
+    libexec.install ".agents/memory/rag/memory-mcp.py"
 
     (bin/"agent-basics").write <<~EOS
       #!/usr/bin/env bash
@@ -93,6 +94,7 @@ class AgentBasics < Formula
     assert_predicate project_dir/".agents/memory/INDEX.md", :exist?
     assert_predicate project_dir/".agents/memory/rag/config.json", :exist?
     assert_predicate project_dir/".agents/memory/rag/agent-memory.py", :exist?
+    assert_predicate project_dir/".agents/memory/rag/memory-mcp.py", :exist?
     assert_predicate project_dir/".agents/memory/rag/index.sqlite", :exist?
     assert_predicate project_dir/".git/hooks/pre-commit", :exist?
     assert_predicate project_dir/"Agents.md", :exist?

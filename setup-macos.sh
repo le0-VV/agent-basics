@@ -92,8 +92,8 @@ create_template_file() {
 ## Memory First
 
 - Use `.agents/memory/` as the canonical project memory and documentation source.
-- Before answering a request that may depend on prior project context, search `.agents/memory/INDEX.md` and the memory RAG.
-- Anything the user asks you to remember must be recorded under `.agents/memory/memory/` using the appropriate template.
+- Before answering a request that may depend on prior project context, call the memory MCP server's `memory_search` tool. If MCP is unavailable, search `.agents/memory/INDEX.md` and use `.agents/memory/rag/agent-memory.py search "<query>"` as a fallback.
+- Anything the user asks you to remember must be recorded with the memory MCP server's `memory_record` tool. If MCP is unavailable, record it under `.agents/memory/memory/` using the appropriate template or `.agents/memory/rag/agent-memory.py record`.
 - Do not edit `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists.
 - If you add, move, or remove memory/documentation files, keep `.agents/memory/INDEX.md` current and rebuild or validate the memory index.
 
@@ -140,8 +140,10 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 - Treat markdown under `.agents/memory/` as source of truth. Treat RAG indexes, vector databases, and embedding API runtime files as generated retrieval support.
 - Read `.agents/memory/SCHEMA.md` before creating or changing memory files.
 - Use `.agents/memory/templates/` when recording new entries.
-- Search `.agents/memory/INDEX.md`, then the project memory RAG, whenever the user refers to previous work, preferences, prior conversations, vague project context, or decisions not visible in the current chat.
-- Use an MCP memory server first when one is configured. Until then, use `.agents/memory/rag/agent-memory.py search "<query>"`.
+- Use the repo-local memory MCP server as the primary interface for memory retrieval and recording.
+- Call `memory_search` whenever the user refers to previous work, preferences, prior conversations, vague project context, or decisions not visible in the current chat.
+- Call `memory_record` for durable decisions, facts, preferences, gotchas, events, documentation sources, and procedures.
+- If MCP is unavailable, search `.agents/memory/INDEX.md` and use `.agents/memory/rag/agent-memory.py` as the fallback.
 - Store durable memories under `.agents/memory/memory/`.
 - Store documentation sources, procedures, and references under `.agents/memory/documentations/`.
 - Record source URLs for external libraries, tools, APIs, frameworks, and standards under `.agents/memory/documentations/sources/`.
@@ -156,11 +158,34 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 - Never commit raw embedding provider secret values. Store only the environment variable name, such as `AGENT_BASICS_EMBEDDING_API_KEY`.
 - `runtime.embedding_timeout_seconds: 0` means wait indefinitely for local embedding API validation and RAG embedding calls.
 - `runtime.embedding_minimum_dimensions` defaults to `64` and rejects embedding models that are too small for useful retrieval.
-- Validate the embedding setup after installation by calling the configured `/v1/embeddings` endpoint or by running `.agents/memory/rag/agent-memory.py doctor --online`.
+- Validate the embedding setup after installation through `memory_doctor` with `online: true`, or by running `.agents/memory/rag/agent-memory.py doctor --online` when MCP is unavailable.
+
+## Memory MCP
+
+Configure capable agents to run the repo-local MCP server:
+
+```json
+{
+  "mcpServers": {
+    "agent-basics-memory": {
+      "command": ".agents/memory/rag/memory-mcp.py",
+      "cwd": "."
+    }
+  }
+}
+```
+
+Available MCP tools:
+
+- `memory_search`: run hybrid embedding and full-text retrieval.
+- `memory_record`: create a structured memory entry, update `INDEX.md`, and rebuild the index.
+- `memory_doctor`: report layout, config, manifest, index, and embedding endpoint health.
+- `memory_rebuild`: rebuild the generated SQLite RAG cache.
+- `memory_validate`: check layout and front matter.
 
 ## Memory CLI
 
-Use `.agents/memory/rag/agent-memory.py` for repo-local memory operations:
+Use `.agents/memory/rag/agent-memory.py` for setup, git hooks, manual recovery, and fallback operations when MCP is not available:
 
 - `validate`: check layout and front matter.
 - `rebuild`: rebuild the generated SQLite RAG cache.
@@ -223,6 +248,7 @@ Generated RAG indexes, vector stores, model caches, and embedding API virtualenv
     references/
   rag/
     agent-memory.py
+    memory-mcp.py
     config.json
     index.sqlite
     manifest.json
@@ -260,9 +286,23 @@ Generated RAG indexes, vector stores, model caches, and embedding API virtualenv
 - Indexers must remove it only after the generated index is consistent with source markdown.
 - If the lock is stale because a process crashed, use a deliberate repair command rather than deleting it opportunistically.
 
+## Memory MCP
+
+`.agents/memory/rag/memory-mcp.py` is the primary agent-facing interface for repo-local memory.
+
+Supported tools:
+
+- `memory_search`: run hybrid embedding and full-text retrieval.
+- `memory_record`: create a structured memory entry, update `INDEX.md`, and rebuild the index.
+- `memory_doctor`: report layout, config, manifest, index, and optional embedding endpoint health.
+- `memory_rebuild`: rebuild the generated SQLite RAG cache.
+- `memory_validate`: check layout and entry front matter.
+
+Agents should prefer MCP tools over direct CLI calls whenever an MCP client is available.
+
 ## Memory CLI
 
-`.agents/memory/rag/agent-memory.py` is the project-local memory manager generated by setup.
+`.agents/memory/rag/agent-memory.py` is the project-local memory manager generated by setup for hooks, setup, fallback use, and MCP implementation support.
 
 Supported commands:
 
@@ -334,6 +374,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 
 ## Procedures
 
+- [Use the agent-basics memory MCP server](documentations/procedures/agent-memory-mcp.md)
 - [Use the agent-basics memory CLI](documentations/procedures/agent-memory-cli.md)
 - [Run the repo-local HuggingFace embedding API](documentations/procedures/local-huggingface-embedding-api.md)
 
@@ -631,8 +672,8 @@ title: agent-basics documentation sources
 status: active
 created: 2026-05-03
 updated: 2026-05-03
-tags: [agent-basics, bash, git, homebrew, embeddings]
-summary: Source URLs used by agent-basics setup, packaging, and embedding API work.
+tags: [agent-basics, bash, git, homebrew, embeddings, mcp]
+summary: Source URLs used by agent-basics setup, packaging, embedding API, and MCP work.
 ---
 
 # agent-basics documentation sources
@@ -649,6 +690,10 @@ summary: Source URLs used by agent-basics setup, packaging, and embedding API wo
 - LM Studio OpenAI-compatible embeddings API: https://lmstudio.ai/docs/developer/openai-compat/embeddings
 - SentenceTransformers documentation: https://sbert.net/
 - FastAPI documentation: https://fastapi.tiangolo.com/
+- MCP 2025-11-25 lifecycle specification: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle
+- MCP 2025-11-25 tools specification: https://modelcontextprotocol.io/specification/2025-11-25/server/tools
+- MCP 2025-06-18 stdio transport specification: https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
+- MCP 2025-06-18 schema reference: https://modelcontextprotocol.io/specification/2025-06-18/schema
 
 ## Notes
 
@@ -657,6 +702,7 @@ Record additional source URLs here when setup behavior, local embedding service 
 ## Related
 
 - `.agents/memory/SCHEMA.md`
+- `.agents/memory/documentations/procedures/agent-memory-mcp.md`
 - `.agents/memory/documentations/procedures/local-huggingface-embedding-api.md`
 EOT
       ;;
@@ -695,6 +741,44 @@ Call `/health`, `/v1/models`, or `/v1/embeddings` on the local service.
 - `.agents/memory/rag/embedding-api/README.md`
 EOT
       ;;
+    agent-memory-mcp-procedure)
+      cat > "$template_file" <<'EOT'
+---
+id: procedure-20260503-agent-memory-mcp
+type: procedure
+title: Use the agent-basics memory MCP server
+status: active
+created: 2026-05-03
+updated: 2026-05-03
+tags: [agent-basics, memory, rag, mcp]
+summary: Use `.agents/memory/rag/memory-mcp.py` as the primary agent-facing memory interface.
+---
+
+# Use the agent-basics memory MCP server
+
+## When To Use
+
+Use this whenever an MCP-capable agent needs to retrieve prior project context, record durable memory, validate memory, rebuild the generated RAG index, or check memory health.
+
+## Steps
+
+1. Configure the agent's MCP client to run `.agents/memory/rag/memory-mcp.py` from the repository root.
+2. Call `memory_search` before answering requests that depend on prior project context.
+3. Call `memory_record` when the user asks to remember something or when a durable decision, fact, preference, gotcha, event, source, or procedure should be preserved.
+4. Call `memory_validate` before committing memory changes.
+5. Call `memory_doctor` to inspect layout, config, index freshness, and embedding endpoint health.
+
+## Verification
+
+Send `initialize`, `tools/list`, and a `tools/call` request for `memory_doctor`. The server should return the `memory_search`, `memory_record`, `memory_doctor`, `memory_rebuild`, and `memory_validate` tools.
+
+## Related
+
+- `.agents/memory/rag/memory-mcp.py`
+- `.agents/memory/rag/agent-memory.py`
+- `.agents/memory/SCHEMA.md`
+EOT
+      ;;
     agent-memory-cli-procedure)
       cat > "$template_file" <<'EOT'
 ---
@@ -705,21 +789,21 @@ status: active
 created: 2026-05-03
 updated: 2026-05-03
 tags: [agent-basics, memory, rag, cli]
-summary: Use `.agents/memory/rag/agent-memory.py` to validate, rebuild, search, record, and install hooks for repo-local memory.
+summary: Use `.agents/memory/rag/agent-memory.py` for setup, git hooks, manual recovery, and fallback memory operations.
 ---
 
 # Use the agent-basics memory CLI
 
 ## When To Use
 
-Use this whenever an agent needs to validate memory files, rebuild the generated RAG index, search prior context, or record a new structured entry.
+Use this when installing git hooks, running setup, repairing memory manually, or when the memory MCP server is unavailable.
 
 ## Steps
 
 1. Run `.agents/memory/rag/agent-memory.py validate` before committing memory changes.
 2. Run `.agents/memory/rag/agent-memory.py rebuild` after memory or documentation entries change.
-3. Run `.agents/memory/rag/agent-memory.py search "<query>"` when the user refers to vague or previous context.
-4. Run `.agents/memory/rag/agent-memory.py record <type> <title> --content "<content>"` to create a structured entry and rebuild the index.
+3. Run `.agents/memory/rag/agent-memory.py search "<query>"` only as a fallback when MCP `memory_search` is unavailable.
+4. Run `.agents/memory/rag/agent-memory.py record <type> <title> --content "<content>"` only as a fallback when MCP `memory_record` is unavailable.
 5. Run `.agents/memory/rag/agent-memory.py install-hooks` to install local git hooks in a repo.
 
 ## Verification
@@ -730,6 +814,7 @@ Run `.agents/memory/rag/agent-memory.py doctor` to check layout, config, manifes
 
 - `.agents/memory/SCHEMA.md`
 - `.agents/memory/rag/agent-memory.py`
+- `.agents/memory/rag/memory-mcp.py`
 EOT
       ;;
     *)
@@ -1378,14 +1463,42 @@ find_memory_tool_source() {
   return 1
 }
 
+find_memory_mcp_source() {
+  local candidate
+  local -a candidates
+
+  candidates=(
+    "$SCRIPT_DIR/memory-mcp.py"
+    "$SCRIPT_DIR/.agents/memory/rag/memory-mcp.py"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      printf "%s\n" "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 write_memory_tool_files() {
   local source_path
+  local mcp_source_path
   local source_abs
+  local mcp_source_abs
   local target_path
+  local mcp_target_path
   local target_abs
+  local mcp_target_abs
 
   if ! source_path="$(find_memory_tool_source)"; then
     echo "Error: bundled agent-memory.py was not found next to setup-macos.sh." >&2
+    echo "Run setup from the full agent-basics checkout or install through the Homebrew formula." >&2
+    exit 1
+  fi
+  if ! mcp_source_path="$(find_memory_mcp_source)"; then
+    echo "Error: bundled memory-mcp.py was not found next to setup-macos.sh." >&2
     echo "Run setup from the full agent-basics checkout or install through the Homebrew formula." >&2
     exit 1
   fi
@@ -1399,6 +1512,15 @@ write_memory_tool_files() {
   fi
   chmod 0755 "$target_path"
   echo "Installed memory CLI: .agents/memory/rag/agent-memory.py"
+
+  mcp_target_path="$RAG_DIR/memory-mcp.py"
+  mcp_source_abs="$(cd "$(dirname "$mcp_source_path")" && pwd -P)/$(basename "$mcp_source_path")"
+  mcp_target_abs="$(cd "$(dirname "$mcp_target_path")" && pwd -P)/$(basename "$mcp_target_path")"
+  if [[ "$mcp_source_abs" != "$mcp_target_abs" ]]; then
+    cp "$mcp_source_path" "$mcp_target_path"
+  fi
+  chmod 0755 "$mcp_target_path"
+  echo "Installed memory MCP server: .agents/memory/rag/memory-mcp.py"
 }
 
 write_embedding_api_files() {
@@ -2040,6 +2162,7 @@ copy_memory_template_if_missing "template-event" ".agents/memory/templates/event
 copy_memory_template_if_missing "agent-basics-preference" ".agents/memory/memory/preferences/agent-basics.md"
 copy_memory_template_if_missing "agent-basics-decision" ".agents/memory/memory/decisions/repo-local-memory-rag.md"
 copy_memory_template_if_missing "agent-basics-doc-sources" ".agents/memory/documentations/sources/agent-basics.md"
+copy_memory_template_if_missing "agent-memory-mcp-procedure" ".agents/memory/documentations/procedures/agent-memory-mcp.md"
 copy_memory_template_if_missing "agent-memory-cli-procedure" ".agents/memory/documentations/procedures/agent-memory-cli.md"
 copy_memory_template_if_missing "local-embedding-procedure" ".agents/memory/documentations/procedures/local-huggingface-embedding-api.md"
 create_empty_file_if_missing ".agents/memory/memory/facts/.gitkeep"
@@ -2098,4 +2221,7 @@ Memory source:
 
 RAG config:
   .agents/memory/rag/config.json
+
+Memory MCP server:
+  .agents/memory/rag/memory-mcp.py
 EOT

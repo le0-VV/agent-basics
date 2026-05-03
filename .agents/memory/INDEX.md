@@ -30,6 +30,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 
 ## Procedures
 
+- [Use the agent-basics memory MCP server](documentations/procedures/agent-memory-mcp.md)
 - [Use the agent-basics memory CLI](documentations/procedures/agent-memory-cli.md)
 - [Run the repo-local HuggingFace embedding API](documentations/procedures/local-huggingface-embedding-api.md)
 

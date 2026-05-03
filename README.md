@@ -38,6 +38,7 @@ The command checks for the existence of, and if needed adds, the following struc
 │       │   └── references
 │       └── rag
 │           ├── agent-memory.py
+│           ├── memory-mcp.py
 │           ├── config.json
 │           ├── index.sqlite
 │           └── manifest.json
@@ -45,7 +46,7 @@ The command checks for the existence of, and if needed adds, the following struc
 └── Agents.md
 ```
 
-Markdown under `.agents/memory/` is the source of truth. RAG indexes, vector stores, model caches, and embedding API virtualenvs are generated support state.
+Markdown under `.agents/memory/` is the source of truth. RAG indexes, vector stores, model caches, and embedding API virtualenvs are generated support state. Agents should use the repo-local MCP server for memory access and use the CLI only for setup, hooks, manual recovery, or MCP fallback.
 
 If legacy `.agents/DOCUMENTATIONS.md` or `.agents/MEMORY.md` files exist, setup copies their content into `.agents/memory/` migration entries without deleting the original files.
 
@@ -89,9 +90,32 @@ The script writes root `Agents.md`, `.agents/AGENT-BASICS.md`, `.agents/memory/S
 
 For `.gitignore`, the script is non-interactive: it appends transient memory/RAG paths only when missing.
 
+## Memory MCP
+
+Setup installs `.agents/memory/rag/memory-mcp.py` into each project. Configure MCP-capable agents with the repository root as `cwd`:
+
+```json
+{
+  "mcpServers": {
+    "agent-basics-memory": {
+      "command": ".agents/memory/rag/memory-mcp.py",
+      "cwd": "/path/to/project"
+    }
+  }
+}
+```
+
+Available tools:
+
+- `memory_search`: search prior project context with hybrid embeddings and full-text retrieval.
+- `memory_record`: record durable memories and rebuild the index.
+- `memory_doctor`: inspect layout, config, index freshness, and embedding endpoint health.
+- `memory_rebuild`: rebuild the generated SQLite RAG index.
+- `memory_validate`: validate memory layout and front matter.
+
 ## Memory CLI
 
-Setup installs `.agents/memory/rag/agent-memory.py` into each project.
+Setup also installs `.agents/memory/rag/agent-memory.py` into each project for setup, git hooks, manual recovery, and fallback use when MCP is unavailable.
 
 Common commands:
 
@@ -148,6 +172,7 @@ brew upgrade agent-basics
 - ### `.agents/memory/rag/`
 
   Generated retrieval support plus project RAG config. `config.json` records the active embedding provider and runtime settings. Local HuggingFace model APIs are generated under `embedding-api/`.
+  Agents should access this through `memory-mcp.py` first.
 
 - ### TODO.md
 

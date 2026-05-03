@@ -5,8 +5,8 @@ title: agent-basics documentation sources
 status: active
 created: 2026-05-03
 updated: 2026-05-03
-tags: [agent-basics, bash, git, homebrew, embeddings]
-summary: Source URLs used by agent-basics setup, packaging, and embedding API work.
+tags: [agent-basics, bash, git, homebrew, embeddings, mcp]
+summary: Source URLs used by agent-basics setup, packaging, embedding API, and MCP work.
 ---
 
 # agent-basics documentation sources
@@ -23,6 +23,10 @@ summary: Source URLs used by agent-basics setup, packaging, and embedding API wo
 - LM Studio OpenAI-compatible embeddings API: https://lmstudio.ai/docs/developer/openai-compat/embeddings
 - SentenceTransformers documentation: https://sbert.net/
 - FastAPI documentation: https://fastapi.tiangolo.com/
+- MCP 2025-11-25 lifecycle specification: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle
+- MCP 2025-11-25 tools specification: https://modelcontextprotocol.io/specification/2025-11-25/server/tools
+- MCP 2025-06-18 stdio transport specification: https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
+- MCP 2025-06-18 schema reference: https://modelcontextprotocol.io/specification/2025-06-18/schema
 
 ## Notes
 
@@ -31,4 +35,5 @@ Record additional source URLs here when setup behavior, local embedding service 
 ## Related
 
 - `.agents/memory/SCHEMA.md`
+- `.agents/memory/documentations/procedures/agent-memory-mcp.md`
 - `.agents/memory/documentations/procedures/local-huggingface-embedding-api.md`

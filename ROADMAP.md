@@ -8,6 +8,7 @@
 - `.agents/memory/` is the canonical memory and documentation source tree.
 - Memory entries are predictable markdown files with front matter, templates, and a maintained index.
 - RAG indexes, embedding databases, model caches, and embedding API virtualenvs are generated support state and must be rebuildable from markdown.
+- Agent-facing memory access should go through the repo-local MCP server first; direct CLI usage is for setup, hooks, manual recovery, and fallback.
 - Setup requires an embedding provider: either an existing OpenAI-compatible embeddings API or a HuggingFace model that setup can pull and run locally.
 - Existing user instructions must be treated as valuable project data. Setup should provide review, ordering, and merge controls before changing them.
 
@@ -42,6 +43,7 @@ Use one visible project-local memory tree:
     │   └── references/
     └── rag/
         ├── agent-memory.py
+        ├── memory-mcp.py
         ├── config.json
         ├── index.sqlite
         ├── manifest.json
@@ -81,7 +83,8 @@ Current v1 behavior:
 - Memory writers must wait while the lock exists.
 - Indexers hold the lock while hashing, chunking, embedding, and replacing generated indexes.
 - Index replacement is atomic.
-- `.agents/memory/rag/agent-memory.py` provides `validate`, `rebuild`, `search`, `record`, `doctor`, and `install-hooks`.
+- `.agents/memory/rag/memory-mcp.py` exposes `memory_search`, `memory_record`, `memory_doctor`, `memory_rebuild`, and `memory_validate` as the primary agent-facing interface.
+- `.agents/memory/rag/agent-memory.py` provides CLI support for setup, hooks, manual recovery, and fallback operations.
 - Setup installs git hooks that validate memory before commit and rebuild the index after committed memory changes.
 - Stale lock repair should be explicit, not automatic.
 
@@ -131,7 +134,7 @@ Prefer block-level ordering with line-level highlighting:
 5. Copy legacy `.agents/DOCUMENTATIONS.md` and `.agents/MEMORY.md` content into `.agents/memory/` migration entries when those files exist.
 6. Configure embeddings through existing API mode or HuggingFace local mode.
 7. Write `.agents/memory/rag/config.json`.
-8. Copy `.agents/memory/rag/agent-memory.py` into the target project.
+8. Copy `.agents/memory/rag/agent-memory.py` and `.agents/memory/rag/memory-mcp.py` into the target project.
 9. Add generated runtime paths to `.gitignore`.
 10. Initialize git when needed.
 11. Install local git hooks.
