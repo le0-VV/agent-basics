@@ -69,6 +69,28 @@ class AgentMemoryRecordTest(unittest.TestCase):
             self.assertIn(".md)\n\n## Facts", index_text)
             self.assertFalse(index_text.endswith("\n\n"))
 
+    def test_hook_reports_stale_index_without_auto_rebuilding_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            memory_root = repo / ".agents" / "memory"
+            (memory_root / "memory" / "facts").mkdir(parents=True)
+            (memory_root / "documentations").mkdir(parents=True)
+            (memory_root / "rag").mkdir(parents=True)
+            (memory_root / "SCHEMA.md").write_text("# Schema\n", encoding="utf-8")
+            (memory_root / "INDEX.md").write_text("# Memory Index\n", encoding="utf-8")
+
+            completed = subprocess.run(
+                [sys.executable, str(MEMORY_CLI), "hook", "post-merge"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertIn("memory index is stale", completed.stderr)
+            self.assertFalse((memory_root / "rag" / "index.sqlite").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,7 +25,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 
 ## Events
 
-- None yet.
+- [Dogfood sample subagent run](memory/events/20260503-dogfood-sample-subagent-run.md)
 
 ## Documentation Sources
 

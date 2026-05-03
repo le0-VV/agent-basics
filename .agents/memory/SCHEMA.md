@@ -93,7 +93,7 @@ Supported commands:
 - `search <query>`: run hybrid embedding and full-text retrieval.
 - `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index.
 - `doctor`: report layout, embedding, and index health.
-- `install-hooks`: install local git hooks that validate memory before commit and rebuild the index after relevant changes.
+- `install-hooks`: install local git hooks that validate memory before commit and warn when the generated index is stale. Set `AGENT_BASICS_HOOK_AUTO_REBUILD=1` only when hook-triggered embedding calls are acceptable.
 
 Generated files such as `index.sqlite` and `manifest.json` are rebuildable cache state and should not be committed.
 
@@ -120,5 +120,6 @@ The `runtime` object stores:
 - `embedding_timeout_seconds`
 - `embedding_batch_size`
 - `embedding_minimum_dimensions`
+- `hook_auto_rebuild`
 
 The API key value must stay in the environment and must not be committed.

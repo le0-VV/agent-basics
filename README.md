@@ -175,8 +175,7 @@ For approval-light agent work, use MCP `memory_record` for routine records and l
 The generated index uses SQLite FTS plus embedding vectors from the configured embedding API. Setup also installs local git hooks:
 
 - `pre-commit`: validate changed `.agents/memory/` entries.
-- `post-commit`: rebuild the index after committed memory changes.
-- `post-merge` and `post-checkout`: rebuild when the memory tree is stale after branch changes.
+- `post-commit`, `post-merge`, and `post-checkout`: warn when the memory index is stale. Set `AGENT_BASICS_HOOK_AUTO_REBUILD=1` only when hook-triggered embedding calls are acceptable.
 
 ## Install via custom Homebrew tap
 

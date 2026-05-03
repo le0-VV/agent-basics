@@ -22,7 +22,7 @@ Use this when installing git hooks, running setup, repairing memory manually, or
 3. Run `agent-basics memory search "<query>"` only as a fallback when MCP `memory_search` is unavailable.
 4. Run `agent-basics memory record <type> <title> --content "<content>" --no-rebuild` only as a fallback when MCP `memory_record` is unavailable and you are recording multiple entries.
 5. Prefer structured fields such as `--rationale`, `--consequences`, `--notes`, `--steps`, and `--related` instead of patching generated memory markdown by hand.
-6. Run `agent-basics memory install-hooks` to install local git hooks in a repo.
+6. Run `agent-basics memory install-hooks` to install local git hooks in a repo. Hooks validate memory before commit and warn when the generated index is stale; set `AGENT_BASICS_HOOK_AUTO_REBUILD=1` only when hook-triggered embedding calls are acceptable.
 
 ## Verification
 

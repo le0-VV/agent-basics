@@ -213,7 +213,7 @@ Use `agent-basics memory` when installed, or `.agents/memory/rag/agent-memory.py
 - `search "<query>"`: run hybrid embedding and full-text retrieval.
 - `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index unless `--no-rebuild` is passed.
 - `doctor --online`: report layout, config, manifest, index, and embedding endpoint health.
-- `install-hooks`: install local git hooks for memory validation and stale-index rebuilds.
+- `install-hooks`: install local git hooks for memory validation and stale-index warnings.
 
 ## Recording Rules
 
@@ -332,7 +332,7 @@ Supported commands:
 - `search <query>`: run hybrid embedding and full-text retrieval.
 - `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index unless `--no-rebuild` is passed.
 - `doctor`: report layout, embedding, and index health.
-- `install-hooks`: install local git hooks that validate memory before commit and rebuild the index after relevant changes.
+- `install-hooks`: install local git hooks that validate memory before commit and warn when the generated index is stale. Set `AGENT_BASICS_HOOK_AUTO_REBUILD=1` only when hook-triggered embedding calls are acceptable.
 
 Generated files such as `index.sqlite` and `manifest.json` are rebuildable cache state and should not be committed.
 
@@ -359,6 +359,7 @@ The `runtime` object stores:
 - `embedding_timeout_seconds`
 - `embedding_batch_size`
 - `embedding_minimum_dimensions`
+- `hook_auto_rebuild`
 
 The API key value must stay in the environment and must not be committed.
 EOT
@@ -848,7 +849,7 @@ Use this when installing git hooks, running setup, repairing memory manually, or
 3. Run `agent-basics memory search "<query>"` only as a fallback when MCP `memory_search` is unavailable.
 4. Run `agent-basics memory record <type> <title> --content "<content>" --no-rebuild` only as a fallback when MCP `memory_record` is unavailable and you are recording multiple entries.
 5. Prefer structured fields such as `--rationale`, `--consequences`, `--notes`, `--steps`, and `--related` instead of patching generated memory markdown by hand.
-6. Run `agent-basics memory install-hooks` to install local git hooks in a repo.
+6. Run `agent-basics memory install-hooks` to install local git hooks in a repo. Hooks validate memory before commit and warn when the generated index is stale; set `AGENT_BASICS_HOOK_AUTO_REBUILD=1` only when hook-triggered embedding calls are acceptable.
 
 ## Verification
 
@@ -1874,6 +1875,7 @@ payload = {
         "embedding_timeout_seconds": 0 if timeout_seconds in {"", "0", "none", "None"} else float(timeout_seconds),
         "embedding_batch_size": int(batch_size),
         "embedding_minimum_dimensions": int(minimum_dimensions),
+        "hook_auto_rebuild": False,
     },
     "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
 }

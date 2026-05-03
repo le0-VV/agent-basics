@@ -80,7 +80,7 @@ Use `agent-basics memory` when installed, or `.agents/memory/rag/agent-memory.py
 - `search "<query>"`: run hybrid embedding and full-text retrieval.
 - `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index unless `--no-rebuild` is passed.
 - `doctor --online`: report layout, config, manifest, index, and embedding endpoint health.
-- `install-hooks`: install local git hooks for memory validation and stale-index rebuilds.
+- `install-hooks`: install local git hooks for memory validation and stale-index warnings.
 
 ## Recording Rules
 

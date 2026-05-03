@@ -35,6 +35,7 @@ DEFAULT_RUNTIME_CONFIG = {
     "embedding_batch_size": 16,
     "embedding_timeout_seconds": 0,
     "embedding_minimum_dimensions": 64,
+    "hook_auto_rebuild": False,
 }
 
 REQUIRED_FILES = [
@@ -314,6 +315,12 @@ def embedding_timeout() -> Optional[float]:
 def embedding_batch_size() -> int:
     runtime = load_runtime_config()
     return int(os.environ.get("AGENT_BASICS_EMBEDDING_BATCH_SIZE", str(runtime["embedding_batch_size"])))
+
+
+def hook_auto_rebuild() -> bool:
+    runtime = load_runtime_config()
+    raw = os.environ.get("AGENT_BASICS_HOOK_AUTO_REBUILD", str(runtime.get("hook_auto_rebuild", False)))
+    return raw.lower() in {"1", "true", "yes", "on"}
 
 
 def embed_texts(texts: list[str], config: dict[str, Any]) -> list[list[float]]:
@@ -867,10 +874,17 @@ def run_hook(name: str) -> None:
     if name in {"post-commit", "post-merge", "post-checkout"}:
         should_check = name != "post-commit" or bool(changed_memory_files_for_head())
         if should_check and index_is_stale():
-            try:
-                rebuild_index()
-            except AgentBasicsError as exc:
-                print(f"agent-basics memory index update failed: {exc}", file=sys.stderr)
+            if hook_auto_rebuild():
+                try:
+                    rebuild_index()
+                except AgentBasicsError as exc:
+                    print(f"agent-basics memory index update failed: {exc}", file=sys.stderr)
+            else:
+                print(
+                    "agent-basics memory index is stale; run `agent-basics memory rebuild` "
+                    "or `memory_rebuild` before relying on new memory search results.",
+                    file=sys.stderr,
+                )
         return
 
     raise AgentBasicsError(f"unknown hook: {name}")
