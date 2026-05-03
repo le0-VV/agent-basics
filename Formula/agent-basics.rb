@@ -13,6 +13,17 @@ class AgentBasics < Formula
       #!/usr/bin/env bash
       exec "#{libexec}/setup-macos.sh" "$@"
     EOS
+    (bin/"agent-basics-memory").write <<~EOS
+      #!/usr/bin/env bash
+      exec "#{libexec}/agent-memory.py" "$@"
+    EOS
+    (bin/"agent-basics-memory-mcp").write <<~EOS
+      #!/usr/bin/env bash
+      exec "#{libexec}/memory-mcp.py" "$@"
+    EOS
+    chmod 0755, bin/"agent-basics"
+    chmod 0755, bin/"agent-basics-memory"
+    chmod 0755, bin/"agent-basics-memory-mcp"
   end
 
   test do
@@ -100,6 +111,32 @@ class AgentBasics < Formula
     assert_predicate project_dir/"Agents.md", :exist?
     assert_predicate project_dir/".agents/AGENT-BASICS.md", :exist?
     assert_predicate project_dir/".gitignore", :exist?
+    cd project_dir do
+      system bin/"agent-basics-memory", "validate"
+      IO.popen((bin/"agent-basics-memory-mcp").to_s, "r+") do |pipe|
+        pipe.puts(JSON.generate({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-11-25",
+            capabilities: {},
+            clientInfo: {
+              name: "homebrew-test",
+              version: "0",
+            },
+          },
+        }))
+        pipe.puts(JSON.generate({ jsonrpc: "2.0", method: "notifications/initialized" }))
+        pipe.puts(JSON.generate({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }))
+        pipe.close_write
+        responses = pipe.read.lines.map { |line| JSON.parse(line) }
+        assert_equal "agent-basics-memory", responses.fetch(0).fetch("result").fetch("serverInfo").fetch("name")
+        tool_names = responses.fetch(1).fetch("result").fetch("tools").map { |tool| tool.fetch("name") }
+        assert_includes tool_names, "memory_search"
+        assert_includes tool_names, "memory_record"
+      end
+    end
     refute_predicate project_dir/".agents/memoryhub", :exist?
     refute_predicate project_dir/".agents/DOCUMENTATIONS.md", :exist?
     refute_predicate project_dir/".agents/MEMORY.md", :exist?

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -14,8 +15,25 @@ SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-1
 
 SCRIPT_PATH = Path(__file__).resolve()
 RAG_DIR = SCRIPT_PATH.parent
-ROOT = SCRIPT_PATH.parents[3] if len(SCRIPT_PATH.parents) >= 4 else Path.cwd()
-MEMORY_CLI = RAG_DIR / "agent-memory.py"
+
+
+def resolve_root() -> Path:
+    configured_root = os.environ.get("AGENT_BASICS_REPO_ROOT", "").strip()
+    if configured_root:
+        return Path(configured_root).expanduser().resolve()
+    if (
+        SCRIPT_PATH.parent.name == "rag"
+        and SCRIPT_PATH.parent.parent.name == "memory"
+        and SCRIPT_PATH.parent.parent.parent.name == ".agents"
+    ):
+        return SCRIPT_PATH.parent.parent.parent.parent.resolve()
+    return Path.cwd().resolve()
+
+
+ROOT = resolve_root()
+LOCAL_MEMORY_CLI = ROOT / ".agents" / "memory" / "rag" / "agent-memory.py"
+INSTALLED_MEMORY_CLI = RAG_DIR / "agent-memory.py"
+MEMORY_CLI = INSTALLED_MEMORY_CLI if INSTALLED_MEMORY_CLI.is_file() else LOCAL_MEMORY_CLI
 
 ERROR_PARSE = -32700
 ERROR_INVALID_REQUEST = -32600

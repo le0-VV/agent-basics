@@ -46,7 +46,7 @@ The command checks for the existence of, and if needed adds, the following struc
 └── Agents.md
 ```
 
-Markdown under `.agents/memory/` is the source of truth. RAG indexes, vector stores, model caches, and embedding API virtualenvs are generated support state. Agents should use the repo-local MCP server for memory access and use the CLI only for setup, hooks, manual recovery, or MCP fallback.
+Markdown under `.agents/memory/` is the source of truth. RAG indexes, vector stores, model caches, and embedding API virtualenvs are generated support state. Agents should use the memory MCP server for memory access and use the CLI only for setup, hooks, manual recovery, or MCP fallback.
 
 If legacy `.agents/DOCUMENTATIONS.md` or `.agents/MEMORY.md` files exist, setup copies their content into `.agents/memory/` migration entries without deleting the original files.
 
@@ -92,13 +92,15 @@ For `.gitignore`, the script is non-interactive: it appends transient memory/RAG
 
 ## Memory MCP
 
-Setup installs `.agents/memory/rag/memory-mcp.py` into each project. Configure MCP-capable agents with the repository root as `cwd`:
+Homebrew installs `agent-basics-memory-mcp` as a systemwide MCP command. Setup also copies `.agents/memory/rag/memory-mcp.py` into each project as a repo-local fallback.
+
+Configure MCP-capable agents with the repository root as `cwd`:
 
 ```json
 {
   "mcpServers": {
     "agent-basics-memory": {
-      "command": ".agents/memory/rag/memory-mcp.py",
+      "command": "agent-basics-memory-mcp",
       "cwd": "/path/to/project"
     }
   }
@@ -109,7 +111,7 @@ For Codex Desktop custom MCP setup:
 
 - Name: `agent-basics-memory`
 - Transport: `STDIO`
-- Command to launch: absolute path to `.agents/memory/rag/memory-mcp.py`
+- Command to launch: `agent-basics-memory-mcp` when installed, otherwise the absolute path to `.agents/memory/rag/memory-mcp.py`
 - Arguments: none
 - Environment variables: leave blank unless `config.json` names an API key variable
 - Environment variable passthrough: same API key variable only when needed
@@ -125,16 +127,16 @@ Available tools:
 
 ## Memory CLI
 
-Setup also installs `.agents/memory/rag/agent-memory.py` into each project for setup, git hooks, manual recovery, and fallback use when MCP is unavailable.
+Homebrew installs `agent-basics-memory` as the systemwide memory CLI. Setup also installs `.agents/memory/rag/agent-memory.py` into each project for git hooks, manual recovery, and fallback use when the systemwide command is unavailable.
 
 Common commands:
 
 ```bash
-.agents/memory/rag/agent-memory.py validate
-.agents/memory/rag/agent-memory.py rebuild
-.agents/memory/rag/agent-memory.py search "what did we decide about memory?"
-.agents/memory/rag/agent-memory.py record decision "Use repo-local memory" --content "Markdown remains source of truth."
-.agents/memory/rag/agent-memory.py doctor --online
+agent-basics-memory validate
+agent-basics-memory rebuild
+agent-basics-memory search "what did we decide about memory?"
+agent-basics-memory record decision "Use repo-local memory" --content "Markdown remains source of truth."
+agent-basics-memory doctor --online
 ```
 
 The generated index uses SQLite FTS plus embedding vectors from the configured embedding API. Setup also installs local git hooks:
@@ -149,6 +151,12 @@ The generated index uses SQLite FTS plus embedding vectors from the configured e
 brew tap le0-VV/agent-basics
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
+
+This installs:
+
+- `agent-basics`: setup command.
+- `agent-basics-memory`: memory/RAG CLI for the current working repository.
+- `agent-basics-memory-mcp`: stdio MCP server for the current working repository.
 
 ### Upgrade
 

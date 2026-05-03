@@ -8,7 +8,7 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 - Treat markdown under `.agents/memory/` as source of truth. Treat RAG indexes, vector databases, model caches, and embedding API runtime files as generated retrieval support.
 - Read `.agents/memory/SCHEMA.md` before creating or changing memory files.
 - Use `.agents/memory/templates/` when recording new entries.
-- Use the repo-local memory MCP server as the primary interface for memory retrieval and recording.
+- Use the memory MCP server as the primary interface for memory retrieval and recording.
 - Call `memory_search` whenever the user refers to previous work, preferences, prior conversations, vague project context, or decisions not visible in the current chat.
 - Call `memory_record` for durable decisions, facts, preferences, gotchas, events, documentation sources, and procedures.
 - If MCP is unavailable, search `.agents/memory/INDEX.md` and use `.agents/memory/rag/agent-memory.py` as the fallback.
@@ -30,30 +30,32 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 
 ## Memory MCP
 
-Configure capable agents to run the repo-local MCP server:
+Configure capable agents to run the memory MCP server. Prefer the systemwide command when agent-basics was installed through Homebrew:
 
 ```json
 {
   "mcpServers": {
     "agent-basics-memory": {
-      "command": ".agents/memory/rag/memory-mcp.py",
+      "command": "agent-basics-memory-mcp",
       "cwd": "."
     }
   }
 }
 ```
 
+When the systemwide command is not installed, use the absolute repo-local `.agents/memory/rag/memory-mcp.py` path instead.
+
 For Codex Desktop custom MCP setup, guide the user to Settings -> MCP servers -> Connect to a custom MCP and use:
 
 - Name: `agent-basics-memory`
 - Transport: `STDIO`
-- Command to launch: absolute path to `.agents/memory/rag/memory-mcp.py`
+- Command to launch: `agent-basics-memory-mcp` when installed, otherwise the absolute path to `.agents/memory/rag/memory-mcp.py`
 - Arguments: none
 - Environment variables: only add the embedding API key variable if `.agents/memory/rag/config.json` names one in `embedding.api_key_env`
 - Environment variable passthrough: the same API key variable, only when needed
 - Working directory: absolute path to the repository root
 
-For this repository, the command is `/Users/leonardw/Projects/agent-basics/.agents/memory/rag/memory-mcp.py` and the working directory is `/Users/leonardw/Projects/agent-basics`.
+For this repository, the command can be `agent-basics-memory-mcp` after Homebrew install, or `/Users/leonardw/Projects/agent-basics/.agents/memory/rag/memory-mcp.py` from the checkout. The working directory is `/Users/leonardw/Projects/agent-basics`.
 
 Keep MCP configuration guidance in this operating manual and memory procedures. Do not rely on a separate `Skills.md` for baseline agent-basics behavior because skills are optional client-side additions, while MCP memory setup is part of the repo contract.
 
@@ -67,7 +69,7 @@ Available MCP tools:
 
 ## Memory CLI
 
-Use `.agents/memory/rag/agent-memory.py` for setup, git hooks, manual recovery, and fallback operations when MCP is not available:
+Use `agent-basics-memory` when installed, or `.agents/memory/rag/agent-memory.py` from the checkout, for setup, git hooks, manual recovery, and fallback operations when MCP is not available:
 
 - `validate`: check layout and front matter.
 - `rebuild`: rebuild the generated SQLite RAG cache.

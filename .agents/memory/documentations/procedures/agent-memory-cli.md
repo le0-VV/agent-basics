@@ -6,7 +6,7 @@ status: active
 created: 2026-05-03
 updated: 2026-05-03
 tags: [agent-basics, memory, rag, cli]
-summary: Use `.agents/memory/rag/agent-memory.py` for setup, git hooks, manual recovery, and fallback memory operations.
+summary: Use `agent-basics-memory` or `.agents/memory/rag/agent-memory.py` for setup, git hooks, manual recovery, and fallback memory operations.
 ---
 
 # Use the agent-basics memory CLI
@@ -17,15 +17,15 @@ Use this when installing git hooks, running setup, repairing memory manually, or
 
 ## Steps
 
-1. Run `.agents/memory/rag/agent-memory.py validate` before committing memory changes.
-2. Run `.agents/memory/rag/agent-memory.py rebuild` after memory or documentation entries change.
-3. Run `.agents/memory/rag/agent-memory.py search "<query>"` only as a fallback when MCP `memory_search` is unavailable.
-4. Run `.agents/memory/rag/agent-memory.py record <type> <title> --content "<content>"` only as a fallback when MCP `memory_record` is unavailable.
-5. Run `.agents/memory/rag/agent-memory.py install-hooks` to install local git hooks in a repo.
+1. Run `agent-basics-memory validate` before committing memory changes when the systemwide command is installed, or `.agents/memory/rag/agent-memory.py validate` from a source checkout.
+2. Run `agent-basics-memory rebuild` after memory or documentation entries change.
+3. Run `agent-basics-memory search "<query>"` only as a fallback when MCP `memory_search` is unavailable.
+4. Run `agent-basics-memory record <type> <title> --content "<content>"` only as a fallback when MCP `memory_record` is unavailable.
+5. Run `agent-basics-memory install-hooks` to install local git hooks in a repo.
 
 ## Verification
 
-Run `.agents/memory/rag/agent-memory.py doctor` to check layout, config, manifest, and index status. Add `--online` when the embedding API should be checked too.
+Run `agent-basics-memory doctor` to check layout, config, manifest, and index status. Add `--online` when the embedding API should be checked too.
 
 ## Related
 

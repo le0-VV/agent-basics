@@ -8,7 +8,8 @@
 - `.agents/memory/` is the canonical memory and documentation source tree.
 - Memory entries are predictable markdown files with front matter, templates, and a maintained index.
 - RAG indexes, embedding databases, model caches, and embedding API virtualenvs are generated support state and must be rebuildable from markdown.
-- Agent-facing memory access should go through the repo-local MCP server first; direct CLI usage is for setup, hooks, manual recovery, and fallback.
+- Agent-facing memory access should go through the memory MCP server first; direct CLI usage is for setup, hooks, manual recovery, and fallback.
+- Homebrew installs stable systemwide commands for memory operations so users can configure MCP once with `agent-basics-memory-mcp` and set only the repository working directory.
 - Setup requires an embedding provider: either an existing OpenAI-compatible embeddings API or a HuggingFace model that setup can pull and run locally.
 - Existing user instructions must be treated as valuable project data. Setup should provide review, ordering, and merge controls before changing them.
 
@@ -83,8 +84,9 @@ Current v1 behavior:
 - Memory writers must wait while the lock exists.
 - Indexers hold the lock while hashing, chunking, embedding, and replacing generated indexes.
 - Index replacement is atomic.
-- `.agents/memory/rag/memory-mcp.py` exposes `memory_search`, `memory_record`, `memory_doctor`, `memory_rebuild`, and `memory_validate` as the primary agent-facing interface.
-- `.agents/memory/rag/agent-memory.py` provides CLI support for setup, hooks, manual recovery, and fallback operations.
+- `agent-basics-memory-mcp` exposes `memory_search`, `memory_record`, `memory_doctor`, `memory_rebuild`, and `memory_validate` as the primary agent-facing interface when installed.
+- `agent-basics-memory` provides CLI support for setup, hooks, manual recovery, and fallback operations when installed.
+- `.agents/memory/rag/memory-mcp.py` and `.agents/memory/rag/agent-memory.py` remain repo-local fallbacks for source checkouts and generated hooks.
 - Setup installs git hooks that validate memory before commit and rebuild the index after committed memory changes.
 - Stale lock repair should be explicit, not automatic.
 
