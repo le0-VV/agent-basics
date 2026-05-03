@@ -2,19 +2,11 @@ class AgentBasics < Formula
   desc "1 command to setup a directory for reliable agent operations"
   homepage "https://github.com/le0-VV/agent-basics"
   head "https://github.com/le0-VV/agent-basics.git", branch: "main"
+  depends_on "rust" => :build
   depends_on "uv"
 
   def install
-    libexec.install "agent-basics"
-    libexec.install "setup-macos.sh"
-    libexec.install ".agents/memory/rag/agent-memory.py"
-    libexec.install ".agents/memory/rag/memory-mcp.py"
-
-    (bin/"agent-basics").write <<~EOS
-      #!/usr/bin/env bash
-      exec "#{libexec}/agent-basics" "$@"
-    EOS
-    chmod 0755, bin/"agent-basics"
+    system "cargo", "install", *std_cargo_args
   end
 
   test do

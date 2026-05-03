@@ -1,0 +1,10 @@
+[package]
+name = "agent-basics"
+version = "0.1.0"
+edition = "2021"
+description = "One command to set up reliable agent workflows"
+license = "MIT"
+
+[[bin]]
+name = "agent-basics"
+path = "src/main.rs"

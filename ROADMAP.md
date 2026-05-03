@@ -4,12 +4,12 @@
 
 ## Product Principles
 
-- `agent-basics` is the one-command entry point for macOS users; `setup-macos.sh` remains the setup implementation detail.
+- `agent-basics` is the one-command Rust binary entry point for macOS users; `setup-macos.sh` remains an embedded setup implementation detail until setup is ported natively.
 - `.agents/memory/` is the canonical memory and documentation source tree.
 - Memory entries are predictable markdown files with front matter, templates, and a maintained index.
 - RAG indexes, embedding databases, model caches, and embedding API virtualenvs are generated support state and must be rebuildable from markdown.
 - Agent-facing memory access should go through the memory MCP server first; direct CLI usage is for setup, hooks, manual recovery, and fallback.
-- Homebrew installs one stable systemwide `agent-basics` command so users can configure MCP once as `agent-basics mcp` and set only the repository working directory.
+- Homebrew builds and installs one stable systemwide `agent-basics` binary so users can configure MCP once as `agent-basics mcp` and set only the repository working directory.
 - Setup requires an embedding provider: either an existing OpenAI-compatible embeddings API or a HuggingFace model that setup can pull and run locally.
 - Existing user instructions must be treated as valuable project data. Setup should provide review, ordering, and merge controls before changing them.
 

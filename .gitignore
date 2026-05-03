@@ -7,6 +7,7 @@
 .agents/memory/rag/*.sqlite-*
 .agents/memory/rag/embedding-api/venv/
 .agents/memory/rag/embedding-api/models/
+target/
 .vscode
 .DS_Store
 ._*

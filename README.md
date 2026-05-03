@@ -8,7 +8,7 @@
 
 ## Command interface
 
-`agent-basics` is the only installed command.
+`agent-basics` is the only installed command. Homebrew builds it as a Rust binary that embeds the setup, memory CLI, and MCP implementation.
 
 ```bash
 agent-basics setup /path/to/project
@@ -181,7 +181,7 @@ brew tap le0-VV/agent-basics
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-This installs one command:
+This builds and installs one binary:
 
 - `agent-basics setup [DIR]`: set up or upgrade a repository, including older agent-basics layouts with overlapping markdown files.
 - `agent-basics memory ...`: run memory/RAG operations for the current working repository.

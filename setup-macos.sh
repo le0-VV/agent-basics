@@ -690,8 +690,8 @@ title: agent-basics documentation sources
 status: active
 created: 2026-05-03
 updated: 2026-05-03
-tags: [agent-basics, bash, git, homebrew, embeddings, mcp]
-summary: Source URLs used by agent-basics setup, packaging, embedding API, and MCP work.
+tags: [agent-basics, bash, git, homebrew, embeddings, mcp, rust]
+summary: Source URLs used by agent-basics setup, packaging, embedding API, Rust binary, and MCP work.
 ---
 
 # agent-basics documentation sources
@@ -705,6 +705,8 @@ summary: Source URLs used by agent-basics setup, packaging, embedding API, and M
 - Homebrew Tap documentation: https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap
 - Homebrew Formula Ruby API: https://rubydoc.brew.sh/Formula
 - Ruby documentation: https://www.ruby-lang.org/en/documentation/
+- Rust standard library documentation: https://doc.rust-lang.org/std/
+- The Cargo Book: https://doc.rust-lang.org/cargo/
 - LM Studio OpenAI-compatible embeddings API: https://lmstudio.ai/docs/developer/openai-compat/embeddings
 - SentenceTransformers documentation: https://sbert.net/
 - FastAPI documentation: https://fastapi.tiangolo.com/
