@@ -26,6 +26,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 ## Events
 
 - [Dogfood sample subagent run](memory/events/20260503-dogfood-sample-subagent-run.md)
+- [Gemma 4 categorization test](memory/events/20260503-gemma-4-categorization-test.md)
 
 ## Documentation Sources
 
