@@ -11,7 +11,7 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 - Use the memory MCP server as the primary interface for memory retrieval and recording.
 - Call `memory_search` whenever the user refers to previous work, preferences, prior conversations, vague project context, or decisions not visible in the current chat.
 - Call `memory_record` for durable decisions, facts, preferences, gotchas, events, documentation sources, and procedures.
-- If MCP is unavailable, search `.agents/memory/INDEX.md` and use `.agents/memory/rag/agent-memory.py` as the fallback.
+- If MCP is unavailable, search `.agents/memory/INDEX.md` and use `agent-basics memory search` or `.agents/memory/rag/agent-memory.py search` as the fallback.
 - Store durable memories under `.agents/memory/memory/`.
 - Store documentation sources, procedures, and references under `.agents/memory/documentations/`.
 - Record source URLs for external libraries, tools, APIs, frameworks, and standards under `.agents/memory/documentations/sources/`.
@@ -26,17 +26,18 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 - Never commit raw embedding provider secret values. Store only the environment variable name, such as `AGENT_BASICS_EMBEDDING_API_KEY`.
 - `runtime.embedding_timeout_seconds: 0` means wait indefinitely for local embedding API validation and RAG embedding calls.
 - `runtime.embedding_minimum_dimensions` defaults to `64` and rejects embedding models that are too small for useful retrieval.
-- Validate the embedding setup after installation through `memory_doctor` with `online: true`, or by running `.agents/memory/rag/agent-memory.py doctor --online` when MCP is unavailable.
+- Validate the embedding setup after installation through `memory_doctor` with `online: true`, or by running `agent-basics memory doctor --online` when MCP is unavailable.
 
 ## Memory MCP
 
-Configure capable agents to run the memory MCP server. Prefer the systemwide command when agent-basics was installed through Homebrew:
+Configure capable agents to run the memory MCP server through the single `agent-basics` command:
 
 ```json
 {
   "mcpServers": {
     "agent-basics-memory": {
-      "command": "agent-basics-memory-mcp",
+      "command": "agent-basics",
+      "args": ["mcp"],
       "cwd": "."
     }
   }
@@ -49,13 +50,13 @@ For Codex Desktop custom MCP setup, guide the user to Settings -> MCP servers ->
 
 - Name: `agent-basics-memory`
 - Transport: `STDIO`
-- Command to launch: `agent-basics-memory-mcp` when installed, otherwise the absolute path to `.agents/memory/rag/memory-mcp.py`
-- Arguments: none
+- Command to launch: `agent-basics` when installed, otherwise the absolute path to `.agents/memory/rag/memory-mcp.py`
+- Arguments: `mcp` when using `agent-basics`; none when using the repo-local fallback script
 - Environment variables: only add the embedding API key variable if `.agents/memory/rag/config.json` names one in `embedding.api_key_env`
 - Environment variable passthrough: the same API key variable, only when needed
 - Working directory: absolute path to the repository root
 
-For this repository, the command can be `agent-basics-memory-mcp` after Homebrew install, or `/Users/leonardw/Projects/agent-basics/.agents/memory/rag/memory-mcp.py` from the checkout. The working directory is `/Users/leonardw/Projects/agent-basics`.
+For this repository, the command can be `agent-basics` with argument `mcp` after Homebrew install, or `/Users/leonardw/Projects/agent-basics/.agents/memory/rag/memory-mcp.py` from the checkout. The working directory is `/Users/leonardw/Projects/agent-basics`.
 
 Keep MCP configuration guidance in this operating manual and memory procedures. Do not rely on a separate `Skills.md` for baseline agent-basics behavior because skills are optional client-side additions, while MCP memory setup is part of the repo contract.
 
@@ -69,7 +70,7 @@ Available MCP tools:
 
 ## Memory CLI
 
-Use `agent-basics-memory` when installed, or `.agents/memory/rag/agent-memory.py` from the checkout, for setup, git hooks, manual recovery, and fallback operations when MCP is not available:
+Use `agent-basics memory` when installed, or `.agents/memory/rag/agent-memory.py` from the checkout, for setup, git hooks, manual recovery, and fallback operations when MCP is not available:
 
 - `validate`: check layout and front matter.
 - `rebuild`: rebuild the generated SQLite RAG cache.

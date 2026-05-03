@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+find_setup_script() {
+  local candidate
+  for candidate in \
+    "${AGENT_BASICS_SETUP_SCRIPT:-}" \
+    "$SCRIPT_DIR/setup-macos.sh"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+      printf "%s\n" "$candidate"
+      return 0
+    fi
+  done
+  echo "Error: setup-macos.sh was not found next to agent-basics." >&2
+  return 1
+}
+
+find_memory_cli() {
+  local candidate
+  for candidate in \
+    "${AGENT_BASICS_MEMORY_CLI:-}" \
+    "$SCRIPT_DIR/agent-memory.py" \
+    "$SCRIPT_DIR/.agents/memory/rag/agent-memory.py" \
+    "$(pwd)/.agents/memory/rag/agent-memory.py"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+      printf "%s\n" "$candidate"
+      return 0
+    fi
+  done
+  echo "Error: agent-basics memory CLI was not found." >&2
+  echo "Run \`agent-basics setup\` for this repository or reinstall agent-basics." >&2
+  return 1
+}
+
+find_memory_mcp() {
+  local candidate
+  for candidate in \
+    "${AGENT_BASICS_MEMORY_MCP:-}" \
+    "$SCRIPT_DIR/memory-mcp.py" \
+    "$SCRIPT_DIR/.agents/memory/rag/memory-mcp.py" \
+    "$(pwd)/.agents/memory/rag/memory-mcp.py"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+      printf "%s\n" "$candidate"
+      return 0
+    fi
+  done
+  echo "Error: agent-basics memory MCP server was not found." >&2
+  echo "Run \`agent-basics setup\` for this repository or reinstall agent-basics." >&2
+  return 1
+}
+
+usage() {
+  cat <<'EOT'
+Usage:
+  agent-basics [--repo DIR] setup [DIR]
+  agent-basics [--repo DIR] upgrade [DIR]
+  agent-basics [--repo DIR] memory <validate|rebuild|search|record|doctor|install-hooks> [...]
+  agent-basics [--repo DIR] mcp
+  agent-basics [--repo DIR] doctor [--online]
+  agent-basics [--repo DIR] validate|rebuild|search|record|install-hooks [...]
+
+Setup and upgrade both run the repository setup flow. Re-running setup on an
+existing repository is the supported upgrade path; markdown conflicts are
+handled by the existing keep/replace/append/manual/web-merge/save prompts.
+
+MCP clients should use:
+  command: agent-basics
+  arguments: mcp
+  working directory: repository root
+EOT
+}
+
+repo_dir=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -C|--repo|--cwd)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: $1 requires a directory." >&2
+        exit 2
+      fi
+      repo_dir="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --version)
+      echo "agent-basics 0.1.0"
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+command_name="${1:-setup}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+run_setup() {
+  local target_dir="${1:-}"
+  if [[ "$target_dir" == "-h" || "$target_dir" == "--help" ]]; then
+    usage
+    exit 0
+  fi
+  if [[ -n "$target_dir" ]]; then
+    shift || true
+  elif [[ -n "$repo_dir" ]]; then
+    target_dir="$repo_dir"
+  else
+    target_dir="$(pwd)"
+  fi
+  if [[ $# -gt 0 ]]; then
+    echo "Error: setup accepts at most one target directory." >&2
+    exit 2
+  fi
+  exec "$(find_setup_script)" "$target_dir"
+}
+
+enter_repo() {
+  if [[ -n "$repo_dir" ]]; then
+    cd "$repo_dir"
+  fi
+}
+
+case "$command_name" in
+  setup|init|install|upgrade)
+    run_setup "$@"
+    ;;
+  memory|rag)
+    if [[ $# -eq 0 ]]; then
+      echo "Error: memory requires a subcommand." >&2
+      usage >&2
+      exit 2
+    fi
+    enter_repo
+    exec "$(find_memory_cli)" "$@"
+    ;;
+  mcp|mcp-server|serve-mcp)
+    if [[ $# -gt 0 ]]; then
+      echo "Error: mcp does not accept arguments." >&2
+      exit 2
+    fi
+    enter_repo
+    exec "$(find_memory_mcp)"
+    ;;
+  validate|rebuild|search|record|doctor|install-hooks)
+    enter_repo
+    exec "$(find_memory_cli)" "$command_name" "$@"
+    ;;
+  help)
+    usage
+    ;;
+  *)
+    if [[ $# -eq 0 && ( -d "$command_name" || "$command_name" == "." || "$command_name" == /* || "$command_name" == ~* ) ]]; then
+      run_setup "$command_name"
+    fi
+    echo "Error: unknown command: $command_name" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

@@ -5,25 +5,16 @@ class AgentBasics < Formula
   depends_on "uv"
 
   def install
+    libexec.install "agent-basics"
     libexec.install "setup-macos.sh"
     libexec.install ".agents/memory/rag/agent-memory.py"
     libexec.install ".agents/memory/rag/memory-mcp.py"
 
     (bin/"agent-basics").write <<~EOS
       #!/usr/bin/env bash
-      exec "#{libexec}/setup-macos.sh" "$@"
-    EOS
-    (bin/"agent-basics-memory").write <<~EOS
-      #!/usr/bin/env bash
-      exec "#{libexec}/agent-memory.py" "$@"
-    EOS
-    (bin/"agent-basics-memory-mcp").write <<~EOS
-      #!/usr/bin/env bash
-      exec "#{libexec}/memory-mcp.py" "$@"
+      exec "#{libexec}/agent-basics" "$@"
     EOS
     chmod 0755, bin/"agent-basics"
-    chmod 0755, bin/"agent-basics-memory"
-    chmod 0755, bin/"agent-basics-memory-mcp"
   end
 
   test do
@@ -92,6 +83,7 @@ class AgentBasics < Formula
           "AGENT_BASICS_EMBEDDING_API_KEY" => "",
         },
         bin/"agent-basics",
+        "setup",
         project_dir,
       )
     ensure
@@ -112,8 +104,9 @@ class AgentBasics < Formula
     assert_predicate project_dir/".agents/AGENT-BASICS.md", :exist?
     assert_predicate project_dir/".gitignore", :exist?
     cd project_dir do
-      system bin/"agent-basics-memory", "validate"
-      IO.popen((bin/"agent-basics-memory-mcp").to_s, "r+") do |pipe|
+      system bin/"agent-basics", "memory", "validate"
+      system bin/"agent-basics", "doctor"
+      IO.popen([(bin/"agent-basics").to_s, "mcp"], "r+") do |pipe|
         pipe.puts(JSON.generate({
           jsonrpc: "2.0",
           id: 1,

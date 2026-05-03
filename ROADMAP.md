@@ -4,12 +4,12 @@
 
 ## Product Principles
 
-- `setup-macos.sh` remains the one-command entry point for macOS users.
+- `agent-basics` is the one-command entry point for macOS users; `setup-macos.sh` remains the setup implementation detail.
 - `.agents/memory/` is the canonical memory and documentation source tree.
 - Memory entries are predictable markdown files with front matter, templates, and a maintained index.
 - RAG indexes, embedding databases, model caches, and embedding API virtualenvs are generated support state and must be rebuildable from markdown.
 - Agent-facing memory access should go through the memory MCP server first; direct CLI usage is for setup, hooks, manual recovery, and fallback.
-- Homebrew installs stable systemwide commands for memory operations so users can configure MCP once with `agent-basics-memory-mcp` and set only the repository working directory.
+- Homebrew installs one stable systemwide `agent-basics` command so users can configure MCP once as `agent-basics mcp` and set only the repository working directory.
 - Setup requires an embedding provider: either an existing OpenAI-compatible embeddings API or a HuggingFace model that setup can pull and run locally.
 - Existing user instructions must be treated as valuable project data. Setup should provide review, ordering, and merge controls before changing them.
 
@@ -84,8 +84,8 @@ Current v1 behavior:
 - Memory writers must wait while the lock exists.
 - Indexers hold the lock while hashing, chunking, embedding, and replacing generated indexes.
 - Index replacement is atomic.
-- `agent-basics-memory-mcp` exposes `memory_search`, `memory_record`, `memory_doctor`, `memory_rebuild`, and `memory_validate` as the primary agent-facing interface when installed.
-- `agent-basics-memory` provides CLI support for setup, hooks, manual recovery, and fallback operations when installed.
+- `agent-basics mcp` exposes `memory_search`, `memory_record`, `memory_doctor`, `memory_rebuild`, and `memory_validate` as the primary agent-facing interface when installed.
+- `agent-basics memory ...` provides CLI support for setup, hooks, manual recovery, and fallback operations when installed.
 - `.agents/memory/rag/memory-mcp.py` and `.agents/memory/rag/agent-memory.py` remain repo-local fallbacks for source checkouts and generated hooks.
 - Setup installs git hooks that validate memory before commit and rebuild the index after committed memory changes.
 - Stale lock repair should be explicit, not automatic.
@@ -129,7 +129,7 @@ Prefer block-level ordering with line-level highlighting:
 
 ## Setup Flow
 
-1. Start from `setup-macos.sh`.
+1. Start from `agent-basics setup`; internally it runs `setup-macos.sh`.
 2. Create `.agents/memory/` and its source-of-truth layout.
 3. Scan for existing root `Agents.md`, `.agents/AGENT-BASICS.md`, legacy `.agents/INSTRUCTIONS.md`, `.agents/memory/SCHEMA.md`, `.agents/memory/INDEX.md`, and memory templates.
 4. If any markdown file conflicts with the embedded template, prompt for keep, replace, append, manual merge, or save-beside.
@@ -145,10 +145,18 @@ Prefer block-level ordering with line-level highlighting:
 
 ## CLI Modes
 
-- `agent-basics <directory>`: interactive setup.
-- `agent-basics --dry-run <directory>`: detect setup status and show pending file changes without writing.
-- `agent-basics --merge-ui <directory>`: open the markdown merge UI directly.
-- `agent-basics --doctor <directory>`: verify memory layout, embedding API, and generated RAG health.
+- `agent-basics setup [directory]`: interactive setup for a new repository.
+- `agent-basics upgrade [directory]`: rerun setup on an existing repository and safely handle overlapping files.
+- `agent-basics [directory]`: compatibility shortcut for setup.
+- `agent-basics memory <command>`: run memory/RAG operations such as `validate`, `rebuild`, `search`, `record`, `doctor`, and `install-hooks`.
+- `agent-basics doctor [--online]`: shortcut for memory health checks.
+- `agent-basics mcp`: run the stdio memory MCP server for the current working repository.
+- `agent-basics --repo <directory> <command>`: run an operation against another repository.
+
+Planned:
+
+- `agent-basics setup --dry-run <directory>`: detect setup status and show pending file changes without writing.
+- `agent-basics setup --merge-ui <directory>`: open the markdown merge UI directly.
 
 Non-interactive mode should remain conservative. It can validate and fail with a clear report, but it should not overwrite or merge instruction files without an explicit reviewed plan.
 
