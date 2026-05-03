@@ -36,7 +36,7 @@ export AGENT_BASICS_EMBEDDING_HF_MODEL="Qwen/Qwen3-Embedding-0.6B"
 - Keep `.agents/memory/` markdown as source of truth.
 - Do not edit `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists.
 - Do not commit embedding provider secret values.
-- Use `.agents/agent-mailbox/` for timestamped handoffs if a future task involves multiple sandboxes.
+- Use `.agents/memory/` for durable coordination records and normal git branches, commits, and pull requests for cross-session handoffs.
 - Use the supervised author format for commits: `Coding agent supervised by $(git config --global user.name)`.
 
 ## Common Flow
@@ -60,14 +60,6 @@ export AGENT_BASICS_EMBEDDING_HF_MODEL="Qwen/Qwen3-Embedding-0.6B"
 
 5. For setup integration testing, run `setup-macos.sh` against a temporary directory with a local fake or real OpenAI-compatible embedding API.
 
-## Agent Mailbox
+## Cross-Session Handoffs
 
-This repo may contain `.agents/agent-mailbox/` with `inbox/`, `outbox`, and `archive/` folders.
-
-Use timestamped markdown messages:
-
-```text
-YYYYMMDD-HHMMSS-topic.md
-```
-
-Mailbox messages should be short handoffs that name the sender, branch, relevant files or commands, and whether action is needed. Durable product decisions belong in `.agents/memory/`.
+Record durable product decisions, project facts, gotchas, and procedures under `.agents/memory/`. Use git status, commits, branches, and pull requests for operational handoffs between sessions.
