@@ -57,22 +57,24 @@ Setup supports two required paths.
 
 Existing API mode:
 
-1. Read `AGENT_BASICS_EMBEDDING_BASE_URL`.
-2. Read `AGENT_BASICS_EMBEDDING_MODEL`.
-3. Optionally read the secret from `AGENT_BASICS_EMBEDDING_API_KEY` or another env var named by `AGENT_BASICS_EMBEDDING_API_KEY_ENV`.
-4. Call `/v1/embeddings`.
-5. Verify the response has OpenAI-compatible shape and a finite numeric vector.
-6. Write `.agents/memory/rag/config.json`.
+1. Read setup inputs from `agent-basics setup --embedding-mode api`.
+2. Read `--embedding-base-url`.
+3. Read `--embedding-model`.
+4. Optionally read the secret from the env var named by `--embedding-api-key-env`.
+5. Call `/v1/embeddings`.
+6. Verify the response has OpenAI-compatible shape and a finite numeric vector.
+7. Write `.agents/memory/rag/config.json`.
 
 HuggingFace local mode:
 
-1. Read `AGENT_BASICS_EMBEDDING_HF_MODEL` as either `owner/model` or `https://huggingface.co/owner/model`.
-2. Install a repo-local virtualenv under `.agents/memory/rag/embedding-api/venv`.
-3. Install `sentence-transformers`, `fastapi`, and `uvicorn`.
-4. Pull the model into `.agents/memory/rag/embedding-api/models`.
-5. Verify the model loads and produces finite vectors with enough dimensions.
-6. Generate a small OpenAI-compatible embedding API.
-7. Write `.agents/memory/rag/config.json`.
+1. Read setup inputs from `agent-basics setup --embedding-mode huggingface`.
+2. Read `--embedding-hf-model` as either `owner/model` or `https://huggingface.co/owner/model`.
+3. Install a repo-local virtualenv under `.agents/memory/rag/embedding-api/venv`.
+4. Install `sentence-transformers`, `fastapi`, and `uvicorn`.
+5. Pull the model into `.agents/memory/rag/embedding-api/models`.
+6. Verify the model loads and produces finite vectors with enough dimensions.
+7. Generate a small OpenAI-compatible embedding API.
+8. Write `.agents/memory/rag/config.json`.
 
 ## RAG And Locking
 

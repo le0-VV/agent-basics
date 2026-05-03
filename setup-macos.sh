@@ -154,7 +154,8 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 
 - `.agents/memory/rag/config.json` is the durable RAG configuration file.
 - Use `config.json` to find the embedding provider, base URL, model name, dimensions, runtime settings, and API key environment variable.
-- Environment variables are setup inputs, secret pointers, or one-off overrides. Do not rely on them as the durable project configuration.
+- Prefer `agent-basics setup` flags such as `--embedding-mode`, `--embedding-base-url`, `--embedding-model`, and `--embedding-hf-model` for setup inputs.
+- Environment variables are secret pointers, compatibility inputs, or one-off overrides. Do not rely on them as the durable project configuration.
 - Never commit raw embedding provider secret values. Store only the environment variable name, such as `AGENT_BASICS_EMBEDDING_API_KEY`.
 - `runtime.embedding_timeout_seconds: 0` means wait indefinitely for local embedding API validation and RAG embedding calls.
 - `runtime.embedding_minimum_dimensions` defaults to `64` and rejects embedding models that are too small for useful retrieval.
@@ -670,7 +671,7 @@ Structured markdown gives agents a predictable place to record durable context. 
 
 - Setup must create the memory schema, templates, and directory layout.
 - Setup must validate an existing embedding API or install a repo-local HuggingFace embedding API.
-- Durable RAG provider and runtime settings belong in `.agents/memory/rag/config.json`; environment variables are setup inputs, secret pointers, or one-off overrides.
+- Durable RAG provider and runtime settings belong in `.agents/memory/rag/config.json`; `agent-basics setup` flags are the preferred setup inputs, while environment variables are secret pointers, compatibility inputs, or one-off overrides.
 - Agents must wait when `.agents/memory/rag/write.lock/` exists.
 - Future MCP/RAG tooling should cite markdown source files for every returned result.
 
@@ -1953,7 +1954,7 @@ PY
 configure_existing_embedding_api() {
   local base_url="${AGENT_BASICS_EMBEDDING_BASE_URL:-}"
   local model="${AGENT_BASICS_EMBEDDING_MODEL:-}"
-  local api_key_env="${AGENT_BASICS_EMBEDDING_API_KEY_ENV:-AGENT_BASICS_EMBEDDING_API_KEY}"
+  local api_key_env="${AGENT_BASICS_EMBEDDING_API_KEY_ENV-AGENT_BASICS_EMBEDDING_API_KEY}"
   local api_key=""
   local dimensions
 
@@ -1970,7 +1971,7 @@ configure_existing_embedding_api() {
     exit 1
   fi
 
-  if [[ -t 0 && -z "${AGENT_BASICS_EMBEDDING_API_KEY_ENV:-}" ]]; then
+  if [[ -t 0 && -z "${AGENT_BASICS_EMBEDDING_API_KEY_ENV+x}" ]]; then
     api_key_env="$(read_with_default "API key environment variable name, leave blank for none" "$api_key_env")"
   fi
 

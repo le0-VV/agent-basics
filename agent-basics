@@ -54,8 +54,8 @@ find_memory_mcp() {
 usage() {
   cat <<'EOT'
 Usage:
-  agent-basics [--repo DIR] setup [DIR]
-  agent-basics [--repo DIR] upgrade [DIR]
+  agent-basics [--repo DIR] setup [options] [DIR]
+  agent-basics [--repo DIR] upgrade [options] [DIR]
   agent-basics [--repo DIR] memory <validate|rebuild|search|record|doctor|install-hooks> [...]
   agent-basics [--repo DIR] mcp
   agent-basics [--repo DIR] doctor [--online]
@@ -64,6 +64,20 @@ Usage:
 Setup and upgrade both run the repository setup flow. Re-running setup on an
 existing repository is the supported upgrade path; markdown conflicts are
 handled by the existing keep/replace/append/manual/web-merge/save prompts.
+
+Setup options:
+  --embedding-mode api|huggingface
+  --embedding-base-url URL
+  --embedding-model NAME
+  --embedding-api-key-env NAME
+  --embedding-hf-model OWNER/MODEL_OR_URL
+  --embedding-timeout SECONDS
+  --embedding-batch-size N
+  --embedding-min-dimensions N
+  --project-name NAME
+
+Embedding setup values are validated during setup and written to:
+  .agents/memory/rag/config.json
 
 MCP clients should use:
   command: agent-basics
@@ -107,22 +121,110 @@ if [[ $# -gt 0 ]]; then
 fi
 
 run_setup() {
-  local target_dir="${1:-}"
-  if [[ "$target_dir" == "-h" || "$target_dir" == "--help" ]]; then
-    usage
-    exit 0
-  fi
-  if [[ -n "$target_dir" ]]; then
-    shift || true
-  elif [[ -n "$repo_dir" ]]; then
-    target_dir="$repo_dir"
-  else
-    target_dir="$(pwd)"
-  fi
+  local target_dir=""
+  local embedding_mode=""
+  local embedding_base_url=""
+  local embedding_model=""
+  local embedding_api_key_env=""
+  local embedding_hf_model=""
+  local embedding_timeout=""
+  local embedding_batch_size=""
+  local embedding_min_dimensions=""
+  local project_name=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      --embedding-mode)
+        [[ $# -ge 2 ]] || { echo "Error: --embedding-mode requires a value." >&2; exit 2; }
+        embedding_mode="$2"
+        shift 2
+        ;;
+      --embedding-base-url)
+        [[ $# -ge 2 ]] || { echo "Error: --embedding-base-url requires a value." >&2; exit 2; }
+        embedding_base_url="$2"
+        shift 2
+        ;;
+      --embedding-model)
+        [[ $# -ge 2 ]] || { echo "Error: --embedding-model requires a value." >&2; exit 2; }
+        embedding_model="$2"
+        shift 2
+        ;;
+      --embedding-api-key-env)
+        [[ $# -ge 2 ]] || { echo "Error: --embedding-api-key-env requires a value." >&2; exit 2; }
+        embedding_api_key_env="$2"
+        shift 2
+        ;;
+      --embedding-hf-model)
+        [[ $# -ge 2 ]] || { echo "Error: --embedding-hf-model requires a value." >&2; exit 2; }
+        embedding_hf_model="$2"
+        shift 2
+        ;;
+      --embedding-timeout)
+        [[ $# -ge 2 ]] || { echo "Error: --embedding-timeout requires a value." >&2; exit 2; }
+        embedding_timeout="$2"
+        shift 2
+        ;;
+      --embedding-batch-size)
+        [[ $# -ge 2 ]] || { echo "Error: --embedding-batch-size requires a value." >&2; exit 2; }
+        embedding_batch_size="$2"
+        shift 2
+        ;;
+      --embedding-min-dimensions)
+        [[ $# -ge 2 ]] || { echo "Error: --embedding-min-dimensions requires a value." >&2; exit 2; }
+        embedding_min_dimensions="$2"
+        shift 2
+        ;;
+      --project-name)
+        [[ $# -ge 2 ]] || { echo "Error: --project-name requires a value." >&2; exit 2; }
+        project_name="$2"
+        shift 2
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo "Error: unknown setup option: $1" >&2
+        exit 2
+        ;;
+      *)
+        if [[ -n "$target_dir" ]]; then
+          echo "Error: setup accepts at most one target directory." >&2
+          exit 2
+        fi
+        target_dir="$1"
+        shift
+        ;;
+    esac
+  done
   if [[ $# -gt 0 ]]; then
-    echo "Error: setup accepts at most one target directory." >&2
-    exit 2
+    if [[ -n "$target_dir" || $# -gt 1 ]]; then
+      echo "Error: setup accepts at most one target directory." >&2
+      exit 2
+    fi
+    target_dir="$1"
   fi
+  if [[ -z "$target_dir" ]]; then
+    if [[ -n "$repo_dir" ]]; then
+      target_dir="$repo_dir"
+    else
+      target_dir="$(pwd)"
+    fi
+  fi
+  if [[ -n "$embedding_mode" ]]; then export AGENT_BASICS_EMBEDDING_MODE="$embedding_mode"; fi
+  if [[ -n "$embedding_base_url" ]]; then export AGENT_BASICS_EMBEDDING_BASE_URL="$embedding_base_url"; fi
+  if [[ -n "$embedding_model" ]]; then export AGENT_BASICS_EMBEDDING_MODEL="$embedding_model"; fi
+  if [[ -n "$embedding_api_key_env" ]]; then export AGENT_BASICS_EMBEDDING_API_KEY_ENV="$embedding_api_key_env"; fi
+  if [[ "$embedding_mode" == "api" && -z "$embedding_api_key_env" ]]; then export AGENT_BASICS_EMBEDDING_API_KEY_ENV=""; fi
+  if [[ -n "$embedding_hf_model" ]]; then export AGENT_BASICS_EMBEDDING_HF_MODEL="$embedding_hf_model"; fi
+  if [[ -n "$embedding_timeout" ]]; then export AGENT_BASICS_EMBEDDING_TIMEOUT="$embedding_timeout"; fi
+  if [[ -n "$embedding_batch_size" ]]; then export AGENT_BASICS_EMBEDDING_BATCH_SIZE="$embedding_batch_size"; fi
+  if [[ -n "$embedding_min_dimensions" ]]; then export AGENT_BASICS_EMBEDDING_MIN_DIMENSIONS="$embedding_min_dimensions"; fi
+  if [[ -n "$project_name" ]]; then export AGENT_BASICS_PROJECT_NAME="$project_name"; fi
   exec "$(find_setup_script)" "$target_dir"
 }
 

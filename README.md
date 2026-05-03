@@ -73,21 +73,33 @@ Setup requires one of two embedding configurations.
 Use an existing OpenAI-compatible embeddings API:
 
 ```bash
-export AGENT_BASICS_EMBEDDING_BASE_URL="http://127.0.0.1:1234/v1"
-export AGENT_BASICS_EMBEDDING_MODEL="text-embedding-embeddinggemma-300m-qat"
-export AGENT_BASICS_EMBEDDING_API_KEY=""
-agent-basics setup /path/to/project
+agent-basics setup /path/to/project \
+  --embedding-mode api \
+  --embedding-base-url http://127.0.0.1:1234/v1 \
+  --embedding-model text-embedding-embeddinggemma-300m-qat
 ```
 
-Setup writes durable RAG runtime settings into `.agents/memory/rag/config.json`. `runtime.embedding_timeout_seconds: 0` means wait indefinitely for embedding API responses. Set it to a positive number of seconds if you want setup and RAG commands to fail faster.
+Setup validates these values and writes durable RAG runtime settings into `.agents/memory/rag/config.json`. `runtime.embedding_timeout_seconds: 0` means wait indefinitely for embedding API responses. Set it to a positive number of seconds with `--embedding-timeout` if you want setup and RAG commands to fail faster.
 
-Environment variables are still accepted for noninteractive setup, secrets, and one-off overrides, but they are not the durable project configuration.
+If an embedding provider needs a secret, keep the secret in your shell and pass only the variable name:
+
+```bash
+export MY_EMBEDDING_API_KEY="..."
+agent-basics setup /path/to/project \
+  --embedding-mode api \
+  --embedding-base-url https://embedding.example/v1 \
+  --embedding-model my-embedding-model \
+  --embedding-api-key-env MY_EMBEDDING_API_KEY
+```
+
+Environment variables are still accepted as setup inputs, secret pointers, and one-off overrides, but they are not the durable project configuration.
 
 Or provide a HuggingFace model id or URL. Setup installs a repo-local Python virtualenv, pulls the model, verifies that it can produce finite vectors, and writes a small OpenAI-compatible API under `.agents/memory/rag/embedding-api/`.
 
 ```bash
-export AGENT_BASICS_EMBEDDING_HF_MODEL="Qwen/Qwen3-Embedding-0.6B"
-agent-basics setup /path/to/project
+agent-basics setup /path/to/project \
+  --embedding-mode huggingface \
+  --embedding-hf-model Qwen/Qwen3-Embedding-0.6B
 ```
 
 Start the generated local API with:
