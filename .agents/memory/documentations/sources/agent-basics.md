@@ -4,9 +4,9 @@ type: source
 title: agent-basics documentation sources
 status: active
 created: 1777766400
-updated: 1777766400
-tags: [agent-basics, bash, git, homebrew, embeddings, mcp, rust]
-summary: Source URLs used by agent-basics setup, packaging, embedding API, Rust binary, and MCP work.
+updated: 1777827387
+tags: [agent-basics, bash, git, homebrew, embeddings, mcp, rust, openviking]
+summary: Source URLs used by agent-basics setup, packaging, embedding API, Rust binary, MCP, and OpenViking gateway work.
 ---
 
 # agent-basics documentation sources
@@ -32,6 +32,7 @@ summary: Source URLs used by agent-basics setup, packaging, embedding API, Rust 
 - MCP 2025-11-25 tools specification: https://modelcontextprotocol.io/specification/2025-11-25/server/tools
 - MCP 2025-06-18 stdio transport specification: https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
 - MCP 2025-06-18 schema reference: https://modelcontextprotocol.io/specification/2025-06-18/schema
+- OpenViking GitHub repository: https://github.com/volcengine/OpenViking
 
 ## Notes
 
@@ -40,5 +41,6 @@ Record additional source URLs here when setup behavior, local embedding service 
 ## Related
 
 - `.agents/memory/SCHEMA.md`
+- `.agents/memory/documentations/procedures/openviking-gateway.md`
 - `.agents/memory/documentations/procedures/agent-memory-mcp.md`
 - `.agents/memory/documentations/procedures/local-huggingface-embedding-api.md`

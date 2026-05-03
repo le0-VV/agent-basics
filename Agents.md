@@ -3,7 +3,7 @@
 ## Protected Files
 
 - **DO NOT**, unless explicitly instructed by the user, modify `Agents.md` or `.agents/AGENT-BASICS.md`.
-- Follow `.agents/AGENT-BASICS.md` for agent-basics memory, documentation, RAG, setup, and repository workflow rules.
+- Follow `.agents/AGENT-BASICS.md` for agent-basics OpenViking, memory, documentation, setup, and repository workflow rules.
 
 ## Base Rules
 
@@ -13,18 +13,21 @@
 - Do not overlook critical context.
 - If you have questions or concerns that block safe progress, clarify with the user immediately.
 
-## Memory First
+## Context First
 
-- Use `.agents/memory/` as the canonical project memory and documentation source.
-- Before answering a request that may depend on prior project context, call the memory MCP server's `memory_search` tool. If MCP is unavailable, search `.agents/memory/INDEX.md` and use `agent-basics memory search "<query>"` or `.agents/memory/rag/agent-memory.py search "<query>"` as a fallback.
-- Anything the user asks you to remember must be recorded with the memory MCP server's `memory_record` tool. If MCP is unavailable, use `agent-basics memory record` or `.agents/memory/rag/agent-memory.py record`.
-- For routine memory/documentation records, let `memory_record` defer rebuilds. Rebuild once with `memory_rebuild` after a batch of memory changes, before relying on those new entries in search, or before committing.
+- Treat OpenViking as the required target memory, documentation, resource, and skill backend for agent-basics repositories.
+- Prefer the repo-aware agent-basics OpenViking gateway over direct OpenViking calls. Use `agent-basics mcp` and `agent-basics ov ...` commands when they are available.
+- Before answering a request that may depend on prior project context, search OpenViking through the agent-basics MCP tool or `agent-basics ov search "<query>"`.
+- Anything the user asks you to remember must be recorded in OpenViking through the agent-basics MCP tool or `agent-basics ov record`.
+- Add external documentation sources, reusable procedures, and agent skills to OpenViking through the agent-basics gateway when they matter for future work.
+- The current `.agents/memory/` mini-RAG is transitional compatibility until the OpenViking gateway is implemented and the repository is migrated. Use it only when OpenViking tooling is unavailable and work must continue.
+- If you must use the compatibility memory layer, use MCP `memory_search` and `memory_record` first. Fall back to `agent-basics memory ...` or `.agents/memory/rag/agent-memory.py ...` only when MCP is unavailable.
 - Do not edit `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists.
-- If you add, move, or remove memory/documentation files, keep `.agents/memory/INDEX.md` current and rebuild or validate the memory index.
 
 ## Work Rules
 
 - Before making codebase changes, write the concrete plan in `.agents/TODO.md` and follow it.
+- For non-trivial or long-running work, preserve direction in `ROADMAP.md` and current state in `.agents/TODO.md`.
 - Read a file fully before editing it.
 - Keep comments rare and useful. Explain why or constraints, not obvious mechanics.
 - Keep diffs narrow and task-focused.
@@ -48,6 +51,6 @@
 Follow in this order:
 
 1. Use the language of the user's message.
-2. Combine project context and clear reasoning to answer with concrete details.
-3. Use the memory RAG before relying on assumptions about prior work.
+2. Search OpenViking or the compatibility memory layer before relying on assumptions about prior work.
+3. Combine project context and clear reasoning to answer with concrete details.
 4. Keep answers direct and actionable.

@@ -1,19 +1,19 @@
 ---
 id: procedure-1777766400-local-huggingface-embedding-api
 type: procedure
-title: Run the repo-local HuggingFace embedding API
-status: active
+title: Run the compatibility repo-local HuggingFace embedding API
+status: compatibility
 created: 1777766400
-updated: 1777766400
-tags: [embeddings, huggingface, rag]
-summary: Start the generated local embedding API when agent-basics was configured with a HuggingFace model.
+updated: 1777827387
+tags: [embeddings, huggingface, rag, compatibility]
+summary: Start the generated local embedding API when the compatibility mini-RAG was configured with a HuggingFace model.
 ---
 
-# Run the repo-local HuggingFace embedding API
+# Run the compatibility repo-local HuggingFace embedding API
 
 ## When To Use
 
-Use this when `.agents/memory/rag/config.json` has embedding provider `huggingface-local`.
+Use this when the transitional `.agents/memory/rag/config.json` has embedding provider `huggingface-local`. OpenViking provider setup should use the OpenViking gateway when available.
 
 ## Steps
 
@@ -27,5 +27,6 @@ Call `/health`, `/v1/models`, or `/v1/embeddings` on the local service.
 
 ## Related
 
+- `.agents/memory/documentations/procedures/openviking-gateway.md`
 - `.agents/memory/rag/config.json`
 - `.agents/memory/rag/embedding-api/README.md`

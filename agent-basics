@@ -58,6 +58,7 @@ Usage:
   agent-basics [--repo DIR] upgrade [options] [DIR]
   agent-basics [--repo DIR] memory <validate|rebuild|search|record|doctor|install-hooks> [...]
   agent-basics [--repo DIR] mcp
+  agent-basics [--repo DIR] ov <doctor|search|record|add-resource|add-skill|ingest-changed|status> [...]
   agent-basics [--repo DIR] doctor [--online]
   agent-basics [--repo DIR] validate|rebuild|search|record|install-hooks [...]
 
@@ -79,10 +80,17 @@ Setup options:
 Embedding setup values are validated during setup and written to:
   .agents/memory/rag/config.json
 
+OpenViking is the target required backend for memory, resources, skills, and
+retrieval. The `ov` subcommands are reserved for the OpenViking gateway and
+currently fail fast until that gateway is implemented.
+
 MCP clients should use:
   command: agent-basics
   arguments: mcp
   working directory: repository root
+
+The current MCP implementation is compatibility memory-backed until the
+OpenViking gateway replaces it.
 EOT
 }
 
@@ -254,6 +262,12 @@ case "$command_name" in
     fi
     enter_repo
     exec "$(find_memory_mcp)"
+    ;;
+  ov|openviking)
+    enter_repo
+    echo "Error: agent-basics ov is reserved for the OpenViking gateway, but that gateway is not implemented in this build." >&2
+    echo "Use the compatibility 'agent-basics memory' commands only when OpenViking tooling is unavailable and work must continue." >&2
+    exit 2
     ;;
   validate|rebuild|search|record|doctor|install-hooks)
     enter_repo

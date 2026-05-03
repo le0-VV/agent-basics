@@ -25,4 +25,7 @@ OpenViking becomes the required memory/context backend target. Custom .agents/me
 
 ## Related
 
-- None.
+- `ROADMAP.md`
+- `.agents/AGENT-BASICS.md`
+- `.agents/memory/documentations/procedures/openviking-gateway.md`
+- `.agents/memory/memory/decisions/repo-local-memory-rag.md`

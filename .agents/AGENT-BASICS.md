@@ -1,102 +1,103 @@
 # agent-basics Operating Manual
 
-This file contains agent-basics-specific operating rules. `Agents.md` contains the base agent contract.
+This file contains agent-basics-specific operating rules. `Agents.md` contains the base agent contract and must stay at the project root so agents discover it reliably.
 
-## Memory And Documentation
+## OpenViking Context Backend
 
-- `.agents/memory/` is the only canonical memory and documentation source tree created by agent-basics.
-- Treat markdown under `.agents/memory/` as source of truth. Treat RAG indexes, vector databases, model caches, and embedding API runtime files as generated retrieval support.
-- Read `.agents/memory/SCHEMA.md` before creating or changing memory files.
-- Use `.agents/memory/templates/` when recording new entries.
-- Use the memory MCP server as the primary interface for memory retrieval and recording.
-- Call `memory_search` whenever the user refers to previous work, preferences, prior conversations, vague project context, or decisions not visible in the current chat.
-- Call `memory_record` for durable decisions, facts, preferences, gotchas, events, documentation sources, and procedures.
-- For routine `memory_record` calls, keep rebuilds deferred so memory writes only touch markdown and do not call the embedding API each time.
-- Call `memory_rebuild` once after a batch of memory changes, before relying on those new entries in search, or before committing memory changes.
-- If MCP is unavailable, search `.agents/memory/INDEX.md` and use `agent-basics memory search` or `.agents/memory/rag/agent-memory.py search` as the fallback.
-- Store durable memories under `.agents/memory/memory/`.
-- Store documentation sources, procedures, and references under `.agents/memory/documentations/`.
-- Record source URLs for external libraries, tools, APIs, frameworks, and standards under `.agents/memory/documentations/sources/`.
-- Keep `.agents/memory/INDEX.md` updated whenever you add, move, or remove entries.
-- Do not write memory or documentation files while `.agents/memory/rag/write.lock/` exists. Wait until the lock is released, then re-check the relevant source files before editing.
+- OpenViking is the required target backend for agent-basics memory, documentation, resources, skills, semantic organization, and retrieval.
+- Agents should not call OpenViking with ad hoc commands when an agent-basics gateway exists. Use the repo-aware `agent-basics mcp` server or stable `agent-basics ov ...` commands.
+- Repository-specific OpenViking config and state should live under `.agents/openviking/` once the gateway is implemented.
+- `agent-basics` owns setup, upgrade, validation, repo path resolution, git hooks, migration safety, and agent-facing command/MCP contracts.
+- OpenViking owns durable context storage, resource ingestion, summaries, semantic search, and vector indexes.
+- Before making context-dependent claims, search OpenViking through the gateway.
+- Record durable decisions, facts, preferences, gotchas, events, documentation sources, procedures, and reusable skills through the gateway.
+- Do not store secrets in OpenViking entries or agent-basics config. Store secret environment variable names only.
 
-## RAG Configuration
+## Gateway Contract
 
-- `.agents/memory/rag/config.json` is the durable RAG configuration file.
-- Use `config.json` to find the embedding provider, base URL, model name, dimensions, runtime settings, and API key environment variable.
-- Prefer `agent-basics setup` flags such as `--embedding-mode`, `--embedding-base-url`, `--embedding-model`, and `--embedding-hf-model` for setup inputs.
-- Environment variables are secret pointers, compatibility inputs, or one-off overrides. Do not rely on them as the durable project configuration.
-- Never commit raw embedding provider secret values. Store only the environment variable name, such as `AGENT_BASICS_EMBEDDING_API_KEY`.
-- `runtime.embedding_timeout_seconds: 0` means wait indefinitely for local embedding API validation and RAG embedding calls.
-- `runtime.embedding_minimum_dimensions` defaults to `64` and rejects embedding models that are too small for useful retrieval.
-- Validate the embedding setup after installation through `memory_doctor` with `online: true`, or by running `agent-basics memory doctor --online` when MCP is unavailable.
+The target agent-facing surfaces are:
 
-## Memory MCP
+- `agent-basics mcp`: repo-aware MCP server for OpenViking-backed tools.
+- `agent-basics ov doctor`: check OpenViking installation, repo config, providers, ingest status, and health.
+- `agent-basics ov search <query>`: retrieve prior context for vague or specific project requests.
+- `agent-basics ov record`: record durable context in the correct OpenViking category.
+- `agent-basics ov add-resource <path-or-url>`: ingest documentation or reference material.
+- `agent-basics ov add-skill <path>`: register reusable agent workflows.
+- `agent-basics ov ingest-changed`: update OpenViking after source instructions, docs, or memory files change.
+- `agent-basics ov status`: report repo-specific OpenViking state.
 
-Configure capable agents to run the memory MCP server through the single `agent-basics` command:
+When configuring an MCP-capable agent, prefer a systemwide `agent-basics` command with the target repository root as the working directory:
 
 ```json
 {
   "mcpServers": {
-    "agent-basics-memory": {
+    "agent-basics": {
       "command": "agent-basics",
       "args": ["mcp"],
-      "cwd": "."
+      "cwd": "/absolute/path/to/repository"
     }
   }
 }
 ```
 
-When the systemwide command is not installed, use the absolute repo-local `.agents/memory/rag/memory-mcp.py` path instead.
-
 For Codex Desktop custom MCP setup, guide the user to Settings -> MCP servers -> Connect to a custom MCP and use:
 
-- Name: `agent-basics-memory`
+- Name: `agent-basics`
 - Transport: `STDIO`
-- Command to launch: `agent-basics` when installed, otherwise the absolute path to `.agents/memory/rag/memory-mcp.py`
-- Arguments: `mcp` when using `agent-basics`; none when using the repo-local fallback script
-- Environment variables: only add the embedding API key variable if `.agents/memory/rag/config.json` names one in `embedding.api_key_env`
-- Environment variable passthrough: the same API key variable, only when needed
+- Command to launch: `agent-basics`
+- Arguments: `mcp`
+- Environment variables: only provider secret variables named by `.agents/config.toml` or `.agents/openviking/ov.conf`
+- Environment variable passthrough: the same provider secret variables, only when needed
 - Working directory: absolute path to the repository root
 
-For this repository, the command can be `agent-basics` with argument `mcp` after Homebrew install, or `/Users/leonardw/Projects/agent-basics/.agents/memory/rag/memory-mcp.py` from the checkout. The working directory is `/Users/leonardw/Projects/agent-basics`.
+For this repository, the intended working directory is `/Users/leonardw/Projects/agent-basics`.
 
-Keep MCP configuration guidance in this operating manual and memory procedures. Do not rely on a separate `Skills.md` for baseline agent-basics behavior because skills are optional client-side additions, while MCP memory setup is part of the repo contract.
+## Transitional Compatibility
 
-Available MCP tools:
+The current repository still contains the custom `.agents/memory/` markdown tree and generated mini-RAG while OpenViking integration is being built.
 
-- `memory_search`: run hybrid embedding and full-text retrieval.
-- `memory_record`: create a structured memory entry and update `INDEX.md`; rebuild is deferred by default.
-- `memory_doctor`: report layout, config, manifest, index, and embedding endpoint health.
-- `memory_rebuild`: rebuild the generated SQLite RAG cache.
-- `memory_validate`: check layout and front matter.
+Use this layer only as compatibility when OpenViking tooling is unavailable:
 
-## Memory CLI
+- Use the memory MCP server first when the client exposes it.
+- Call `memory_search` for prior context.
+- Call `memory_record` for durable records.
+- Let routine `memory_record` calls defer rebuilds.
+- Call `memory_rebuild` once after a batch of memory changes, before relying on new entries in search, or before committing memory changes.
+- If MCP is unavailable, use `agent-basics memory ...` or `.agents/memory/rag/agent-memory.py ...`.
+- Keep `.agents/memory/INDEX.md` updated whenever adding, moving, or removing compatibility entries.
+- Do not write `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists.
 
-Use `agent-basics memory` when installed, or `.agents/memory/rag/agent-memory.py` from the checkout, for setup, git hooks, manual recovery, and fallback operations when MCP is not available:
+Compatibility files are not the long-term architecture. When `agent-basics ov` and the OpenViking-backed MCP server are implemented, migrate useful compatibility memory into OpenViking and demote or remove the custom mini-RAG.
 
-- `validate`: check layout and front matter.
-- `rebuild`: rebuild the generated SQLite RAG cache.
-- `search "<query>"`: run hybrid embedding and full-text retrieval.
-- `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index unless `--no-rebuild` is passed.
-- `doctor --online`: report layout, config, manifest, index, and embedding endpoint health.
-- `install-hooks`: install local git hooks for memory validation and stale-index warnings.
+## Configuration
 
-## Recording Rules
+- Durable repo configuration belongs in `.agents/config.toml` and `.agents/openviking/` config files once those files exist.
+- Provider URLs, model names, timeouts, runtime paths, and feature flags should be stored in config files, not scattered through shell environment variables.
+- Environment variables are allowed for secrets, compatibility inputs, and one-off overrides.
+- Never commit raw provider API keys or local-only secrets.
+- Local provider defaults currently being tested are:
+  - LM Studio base URL: `http://127.0.0.1:1234`
+  - Chat/VLM model: `google/gemma-4-e4b`
+  - Embedding model: `text-embedding-embeddinggemma-300m-qat`
 
-- Store project decisions under `.agents/memory/memory/decisions/`.
-- Store durable facts under `.agents/memory/memory/facts/`.
-- Store user or project preferences under `.agents/memory/memory/preferences/`.
-- Store recurring pitfalls under `.agents/memory/memory/gotchas/`.
-- Store dated events under `.agents/memory/memory/events/`.
-- Store reusable procedures under `.agents/memory/documentations/procedures/`.
-- Store reference material under `.agents/memory/documentations/references/`.
-- Keep one durable idea per file.
-- Do not store secrets.
+## Long-Horizon Work
+
+- `ROADMAP.md` records project direction, design choices, milestones, non-goals, and open questions.
+- `.agents/TODO.md` records the current work plan and cross-session state.
+- For substantial work, update `.agents/TODO.md` before editing files and tick items off as they are completed.
+- Preserve useful handoff context in `.agents/TODO.md` or future `.agents/runs/<run-id>/` files when work may continue in another session.
+- Future run commands should route through `agent-basics run start/status/checkpoint/finish/handoff`.
+
+## Skills And Stable Commands
+
+- Skills should capture repeated workflows such as prework, memory update, finish work, documentation lookup, and verification.
+- Skills should point to stable `agent-basics` commands so users can approve predictable command prefixes.
+- Do not rely on optional client-side skills as the only source of baseline behavior. Root `Agents.md`, this operating manual, MCP tools, CLI checks, and git hooks remain the repo contract.
 
 ## Documentation Discipline
 
 - Find up-to-date documentation for any library, framework, API, tool, or programming language used in the project.
-- Record documentation source URLs under `.agents/memory/documentations/sources/`.
-- While writing code, refer to documentation sources recorded under `.agents/memory/documentations/`.
-- Add a new source record when you consult a new external reference that matters for future work.
+- Record source URLs in OpenViking resources through `agent-basics ov add-resource` when the gateway exists.
+- While the compatibility layer is still in use, record important sources under `.agents/memory/documentations/sources/`.
+- While writing code, refer to recorded documentation sources before relying on memory for external APIs.
+- Add a new source record when a consulted external reference matters for future work.
