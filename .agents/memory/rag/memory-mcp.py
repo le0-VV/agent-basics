@@ -60,7 +60,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "memory_record",
         "title": "Record agent-basics memory",
-        "description": "Create a structured repo-local memory or documentation entry, update INDEX.md, and rebuild the RAG index.",
+        "description": "Create a structured repo-local memory or documentation entry and update INDEX.md. Rebuilds are deferred by default; call memory_rebuild after a batch of memory writes.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -85,7 +85,11 @@ TOOLS: list[dict[str, Any]] = [
                 },
                 "status": {"type": "string"},
                 "url": {"type": "string"},
-                "no_rebuild": {"type": "boolean", "default": False},
+                "no_rebuild": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "When true, skip immediate embedding/index rebuild. Leave true for routine records and call memory_rebuild once after a batch.",
+                },
             },
             "required": ["type", "title", "content"],
             "additionalProperties": False,
@@ -275,7 +279,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
             value = optional_string(arguments, option)
             if value is not None:
                 args.extend([f"--{option.replace('_', '-')}", value])
-        if optional_bool(arguments, "no_rebuild", False):
+        if optional_bool(arguments, "no_rebuild", True):
             args.append("--no-rebuild")
         completed = run_cli(args)
         return cli_tool_result(completed)
@@ -328,7 +332,7 @@ def handle_request(message: dict[str, Any]) -> dict[str, Any] | None:
                     "title": "agent-basics Memory",
                     "version": SERVER_VERSION,
                 },
-                "instructions": "Use memory_search before answering requests that depend on prior project context. Use memory_record for durable decisions, facts, preferences, gotchas, events, sources, and procedures.",
+                "instructions": "Use memory_search before answering requests that depend on prior project context. Use memory_record for durable decisions, facts, preferences, gotchas, events, sources, and procedures. Routine memory_record calls defer rebuilds by default; call memory_rebuild once after a batch or before relying on new entries in search.",
             },
         )
 

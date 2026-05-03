@@ -11,6 +11,8 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 - Use the memory MCP server as the primary interface for memory retrieval and recording.
 - Call `memory_search` whenever the user refers to previous work, preferences, prior conversations, vague project context, or decisions not visible in the current chat.
 - Call `memory_record` for durable decisions, facts, preferences, gotchas, events, documentation sources, and procedures.
+- For routine `memory_record` calls, keep rebuilds deferred so memory writes only touch markdown and do not call the embedding API each time.
+- Call `memory_rebuild` once after a batch of memory changes, before relying on those new entries in search, or before committing memory changes.
 - If MCP is unavailable, search `.agents/memory/INDEX.md` and use `agent-basics memory search` or `.agents/memory/rag/agent-memory.py search` as the fallback.
 - Store durable memories under `.agents/memory/memory/`.
 - Store documentation sources, procedures, and references under `.agents/memory/documentations/`.
@@ -64,7 +66,7 @@ Keep MCP configuration guidance in this operating manual and memory procedures. 
 Available MCP tools:
 
 - `memory_search`: run hybrid embedding and full-text retrieval.
-- `memory_record`: create a structured memory entry, update `INDEX.md`, and rebuild the index.
+- `memory_record`: create a structured memory entry and update `INDEX.md`; rebuild is deferred by default.
 - `memory_doctor`: report layout, config, manifest, index, and embedding endpoint health.
 - `memory_rebuild`: rebuild the generated SQLite RAG cache.
 - `memory_validate`: check layout and front matter.
@@ -76,7 +78,7 @@ Use `agent-basics memory` when installed, or `.agents/memory/rag/agent-memory.py
 - `validate`: check layout and front matter.
 - `rebuild`: rebuild the generated SQLite RAG cache.
 - `search "<query>"`: run hybrid embedding and full-text retrieval.
-- `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index.
+- `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index unless `--no-rebuild` is passed.
 - `doctor --online`: report layout, config, manifest, index, and embedding endpoint health.
 - `install-hooks`: install local git hooks for memory validation and stale-index rebuilds.
 

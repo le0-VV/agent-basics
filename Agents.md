@@ -18,6 +18,7 @@
 - Use `.agents/memory/` as the canonical project memory and documentation source.
 - Before answering a request that may depend on prior project context, call the memory MCP server's `memory_search` tool. If MCP is unavailable, search `.agents/memory/INDEX.md` and use `agent-basics memory search "<query>"` or `.agents/memory/rag/agent-memory.py search "<query>"` as a fallback.
 - Anything the user asks you to remember must be recorded with the memory MCP server's `memory_record` tool. If MCP is unavailable, use `agent-basics memory record` or `.agents/memory/rag/agent-memory.py record`.
+- For routine memory/documentation records, let `memory_record` defer rebuilds. Rebuild once with `memory_rebuild` after a batch of memory changes, before relying on those new entries in search, or before committing.
 - Do not edit `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists.
 - If you add, move, or remove memory/documentation files, keep `.agents/memory/INDEX.md` current and rebuild or validate the memory index.
 

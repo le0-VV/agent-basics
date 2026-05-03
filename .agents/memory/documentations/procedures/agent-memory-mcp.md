@@ -22,8 +22,10 @@ Use this whenever an MCP-capable agent needs to retrieve prior project context, 
 3. Call `memory_search` before answering requests that depend on prior project context.
 4. Call `memory_record` when the user asks to remember something or when a durable decision, fact, preference, gotcha, event, source, or procedure should be preserved.
 5. Pass structured fields such as `rationale`, `consequences`, `notes`, `steps`, and `related` when they apply, so the recorder can generate polished markdown without manual edits.
-6. Call `memory_validate` before committing memory changes.
-7. Call `memory_doctor` to inspect layout, config, index freshness, and embedding endpoint health.
+6. Leave `no_rebuild` at its default `true` for routine records so writes do not call the embedding API every time.
+7. Call `memory_rebuild` once after a batch of memory changes, before relying on new entries in search, or before committing.
+8. Call `memory_validate` before committing memory changes.
+9. Call `memory_doctor` to inspect layout, config, index freshness, and embedding endpoint health.
 
 ## Codex Desktop Configuration
 

@@ -94,6 +94,7 @@ create_template_file() {
 - Use `.agents/memory/` as the canonical project memory and documentation source.
 - Before answering a request that may depend on prior project context, call the memory MCP server's `memory_search` tool. If MCP is unavailable, search `.agents/memory/INDEX.md` and use `agent-basics memory search "<query>"` or `.agents/memory/rag/agent-memory.py search "<query>"` as a fallback.
 - Anything the user asks you to remember must be recorded with the memory MCP server's `memory_record` tool. If MCP is unavailable, use `agent-basics memory record` or `.agents/memory/rag/agent-memory.py record`.
+- For routine memory/documentation records, let `memory_record` defer rebuilds. Rebuild once with `memory_rebuild` after a batch of memory changes, before relying on those new entries in search, or before committing.
 - Do not edit `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists.
 - If you add, move, or remove memory/documentation files, keep `.agents/memory/INDEX.md` current and rebuild or validate the memory index.
 
@@ -143,6 +144,8 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 - Use the memory MCP server as the primary interface for memory retrieval and recording.
 - Call `memory_search` whenever the user refers to previous work, preferences, prior conversations, vague project context, or decisions not visible in the current chat.
 - Call `memory_record` for durable decisions, facts, preferences, gotchas, events, documentation sources, and procedures.
+- For routine `memory_record` calls, keep rebuilds deferred so memory writes only touch markdown and do not call the embedding API each time.
+- Call `memory_rebuild` once after a batch of memory changes, before relying on those new entries in search, or before committing memory changes.
 - If MCP is unavailable, search `.agents/memory/INDEX.md` and use `agent-basics memory search` or `.agents/memory/rag/agent-memory.py search` as the fallback.
 - Store durable memories under `.agents/memory/memory/`.
 - Store documentation sources, procedures, and references under `.agents/memory/documentations/`.
@@ -196,7 +199,7 @@ Keep MCP configuration guidance in this operating manual and memory procedures. 
 Available MCP tools:
 
 - `memory_search`: run hybrid embedding and full-text retrieval.
-- `memory_record`: create a structured memory entry, update `INDEX.md`, and rebuild the index.
+- `memory_record`: create a structured memory entry and update `INDEX.md`; rebuild is deferred by default.
 - `memory_doctor`: report layout, config, manifest, index, and embedding endpoint health.
 - `memory_rebuild`: rebuild the generated SQLite RAG cache.
 - `memory_validate`: check layout and front matter.
@@ -208,7 +211,7 @@ Use `agent-basics memory` when installed, or `.agents/memory/rag/agent-memory.py
 - `validate`: check layout and front matter.
 - `rebuild`: rebuild the generated SQLite RAG cache.
 - `search "<query>"`: run hybrid embedding and full-text retrieval.
-- `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index.
+- `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index unless `--no-rebuild` is passed.
 - `doctor --online`: report layout, config, manifest, index, and embedding endpoint health.
 - `install-hooks`: install local git hooks for memory validation and stale-index rebuilds.
 
@@ -311,7 +314,7 @@ Generated RAG indexes, vector stores, model caches, and embedding API virtualenv
 Supported tools:
 
 - `memory_search`: run hybrid embedding and full-text retrieval.
-- `memory_record`: create a structured memory entry, update `INDEX.md`, and rebuild the index.
+- `memory_record`: create a structured memory entry and update `INDEX.md`; rebuild is deferred by default.
 - `memory_doctor`: report layout, config, manifest, index, and optional embedding endpoint health.
 - `memory_rebuild`: rebuild the generated SQLite RAG cache.
 - `memory_validate`: check layout and entry front matter.
@@ -327,7 +330,7 @@ Supported commands:
 - `validate`: check layout and entry front matter.
 - `rebuild`: rebuild the generated SQLite RAG cache.
 - `search <query>`: run hybrid embedding and full-text retrieval.
-- `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index.
+- `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index unless `--no-rebuild` is passed.
 - `doctor`: report layout, embedding, and index health.
 - `install-hooks`: install local git hooks that validate memory before commit and rebuild the index after relevant changes.
 
@@ -787,8 +790,10 @@ Use this whenever an MCP-capable agent needs to retrieve prior project context, 
 3. Call `memory_search` before answering requests that depend on prior project context.
 4. Call `memory_record` when the user asks to remember something or when a durable decision, fact, preference, gotcha, event, source, or procedure should be preserved.
 5. Pass structured fields such as `rationale`, `consequences`, `notes`, `steps`, and `related` when they apply, so the recorder can generate polished markdown without manual edits.
-6. Call `memory_validate` before committing memory changes.
-7. Call `memory_doctor` to inspect layout, config, index freshness, and embedding endpoint health.
+6. Leave `no_rebuild` at its default `true` for routine records so writes do not call the embedding API every time.
+7. Call `memory_rebuild` once after a batch of memory changes, before relying on new entries in search, or before committing.
+8. Call `memory_validate` before committing memory changes.
+9. Call `memory_doctor` to inspect layout, config, index freshness, and embedding endpoint health.
 
 ## Codex Desktop Configuration
 
@@ -841,7 +846,7 @@ Use this when installing git hooks, running setup, repairing memory manually, or
 1. Run `agent-basics memory validate` before committing memory changes when the systemwide command is installed, or `.agents/memory/rag/agent-memory.py validate` from a source checkout.
 2. Run `agent-basics memory rebuild` after memory or documentation entries change.
 3. Run `agent-basics memory search "<query>"` only as a fallback when MCP `memory_search` is unavailable.
-4. Run `agent-basics memory record <type> <title> --content "<content>"` only as a fallback when MCP `memory_record` is unavailable.
+4. Run `agent-basics memory record <type> <title> --content "<content>" --no-rebuild` only as a fallback when MCP `memory_record` is unavailable and you are recording multiple entries.
 5. Prefer structured fields such as `--rationale`, `--consequences`, `--notes`, `--steps`, and `--related` instead of patching generated memory markdown by hand.
 6. Run `agent-basics memory install-hooks` to install local git hooks in a repo.
 
