@@ -95,12 +95,12 @@ create_template_file() {
 ## Context First
 
 - Treat OpenViking as the required target memory, documentation, resource, and skill backend for agent-basics repositories.
-- Prefer the repo-aware agent-basics OpenViking gateway over direct OpenViking calls. Use `agent-basics mcp` and `agent-basics ov ...` commands when they are available.
+- Prefer the repo-aware agent-basics OpenViking gateway over direct OpenViking calls. Use `agent-basics mcp` and `agent-basics ov ...` commands for normal context work.
 - Before answering a request that may depend on prior project context, search OpenViking through the agent-basics MCP tool or `agent-basics ov search "<query>"`.
 - Anything the user asks you to remember must be recorded in OpenViking through the agent-basics MCP tool or `agent-basics ov record`.
 - Add external documentation sources, reusable procedures, and agent skills to OpenViking through the agent-basics gateway when they matter for future work.
-- The current `.agents/memory/` mini-RAG is transitional compatibility until the OpenViking gateway is implemented and the repository is migrated. Use it only when OpenViking tooling is unavailable and work must continue.
-- If you must use the compatibility memory layer, use MCP `memory_search` and `memory_record` first. Fall back to `agent-basics memory ...` or `.agents/memory/rag/agent-memory.py ...` only when MCP is unavailable.
+- The current `.agents/memory/` mini-RAG is fallback compatibility. Use it only when OpenViking tooling is unavailable and work must continue.
+- If you must use the compatibility memory layer, call `.agents/memory/rag/memory-mcp.py` directly or fall back to `agent-basics memory ...` / `.agents/memory/rag/agent-memory.py ...`.
 - Do not edit `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists.
 
 ## Work Rules
@@ -145,7 +145,7 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 
 - OpenViking is the required target backend for agent-basics memory, documentation, resources, skills, semantic organization, and retrieval.
 - Agents should not call OpenViking with ad hoc commands when an agent-basics gateway exists. Use the repo-aware `agent-basics mcp` server or stable `agent-basics ov ...` commands.
-- Repository-specific OpenViking metadata and locks should live under `.agents/openviking/` once the gateway is implemented. The OpenViking package and workspace should live in a user-level installation, normally `~/.openviking`, not inside each repository.
+- Repository-specific OpenViking metadata and locks should live under `.agents/openviking/`. The OpenViking package and workspace should live in a user-level installation, normally `~/.openviking`, not inside each repository.
 - `agent-basics` owns setup, upgrade, validation, repo path resolution, git hooks, migration safety, and agent-facing command/MCP contracts.
 - OpenViking owns durable context storage, resource ingestion, summaries, semantic search, and vector indexes.
 - Before making context-dependent claims, search OpenViking through the gateway.
@@ -194,13 +194,12 @@ For Codex Desktop custom MCP setup, guide the user to Settings -> MCP servers ->
 
 ## Transitional Compatibility
 
-The current repository still contains the custom `.agents/memory/` markdown tree and generated mini-RAG while OpenViking integration is being built.
+The current repository may contain the custom `.agents/memory/` markdown tree and generated mini-RAG for fallback compatibility.
 
-Use this layer only as compatibility when OpenViking tooling is unavailable:
+Use this layer only when OpenViking tooling is unavailable:
 
-- Use the memory MCP server first when the client exposes it.
-- Call `memory_search` for prior context.
-- Call `memory_record` for durable records.
+- Prefer the OpenViking-backed `agent-basics mcp` server for normal work.
+- Call `.agents/memory/rag/memory-mcp.py` directly only when the OpenViking gateway is unavailable.
 - Let routine `memory_record` calls defer rebuilds.
 - Call `memory_rebuild` once after a batch of memory changes, before relying on new entries in search, or before committing memory changes.
 - If MCP is unavailable, use `agent-basics memory ...` or `.agents/memory/rag/agent-memory.py ...`.
@@ -320,7 +319,7 @@ High-level rules:
 2. Split durable material into one independently updatable idea per file under `memories/<ov_category>/`, `resources/`, or `skills/`.
 3. Preserve provenance with `source_paths`.
 4. Mark stale compatibility records with `requires_human_review: true` instead of silently importing them.
-5. Ingest through `agent-basics ov ...` or the OpenViking-backed MCP gateway when available.
+5. Ingest through `agent-basics ov ...` or the OpenViking-backed MCP gateway.
 6. Verify with OpenViking retrieval before demoting legacy material.
 
 Setup must not delete `.agents/memory/`. For fresh repositories, setup creates the OV source-store directories only. For older repositories, setup snapshots legacy compatibility directories such as `templates/`, `memory/`, `documentations/`, and `rag/` under `.agents/openviking/legacy-memory/<unix-timestamp>/` before agents adapt useful content into this schema.
@@ -337,7 +336,7 @@ The older agent-basics compatibility mini-RAG used these legacy paths:
   rag/
 ```
 
-Those paths may still exist while the OpenViking-backed gateway is being implemented. They are compatibility input, not the target source-store shape. Compatibility writers must still respect `.agents/memory/rag/write.lock/` while the legacy mini-RAG is in use:
+Those paths may still exist as compatibility fallback. They are compatibility input, not the target source-store shape. Compatibility writers must still respect `.agents/memory/rag/write.lock/` while the legacy mini-RAG is in use:
 
 - Memory writers must wait while it exists.
 - Indexers must create it before hashing, chunking, embedding, or replacing indexes.
@@ -784,7 +783,7 @@ summary: Start the generated local embedding API when the compatibility mini-RAG
 
 ## When To Use
 
-Use this when the transitional `.agents/memory/rag/config.json` has embedding provider `huggingface-local`. OpenViking provider setup should use the OpenViking gateway when available.
+Use this when the transitional `.agents/memory/rag/config.json` has embedding provider `huggingface-local`. OpenViking provider setup should use the OpenViking gateway.
 
 ## Steps
 
@@ -809,9 +808,9 @@ EOT
 id: procedure-1777827387-openviking-gateway
 type: procedure
 title: Use the agent-basics OpenViking gateway
-status: planned
+status: active
 created: 1777827387
-updated: 1777827387
+updated: 1777919266
 tags: [agent-basics, openviking, mcp, memory, resources, skills]
 summary: Route agent memory, documentation, resource, and skill work through the repo-aware agent-basics OpenViking gateway.
 ---
@@ -832,7 +831,7 @@ Use this whenever an agent needs prior project context, durable memory recording
 6. Add important documentation or reference material with `agent-basics ov add-resource <path-or-url>`.
 7. Add reusable workflows with `agent-basics ov add-skill <path>`.
 8. After adapting repo memory, resources, or skills under `.agents/memory/`, run `agent-basics ov import-repo-memory --write`. OV-native memory files are written directly into their OpenViking memory categories; resources and skills use OpenViking ingestion.
-9. After instruction, documentation, memory, or skill files change, run `agent-basics ov ingest-changed` when that command is available.
+9. After instruction, documentation, memory, or skill files change, run `agent-basics ov ingest-changed`.
 10. Run `agent-basics ov doctor` before relying on OpenViking if setup, provider configuration, or ingest state is uncertain.
 
 ## Codex Desktop Configuration
@@ -868,7 +867,7 @@ status: compatibility
 created: 1777766400
 updated: 1777827387
 tags: [agent-basics, memory, rag, mcp, compatibility]
-summary: Use `agent-basics mcp` or `.agents/memory/rag/memory-mcp.py` only while the OpenViking gateway is unavailable.
+summary: Use `.agents/memory/rag/memory-mcp.py` only when the OpenViking gateway is unavailable.
 ---
 
 # Use the compatibility agent-basics memory MCP server
@@ -880,8 +879,8 @@ Use this only when the OpenViking-backed `agent-basics mcp` or `agent-basics ov 
 ## Steps
 
 1. Prefer the OpenViking gateway procedure first.
-2. Configure the agent's MCP client to run `agent-basics mcp` from the repository root when the installed command is still backed by the compatibility memory server.
-3. If the systemwide command is unavailable, configure the client to run the absolute repo-local `.agents/memory/rag/memory-mcp.py` path from the repository root.
+2. Configure the agent's MCP client to run the absolute repo-local `.agents/memory/rag/memory-mcp.py` path from the repository root.
+3. Do not use `agent-basics mcp` for compatibility fallback; that command is the OpenViking-backed gateway.
 4. Call `memory_search` before answering requests that depend on prior project context.
 5. Call `memory_record` when the user asks to remember something or when a durable decision, fact, preference, gotcha, event, source, or procedure should be preserved before OpenViking migration.
 6. Pass structured fields such as `rationale`, `consequences`, `notes`, `steps`, and `related` when they apply, so the recorder can generate polished markdown without manual edits.
@@ -896,8 +895,8 @@ In Settings -> MCP servers -> Connect to a custom MCP, use these fields when the
 
 - Name: `agent-basics-memory`
 - Transport: `STDIO`
-- Command to launch: `agent-basics` when installed, otherwise the absolute path to `.agents/memory/rag/memory-mcp.py`
-- Arguments: `mcp` when using `agent-basics`; none when using the repo-local fallback script
+- Command to launch: the absolute path to `.agents/memory/rag/memory-mcp.py`
+- Arguments: none
 - Environment variables: leave blank unless `.agents/memory/rag/config.json` names an API key variable in `embedding.api_key_env`
 - Environment variable passthrough: same API key variable only when needed
 - Working directory: absolute path to the repository root
@@ -2574,7 +2573,7 @@ Codex Desktop custom MCP fields for the target gateway:
   Working directory: $TARGET_DIR
 
 Compatibility mini-RAG:
-  Not installed by default. Re-run with AGENT_BASICS_INSTALL_COMPAT_MEMORY=1 only if you need the old fallback memory CLI/MCP while OpenViking gateway work is incomplete.
+  Not installed by default. Re-run with AGENT_BASICS_INSTALL_COMPAT_MEMORY=1 only if you need the old fallback memory CLI/MCP when OpenViking is unavailable.
 
 If legacy material was snapshotted, adapt it with:
   .agents/memory/ADAPTATION.md

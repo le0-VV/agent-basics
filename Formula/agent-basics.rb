@@ -11,93 +11,23 @@ class AgentBasics < Formula
 
   test do
     require "json"
-    require "socket"
 
     project_dir = testpath/"demo-project"
-    server = TCPServer.new("127.0.0.1", 0)
-    port = server.addr[1]
-    pid = fork do
-      loop do
-        socket = server.accept
-        request_line = socket.gets
-        headers = {}
-
-        while (line = socket.gets)
-          break if line == "\r\n"
-
-          key, value = line.split(":", 2)
-          headers[key.downcase] = value.strip if key && value
-        end
-
-        content_length = headers.fetch("content-length", "0").to_i
-        request_body = content_length.positive? ? socket.read(content_length) : ""
-
-        if request_line&.include?("POST /v1/embeddings")
-          payload = JSON.parse(request_body)
-          inputs = payload.fetch("input")
-          inputs = [inputs] if inputs.is_a?(String)
-          body = JSON.generate({
-            object: "list",
-            data: inputs.each_with_index.map do |_input, index|
-              {
-                object: "embedding",
-                embedding: Array.new(64) { |dimension| dimension.to_f / 100.0 },
-                index: index,
-              }
-            end,
-            model: "test-embedding",
-            usage: {
-              prompt_tokens: 0,
-              total_tokens: 0,
-            },
-          })
-          status = "200 OK"
-        else
-          body = JSON.generate({ error: "not found" })
-          status = "404 Not Found"
-        end
-
-        socket.write "HTTP/1.1 #{status}\r\n"
-        socket.write "Content-Type: application/json\r\n"
-        socket.write "Content-Length: #{body.bytesize}\r\n"
-        socket.write "Connection: close\r\n\r\n"
-        socket.write body
-        socket.close
-      end
-    end
-    server.close
-
-    begin
-      system(
-        {
-          "AGENT_BASICS_EMBEDDING_BASE_URL" => "http://127.0.0.1:#{port}/v1",
-          "AGENT_BASICS_EMBEDDING_MODEL" => "test-embedding",
-          "AGENT_BASICS_EMBEDDING_API_KEY" => "",
-        },
-        bin/"agent-basics",
-        "setup",
-        project_dir,
-      )
-    ensure
-      Process.kill("TERM", pid)
-      Process.wait(pid)
-    end
+    system bin/"agent-basics", "setup", project_dir
 
     assert_predicate project_dir/".agents", :exist?
     assert_predicate project_dir/".agents/memory", :exist?
     assert_predicate project_dir/".agents/memory/SCHEMA.md", :exist?
     assert_predicate project_dir/".agents/memory/INDEX.md", :exist?
-    assert_predicate project_dir/".agents/memory/rag/config.json", :exist?
-    assert_predicate project_dir/".agents/memory/rag/agent-memory.py", :exist?
-    assert_predicate project_dir/".agents/memory/rag/memory-mcp.py", :exist?
-    assert_predicate project_dir/".agents/memory/rag/index.sqlite", :exist?
-    assert_predicate project_dir/".git/hooks/pre-commit", :exist?
+    assert_predicate project_dir/".agents/memory/memories/preferences/.gitkeep", :exist?
+    assert_predicate project_dir/".agents/memory/resources/sources/.gitkeep", :exist?
+    assert_predicate project_dir/".agents/openviking/repo.json", :exist?
+    refute_predicate project_dir/".agents/memory/rag", :exist?
     assert_predicate project_dir/"Agents.md", :exist?
     assert_predicate project_dir/".agents/AGENT-BASICS.md", :exist?
     assert_predicate project_dir/".gitignore", :exist?
     cd project_dir do
-      system bin/"agent-basics", "memory", "validate"
-      system bin/"agent-basics", "doctor"
+      system bin/"agent-basics", "ov", "record", "preferences", "Formula smoke", "--content", "Dry-run records should not require OpenViking.", "--dry-run"
       IO.popen([(bin/"agent-basics").to_s, "mcp"], "r+") do |pipe|
         pipe.puts(JSON.generate({
           jsonrpc: "2.0",
@@ -116,10 +46,10 @@ class AgentBasics < Formula
         pipe.puts(JSON.generate({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }))
         pipe.close_write
         responses = pipe.read.lines.map { |line| JSON.parse(line) }
-        assert_equal "agent-basics-memory", responses.fetch(0).fetch("result").fetch("serverInfo").fetch("name")
+        assert_equal "agent-basics-openviking", responses.fetch(0).fetch("result").fetch("serverInfo").fetch("name")
         tool_names = responses.fetch(1).fetch("result").fetch("tools").map { |tool| tool.fetch("name") }
-        assert_includes tool_names, "memory_search"
-        assert_includes tool_names, "memory_record"
+        assert_includes tool_names, "search"
+        assert_includes tool_names, "record"
       end
     end
     refute_predicate project_dir/".agents/memoryhub", :exist?

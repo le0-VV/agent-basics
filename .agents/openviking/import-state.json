@@ -21,35 +21,41 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/INDEX.md"
     },
     ".agents/memory/SCHEMA.md": {
-      "imported_at": 1777912351,
+      "command": [
+        "/Users/leonardw/.openviking/venv/bin/ov",
+        "add-resource",
+        "/Users/leonardw/Projects/agent-basics/.agents/memory/SCHEMA.md",
+        "--to",
+        "viking://resources/projects/agent-basics/resources/.agents/memory/SCHEMA.md",
+        "--reason",
+        "agent-basics repo OpenViking source import",
+        "-o",
+        "json",
+        "--wait",
+        "--timeout",
+        "86400"
+      ],
+      "imported_at": 1777919939,
       "kind": "resource",
       "method": "add-resource",
       "ok": true,
       "path": ".agents/memory/SCHEMA.md",
-      "sha256": "adcfbed4f0c6f5c65bc358915aefe5b7538a197d9ee1f44ab44074a8db314170",
-      "skipped": true,
+      "returncode": 0,
+      "sha256": "4e3c425791c7c755b99b66c4e277223adae69c4d92f580e5506cde4e974df25d",
+      "skipped": false,
+      "stderr": "",
+      "stdout": "{\"ok\":true,\"result\":{\"status\":\"success\",\"errors\":[],\"source_path\":\"/Users/leonardw/.openviking/workspace/temp/upload/upload_ff8d8de33ab847f19925ed72c450fe66.md\",\"meta\":{},\"root_uri\":\"viking://resources/projects/agent-basics/resources/.agents/memory/SCHEMA.md\",\"temp_uri\":\"viking://temp/default/05050235_1aea94/SCHEMA\",\"queue_status\":{\"Semantic\":{\"processed\":1,\"requeue_count\":0,\"error_count\":0,\"errors\":[]},\"Embedding\":{\"processed\":6,\"requeue_count\":0,\"error_count\":0,\"errors\":[]}}}}",
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/SCHEMA.md"
     },
     ".agents/memory/memories/cases/1777909438-openviking-rejects-zero-vlm-timeout.md": {
-      "command": [
-        "/Users/leonardw/.openviking/venv/bin/ov",
-        "read",
-        "viking://user/default/memories/cases/projects/agent-basics/1777909438-openviking-rejects-zero-vlm-timeout.md",
-        "-o",
-        "json"
-      ],
       "imported_at": 1777913431,
       "kind": "memory",
       "method": "write",
       "ok": true,
       "path": ".agents/memory/memories/cases/1777909438-openviking-rejects-zero-vlm-timeout.md",
-      "returncode": 0,
       "sha256": "1638112b54a076ec0b6c656c21f9a40d241e551a7736a044389a7a6513ea5add",
-      "skipped": false,
-      "stderr": "",
-      "stdout": "existing target content matches source",
-      "target": "viking://user/default/memories/cases/projects/agent-basics/1777909438-openviking-rejects-zero-vlm-timeout.md",
-      "verified_existing": true
+      "skipped": true,
+      "target": "viking://user/default/memories/cases/projects/agent-basics/1777909438-openviking-rejects-zero-vlm-timeout.md"
     },
     ".agents/memory/memories/cases/1777910744-lmstudio-routing-defaults-conflict-with-openviking.md": {
       "imported_at": 1777912878,
@@ -62,73 +68,40 @@
       "target": "viking://user/default/memories/cases/projects/agent-basics/1777910744-lmstudio-routing-defaults-conflict-with-openviking.md"
     },
     ".agents/memory/memories/events/1777901050-legacy-memory-snapshot-created.md": {
-      "command": [
-        "/Users/leonardw/.openviking/venv/bin/ov",
-        "read",
-        "viking://user/default/memories/events/projects/agent-basics/1777901050-legacy-memory-snapshot-created.md",
-        "-o",
-        "json"
-      ],
       "imported_at": 1777913431,
       "kind": "memory",
       "method": "write",
       "ok": true,
       "path": ".agents/memory/memories/events/1777901050-legacy-memory-snapshot-created.md",
-      "returncode": 0,
       "sha256": "480cfd568942d7c5e59a275ed825d3c930f2adf711d9fb7f6ec3852b0a7d7371",
-      "skipped": false,
-      "stderr": "",
-      "stdout": "existing target content matches source",
-      "target": "viking://user/default/memories/events/projects/agent-basics/1777901050-legacy-memory-snapshot-created.md",
-      "verified_existing": true
+      "skipped": true,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1777901050-legacy-memory-snapshot-created.md"
     },
     ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md": {
-      "command": [
-        "/Users/leonardw/.openviking/venv/bin/ov",
-        "read",
-        "viking://user/default/memories/preferences/projects/agent-basics/1777901050-keep-memory-as-ov-source-store.md",
-        "-o",
-        "json"
-      ],
       "imported_at": 1777913431,
       "kind": "memory",
       "method": "write",
       "ok": true,
       "path": ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md",
-      "returncode": 0,
       "sha256": "ba3cabc5b753717a2740e78a20670a28c625137e08383674473fc576dc614731",
-      "skipped": false,
-      "stderr": "",
-      "stdout": "existing target content matches source",
-      "target": "viking://user/default/memories/preferences/projects/agent-basics/1777901050-keep-memory-as-ov-source-store.md",
-      "verified_existing": true
+      "skipped": true,
+      "target": "viking://user/default/memories/preferences/projects/agent-basics/1777901050-keep-memory-as-ov-source-store.md"
     },
     ".agents/memory/memories/preferences/1777903459-setup-keeps-memory-as-ov-source-store.md": {
-      "command": [
-        "/Users/leonardw/.openviking/venv/bin/ov",
-        "read",
-        "viking://user/default/memories/preferences/projects/agent-basics/1777903459-setup-keeps-memory-as-ov-source-store.md",
-        "-o",
-        "json"
-      ],
       "imported_at": 1777913431,
       "kind": "memory",
       "method": "write",
       "ok": true,
       "path": ".agents/memory/memories/preferences/1777903459-setup-keeps-memory-as-ov-source-store.md",
-      "returncode": 0,
       "sha256": "ee34d839a401b6496c70383e937fbb7b930f78ca8cee6ef4a0c857a6fcc2e983",
-      "skipped": false,
-      "stderr": "",
-      "stdout": "existing target content matches source",
-      "target": "viking://user/default/memories/preferences/projects/agent-basics/1777903459-setup-keeps-memory-as-ov-source-store.md",
-      "verified_existing": true
+      "skipped": true,
+      "target": "viking://user/default/memories/preferences/projects/agent-basics/1777903459-setup-keeps-memory-as-ov-source-store.md"
     }
   },
-  "last_import": 1777913431,
+  "last_import": 1777919939,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1777913431,
+  "updated": 1777919939,
   "version": 1
 }

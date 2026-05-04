@@ -74,7 +74,7 @@ Usage:
   agent-basics [--repo DIR] upgrade [options] [DIR]
   agent-basics [--repo DIR] memory <validate|rebuild|search|record|doctor|install-hooks> [...]
   agent-basics [--repo DIR] mcp
-  agent-basics [--repo DIR] ov <doctor|install-system|write-default-config|import-repo-memory> [...]
+  agent-basics [--repo DIR] ov <doctor|status|search|read|record|add-resource|add-skill|ingest-changed|install-system|write-default-config|import-repo-memory> [...]
   agent-basics [--repo DIR] lmstudio <status|hardware|plan|configure|load|unload|route-test> [...]
   agent-basics [--repo DIR] migrate memory-to-openviking [--write]
   agent-basics [--repo DIR] doctor [--online]
@@ -115,8 +115,9 @@ MCP clients should use:
   arguments: mcp
   working directory: repository root
 
-The current MCP implementation is compatibility memory-backed until the
-OpenViking gateway replaces it.
+The MCP implementation is OpenViking-backed and repo-aware. It infers the
+repository from the process working directory unless a tool call passes an
+explicit repo_path.
 EOT
 }
 
@@ -287,7 +288,7 @@ case "$command_name" in
       exit 2
     fi
     enter_repo
-    exec "$(find_memory_mcp)"
+    exec python3 "$(find_ov_helper)" --repo "$(pwd)" mcp
     ;;
   ov|openviking)
     enter_repo
@@ -301,7 +302,11 @@ case "$command_name" in
     enter_repo
     exec python3 "$(find_ov_helper)" --repo "$(pwd)" migrate "$@"
     ;;
-  validate|rebuild|search|record|doctor|install-hooks)
+  doctor)
+    enter_repo
+    exec python3 "$(find_ov_helper)" --repo "$(pwd)" ov doctor "$@"
+    ;;
+  validate|rebuild|search|record|install-hooks)
     enter_repo
     exec "$(find_memory_cli)" "$command_name" "$@"
     ;;

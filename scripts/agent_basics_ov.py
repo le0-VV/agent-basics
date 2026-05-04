@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import platform
@@ -11,7 +12,9 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +28,7 @@ DEFAULT_OV_CONFIG = DEFAULT_OV_HOME / "ov.conf"
 DEFAULT_OV_SERVER = DEFAULT_OV_HOME / "venv" / "bin" / "openviking-server"
 DEFAULT_OV_VLM_TIMEOUT_SECONDS = 86400
 DEFAULT_OV_MEMORY_TARGET = "viking://user/default/memories"
+DEFAULT_OV_RESOURCE_TARGET = "viking://resources/projects"
 DEFAULT_LMSTUDIO_HOME = Path.home() / ".lmstudio"
 LMSTUDIO_DEFAULT_CONFIG_ROOT = Path(".internal") / "user-concrete-model-default-config"
 GEMMA_LLM_KEYS = {"google/gemma-4-e2b", "google/gemma-4-e4b"}
@@ -217,6 +221,111 @@ def sha256_text(value: str) -> str:
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or "project"
+
+
+def extract_json_object(text: str) -> Any:
+    stripped = text.strip()
+    if not stripped:
+        return None
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+    start_candidates = [index for index in [stripped.find("{"), stripped.find("[")] if index >= 0]
+    if not start_candidates:
+        raise ValueError("output did not contain JSON")
+    start = min(start_candidates)
+    return json.loads(stripped[start:])
+
+
+def ov_bin_or_error() -> tuple[Path | None, dict[str, Any] | None]:
+    ov_bin = find_ov_bin()
+    if ov_bin:
+        return ov_bin, None
+    return None, {"ok": False, "error": "OpenViking CLI not found; run `agent-basics ov install-system` first"}
+
+
+def ov_repo_slug(repo: Path) -> str:
+    return slugify(repo.name)
+
+
+def ov_repo_resource_root(repo: Path) -> str:
+    return f"{DEFAULT_OV_RESOURCE_TARGET}/{ov_repo_slug(repo)}"
+
+
+def ov_repo_memory_root(repo: Path, memory_base_uri: str = DEFAULT_OV_MEMORY_TARGET) -> str:
+    return f"{memory_base_uri.rstrip('/')}/projects/{ov_repo_slug(repo)}"
+
+
+def ov_repo_scoped_prefixes(repo: Path, memory_base_uri: str = DEFAULT_OV_MEMORY_TARGET) -> list[str]:
+    repo_slug = ov_repo_slug(repo)
+    return [
+        f"{memory_base_uri.rstrip('/')}/",
+        f"viking://resources/projects/{repo_slug}",
+        f"viking://temp/default/",
+    ]
+
+
+def ov_uri_is_repo_scoped(uri: str, repo: Path, memory_base_uri: str = DEFAULT_OV_MEMORY_TARGET) -> bool:
+    repo_slug = ov_repo_slug(repo)
+    memory_marker = f"/projects/{repo_slug}/"
+    return (
+        uri.startswith(f"viking://resources/projects/{repo_slug}")
+        or (uri.startswith(memory_base_uri.rstrip("/") + "/") and memory_marker in uri)
+    )
+
+
+def filter_ov_find_result(payload: Any, repo: Path, *, include_global: bool = False) -> Any:
+    if include_global or not isinstance(payload, dict):
+        return payload
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return payload
+    filtered_result = dict(result)
+    for key in ["memories", "resources", "skills"]:
+        items = result.get(key)
+        if isinstance(items, list):
+            filtered_result[key] = [
+                item
+                for item in items
+                if isinstance(item, dict) and ov_uri_is_repo_scoped(str(item.get("uri", "")), repo)
+            ]
+    filtered_result["total"] = sum(
+        len(filtered_result.get(key, []))
+        for key in ["memories", "resources", "skills"]
+        if isinstance(filtered_result.get(key), list)
+    )
+    return {**payload, "result": filtered_result}
+
+
+def ov_command_payload(command: list[str], *, timeout: float | None = None, parse_json: bool = True) -> dict[str, Any]:
+    result = run_command(command, timeout=timeout)
+    payload = dict(result)
+    if parse_json and result.get("stdout"):
+        try:
+            payload["json"] = extract_json_object(str(result["stdout"]))
+        except Exception as exc:
+            payload["json_parse_error"] = str(exc)
+    return payload
+
+
+def summarize_command_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    summary = {
+        "ok": payload.get("ok"),
+        "command": payload.get("command"),
+        "returncode": payload.get("returncode"),
+        "elapsed_seconds": payload.get("elapsed_seconds"),
+    }
+    for key in ["scope", "stderr", "error", "json_parse_error", "busy_retries", "verified_existing", "already_exists"]:
+        if key in payload and payload.get(key):
+            summary[key] = payload[key]
+    if isinstance(payload.get("json"), dict):
+        parsed = payload["json"]
+        summary["json_ok"] = parsed.get("ok")
+        if isinstance(parsed.get("result"), dict):
+            result = parsed["result"]
+            summary["result_total"] = result.get("total")
+    return summary
 
 
 def http_json(
@@ -526,33 +635,20 @@ def write_json_with_backup(path: Path, payload: dict[str, Any], *, backup: bool)
 
 def command_ov_doctor(args: argparse.Namespace) -> int:
     repo = repo_root_from_args(args)
-    ov_bin = find_ov_bin()
-    ov_config = Path(os.environ.get("AGENT_BASICS_OV_CONFIG", str(DEFAULT_OV_CONFIG))).expanduser()
-    config = load_json_file(ov_config)
-    payload: dict[str, Any] = {
-        "ok": True,
-        "repo": str(repo),
-        "openviking": {
-            "home": str(DEFAULT_OV_HOME),
-            "bin": str(ov_bin) if ov_bin else None,
-            "bin_exists": bool(ov_bin and ov_bin.exists()),
-            "config_path": str(ov_config),
-            "config_exists": ov_config.exists(),
-            "config": config,
-            "install_scope": "user" if ov_bin and str(ov_bin).startswith(str(DEFAULT_OV_HOME)) else "path",
-            "repo_local_install_present": (repo / ".agents" / "openviking" / "venv").exists(),
-        },
+    payload = ov_status_payload(
+        repo,
+        online=args.online,
+        providers=args.providers,
+        base_url=args.base_url,
+    )
+    payload["doctor"] = {
+        "online_checks": args.online,
+        "provider_checks": args.providers,
+        "repo_scoped_gateway": True,
+        "mcp_command": "agent-basics mcp",
     }
-    payload["openviking"]["version"] = run_command([str(ov_bin), "version"]) if ov_bin else None
-    if args.online and ov_bin:
-        payload["openviking"]["health"] = run_command([str(ov_bin), "health"], timeout=None)
-        payload["openviking"]["status"] = run_command([str(ov_bin), "status", "-o", "json"], timeout=None)
-    if args.providers:
-        payload["lmstudio"] = lmstudio_status_payload(args.base_url, timeout=args.timeout)
-
-    if not ov_bin:
-        payload["ok"] = False
-        payload["openviking"]["recommendation"] = "Run `agent-basics ov install-system` or install OpenViking under ~/.openviking."
+    if not args.online:
+        payload["recommendation"] = "Run `agent-basics ov doctor --online` before relying on live OpenViking retrieval."
     print_json(payload)
     return 0 if payload["ok"] else 1
 
@@ -940,6 +1036,609 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
     }
     print_json(payload)
     return 0 if ok else 1
+
+
+def empty_ov_find_result() -> dict[str, Any]:
+    return {"memories": [], "resources": [], "skills": [], "total": 0}
+
+
+def ov_find_result_ok(payload: dict[str, Any]) -> bool:
+    parsed = payload.get("json")
+    return bool(payload.get("ok")) and (not isinstance(parsed, dict) or bool(parsed.get("ok", True)))
+
+
+def ov_result_items(parsed: Any, key: str) -> list[dict[str, Any]]:
+    if not isinstance(parsed, dict):
+        return []
+    result = parsed.get("result")
+    if not isinstance(result, dict):
+        return []
+    items = result.get(key)
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def merge_ov_find_payloads(payloads: list[dict[str, Any]], *, limit: int) -> dict[str, Any]:
+    merged = empty_ov_find_result()
+    for key in ["memories", "resources", "skills"]:
+        by_uri: dict[str, dict[str, Any]] = {}
+        for payload in payloads:
+            scope = payload.get("scope")
+            for item in ov_result_items(payload.get("json"), key):
+                uri = str(item.get("uri", ""))
+                if not uri:
+                    continue
+                candidate = dict(item)
+                if scope:
+                    candidate.setdefault("search_scope", scope)
+                previous = by_uri.get(uri)
+                if previous is None or float(candidate.get("score") or 0) > float(previous.get("score") or 0):
+                    by_uri[uri] = candidate
+        merged[key] = sorted(by_uri.values(), key=lambda item: float(item.get("score") or 0), reverse=True)[:limit]
+    merged["total"] = sum(len(merged[key]) for key in ["memories", "resources", "skills"])
+    return merged
+
+
+def ov_repo_search_scopes(repo: Path, memory_base_uri: str = DEFAULT_OV_MEMORY_TARGET) -> list[str]:
+    repo_slug = ov_repo_slug(repo)
+    scopes = [ov_repo_resource_root(repo)]
+    scopes.extend(f"{memory_base_uri.rstrip('/')}/{category}/projects/{repo_slug}" for category in OV_MEMORY_CATEGORIES)
+    return scopes
+
+
+def ov_search_payload(
+    repo: Path,
+    *,
+    query: str,
+    limit: int = 5,
+    include_global: bool = False,
+    uri: str | None = None,
+    threshold: float | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    ov_bin, error = ov_bin_or_error()
+    if error:
+        return error
+    assert ov_bin is not None
+    if not query.strip():
+        return {"ok": False, "error": "query must be non-empty"}
+    if limit < 1 or limit > 50:
+        return {"ok": False, "error": "limit must be between 1 and 50"}
+    if uri and not include_global and not ov_uri_is_repo_scoped(uri, repo):
+        return {
+            "ok": False,
+            "repo": str(repo),
+            "uri": uri,
+            "error": "URI is outside this repo namespace; pass --include-global to search it anyway",
+        }
+
+    scopes = [uri] if uri else ([] if include_global else ov_repo_search_scopes(repo))
+    if include_global and not uri:
+        command = [str(ov_bin), "find", query, "-o", "json", "-n", str(limit)]
+        if threshold is not None:
+            command.extend(["--threshold", str(threshold)])
+        result = ov_command_payload(command, timeout=timeout)
+        payload = result.get("json") if isinstance(result.get("json"), dict) else None
+        return {
+            "ok": ov_find_result_ok(result),
+            "repo": str(repo),
+            "repo_slug": ov_repo_slug(repo),
+            "query": query,
+            "include_global": True,
+            "scopes": ["global"],
+            "result": payload.get("result") if isinstance(payload, dict) else empty_ov_find_result(),
+            "commands": [summarize_command_payload(result)],
+        }
+
+    command_payloads = []
+    for scope in scopes:
+        command = [str(ov_bin), "find", query, "--uri", str(scope), "-o", "json", "-n", str(limit)]
+        if threshold is not None:
+            command.extend(["--threshold", str(threshold)])
+        result = ov_command_payload(command, timeout=timeout)
+        result["scope"] = scope
+        command_payloads.append(result)
+
+    ok = all(ov_find_result_ok(item) for item in command_payloads)
+    return {
+        "ok": ok,
+        "repo": str(repo),
+        "repo_slug": ov_repo_slug(repo),
+        "query": query,
+        "include_global": include_global,
+        "scopes": scopes,
+        "result": merge_ov_find_payloads(command_payloads, limit=limit),
+        "commands": [summarize_command_payload(item) for item in command_payloads],
+    }
+
+
+def command_ov_search(args: argparse.Namespace) -> int:
+    payload = ov_search_payload(
+        repo_root_from_args(args),
+        query=args.query,
+        limit=args.limit,
+        include_global=args.include_global,
+        uri=args.uri,
+        threshold=args.threshold,
+        timeout=None,
+    )
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def ov_read_payload(repo: Path, *, uri: str, allow_global: bool = False, timeout: float | None = None) -> dict[str, Any]:
+    ov_bin, error = ov_bin_or_error()
+    if error:
+        return error
+    assert ov_bin is not None
+    if not uri.strip():
+        return {"ok": False, "error": "uri must be non-empty"}
+    if not allow_global and not ov_uri_is_repo_scoped(uri, repo):
+        return {
+            "ok": False,
+            "repo": str(repo),
+            "uri": uri,
+            "error": "URI is outside this repo namespace; pass --allow-global to read it anyway",
+        }
+    read_result = ov_command_payload([str(ov_bin), "read", uri, "-o", "json"], timeout=timeout, parse_json=False)
+    stat_result = ov_command_payload([str(ov_bin), "stat", uri, "-o", "json"], timeout=timeout)
+    return {
+        "ok": bool(read_result.get("ok")),
+        "repo": str(repo),
+        "repo_slug": ov_repo_slug(repo),
+        "uri": uri,
+        "content": read_result.get("stdout", ""),
+        "read": summarize_command_payload(read_result),
+        "stat": summarize_command_payload(stat_result),
+        "stat_json": stat_result.get("json"),
+    }
+
+
+def command_ov_read(args: argparse.Namespace) -> int:
+    payload = ov_read_payload(repo_root_from_args(args), uri=args.uri, allow_global=args.allow_global, timeout=None)
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def normalize_tags(value: Any) -> list[str]:
+    if value is None:
+        return []
+    raw_items: list[Any]
+    if isinstance(value, str):
+        raw_items = re.split(r"[,;\n]+", value)
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = [value]
+    result = []
+    seen = set()
+    for item in raw_items:
+        text = str(item).strip()
+        if not text:
+            continue
+        if text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
+def front_matter_value(value: Any) -> str:
+    text = str(value).replace("\n", " ").strip()
+    return text
+
+
+def front_matter_tags(tags: list[str]) -> str:
+    return "[" + ", ".join(front_matter_value(tag) for tag in tags) + "]"
+
+
+def ov_memory_markdown(
+    *,
+    repo: Path,
+    category: str,
+    title: str,
+    content: str,
+    summary: str = "",
+    tags: list[str] | None = None,
+    status: str = "active",
+    timestamp: int | None = None,
+    source_paths: list[str] | None = None,
+) -> str:
+    timestamp = timestamp or int(time.time())
+    tags = tags or []
+    source_paths = source_paths or []
+    lines = [
+        "---",
+        "record_kind: memory",
+        f"ov_category: {category}",
+        f"title: {front_matter_value(title)}",
+        f"status: {front_matter_value(status or 'active')}",
+        f"created: {timestamp}",
+        f"updated: {timestamp}",
+        f"tags: {front_matter_tags(tags)}",
+        f"summary: {front_matter_value(summary)}",
+        f"source_paths: {front_matter_tags(source_paths)}",
+        "requires_human_review: false",
+        "---",
+        "",
+        f"# {title.strip()}",
+        "",
+        f"Project: {repo.name}",
+    ]
+    if summary.strip():
+        lines.extend(["", "## Summary", "", summary.strip()])
+    lines.extend(["", "## Content", "", content.strip(), ""])
+    return "\n".join(lines)
+
+
+def unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    for index in range(2, 1000):
+        candidate = path.with_name(f"{stem}-{index}{suffix}")
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"could not find unique path near {path}")
+
+
+def ov_record_payload(
+    repo: Path,
+    *,
+    category: str,
+    title: str,
+    content: str,
+    summary: str = "",
+    tags: Any = None,
+    status: str = "active",
+    source_paths: list[str] | None = None,
+    wait: bool = True,
+    timeout: int = DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    if category not in OV_MEMORY_CATEGORIES:
+        return {"ok": False, "error": f"category must be one of: {', '.join(OV_MEMORY_CATEGORIES)}"}
+    if not title.strip():
+        return {"ok": False, "error": "title must be non-empty"}
+    if not content.strip():
+        return {"ok": False, "error": "content must be non-empty"}
+    ov_bin, error = ov_bin_or_error()
+    if error and not dry_run:
+        return error
+    timestamp = int(time.time())
+    filename = f"{timestamp}-{slugify(title)}.md"
+    source_dir = repo / ".agents" / "memory" / "memories" / category
+    source_path = unique_path(source_dir / filename)
+    filename = source_path.name
+    markdown = ov_memory_markdown(
+        repo=repo,
+        category=category,
+        title=title,
+        content=content,
+        summary=summary,
+        tags=normalize_tags(tags),
+        status=status,
+        timestamp=timestamp,
+        source_paths=source_paths or [],
+    )
+    target = f"{DEFAULT_OV_MEMORY_TARGET}/{category}/projects/{ov_repo_slug(repo)}/{filename}"
+    if dry_run:
+        return {
+            "ok": True,
+            "dry_run": True,
+            "repo": str(repo),
+            "repo_slug": ov_repo_slug(repo),
+            "category": category,
+            "source_path": str(source_path),
+            "target": target,
+            "content": markdown,
+        }
+
+    source_dir.mkdir(parents=True, exist_ok=True)
+    source_path.write_text(markdown, encoding="utf-8")
+    assert ov_bin is not None
+    parent_results = ov_mkdir_p(ov_bin, ov_parent_uri(target))
+    command = [str(ov_bin), "write", target, "--from-file", str(source_path), "--mode", "create", "-o", "json"]
+    if wait:
+        command.extend(["--wait", "--timeout", str(timeout)])
+    result = run_command_retry_busy(command, retries=120, delay=5)
+    if not result["ok"] and "already" in result.get("stderr", "").lower():
+        replace_command = [str(ov_bin), "write", target, "--from-file", str(source_path), "--mode", "replace", "-o", "json"]
+        if wait:
+            replace_command.extend(["--wait", "--timeout", str(timeout)])
+        result = run_command_retry_busy(replace_command, retries=120, delay=5)
+    return {
+        "ok": bool(result.get("ok")),
+        "repo": str(repo),
+        "repo_slug": ov_repo_slug(repo),
+        "category": category,
+        "source_path": str(source_path),
+        "target": target,
+        "parents": parent_results,
+        "write": result,
+    }
+
+
+def command_ov_record(args: argparse.Namespace) -> int:
+    content = args.content or ""
+    source_paths: list[str] = []
+    if args.from_file:
+        path = Path(args.from_file).expanduser()
+        if not path.is_absolute():
+            path = repo_root_from_args(args) / path
+        content = path.read_text(encoding="utf-8")
+        source_paths.append(str(path))
+    payload = ov_record_payload(
+        repo_root_from_args(args),
+        category=args.category,
+        title=args.title,
+        content=content,
+        summary=args.summary or "",
+        tags=[*(args.tag or []), *(normalize_tags(args.tags))],
+        status=args.status,
+        source_paths=source_paths,
+        wait=not args.no_wait,
+        timeout=args.timeout,
+        dry_run=args.dry_run,
+    )
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def is_url(value: str) -> bool:
+    parsed = urllib.parse.urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def resource_target_for_input(repo: Path, source: str) -> str:
+    repo = repo.resolve()
+    root = ov_repo_resource_root(repo).rstrip("/")
+    if is_url(source):
+        parsed = urllib.parse.urlparse(source)
+        target_name = slugify(f"{parsed.netloc}-{parsed.path or 'index'}")
+        return f"{root}/resources/urls/{target_name}.md"
+    path = Path(source).expanduser()
+    if not path.is_absolute():
+        path = repo / path
+    try:
+        rel = path.resolve().relative_to(repo)
+        rel_text = rel.as_posix()
+    except ValueError:
+        rel_text = f"external/{slugify(path.name or path.parent.name)}"
+    return f"{root}/resources/{rel_text}"
+
+
+def ov_add_resource_payload(
+    repo: Path,
+    *,
+    source: str,
+    target: str | None = None,
+    reason: str = "agent-basics repo resource import",
+    instruction: str = "",
+    wait: bool = True,
+    timeout: int = DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    if not source.strip():
+        return {"ok": False, "error": "path_or_url must be non-empty"}
+    ov_bin, error = ov_bin_or_error()
+    if error and not dry_run:
+        return error
+    target = target or resource_target_for_input(repo, source)
+    if not ov_uri_is_repo_scoped(target, repo):
+        return {"ok": False, "repo": str(repo), "target": target, "error": "target must be inside this repo namespace"}
+    command_source = source
+    if not is_url(source):
+        path = Path(source).expanduser()
+        if not path.is_absolute():
+            path = repo / path
+        if not path.exists():
+            return {"ok": False, "source": source, "error": "local resource path does not exist"}
+        command_source = str(path)
+    if dry_run:
+        return {"ok": True, "dry_run": True, "repo": str(repo), "source": command_source, "target": target}
+    assert ov_bin is not None
+    parent_results = ov_mkdir_p(ov_bin, ov_parent_uri(target))
+    stat_result = run_command([str(ov_bin), "stat", target, "-o", "json"], timeout=None)
+    if stat_result["ok"]:
+        return {
+            "ok": True,
+            "changed": False,
+            "already_exists": True,
+            "repo": str(repo),
+            "source": command_source,
+            "target": target,
+            "parents": parent_results,
+            "stat": stat_result,
+        }
+    command = [str(ov_bin), "add-resource", command_source, "--to", target, "--reason", reason, "-o", "json"]
+    if instruction:
+        command.extend(["--instruction", instruction])
+    if wait:
+        command.extend(["--wait", "--timeout", str(timeout)])
+    result = run_command(command, timeout=None)
+    return {
+        "ok": bool(result.get("ok")),
+        "changed": bool(result.get("ok")),
+        "repo": str(repo),
+        "source": command_source,
+        "target": target,
+        "parents": parent_results,
+        "write": result,
+    }
+
+
+def command_ov_add_resource(args: argparse.Namespace) -> int:
+    payload = ov_add_resource_payload(
+        repo_root_from_args(args),
+        source=args.path_or_url,
+        target=args.target,
+        reason=args.reason,
+        instruction=args.instruction or "",
+        wait=not args.no_wait,
+        timeout=args.timeout,
+        dry_run=args.dry_run,
+    )
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def ov_add_skill_payload(
+    repo: Path,
+    *,
+    data: str,
+    wait: bool = True,
+    timeout: int = DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    if not data.strip():
+        return {"ok": False, "error": "path_or_content must be non-empty"}
+    ov_bin, error = ov_bin_or_error()
+    if error and not dry_run:
+        return error
+    source = data
+    source_path: str | None = None
+    candidate = Path(data).expanduser()
+    if not candidate.is_absolute():
+        candidate = repo / candidate
+    if candidate.exists():
+        source_path = str(candidate)
+        source = source_path
+    if dry_run:
+        return {"ok": True, "dry_run": True, "repo": str(repo), "source": source, "source_path": source_path}
+    assert ov_bin is not None
+    command = [str(ov_bin), "add-skill", source, "-o", "json"]
+    if wait:
+        command.extend(["--wait", "--timeout", str(timeout)])
+    result = run_command(command, timeout=None)
+    return {
+        "ok": bool(result.get("ok")),
+        "changed": bool(result.get("ok")),
+        "repo": str(repo),
+        "source": source,
+        "source_path": source_path,
+        "note": "OpenViking add-skill does not expose a target URI; repo attribution should be included in skill content.",
+        "write": result,
+    }
+
+
+def command_ov_add_skill(args: argparse.Namespace) -> int:
+    payload = ov_add_skill_payload(
+        repo_root_from_args(args),
+        data=args.path_or_content,
+        wait=not args.no_wait,
+        timeout=args.timeout,
+        dry_run=args.dry_run,
+    )
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def ov_import_staleness(repo: Path) -> dict[str, Any]:
+    files = ov_native_import_files(repo)
+    state = load_ov_import_state(repo)
+    imports = state.get("imports", {}) if isinstance(state, dict) else {}
+    stale = []
+    for kind, paths in files.items():
+        for path in paths:
+            rel = path.relative_to(repo).as_posix()
+            digest = sha256_text(path.read_text(encoding="utf-8"))
+            previous = imports.get(rel)
+            if not isinstance(previous, dict) or previous.get("sha256") != digest or previous.get("ok") is not True:
+                stale.append({"kind": kind, "path": rel, "state": previous})
+    return {
+        "counts": {key: len(value) for key, value in files.items()},
+        "stale_count": len(stale),
+        "stale": stale,
+        "state": state,
+        "state_path": str(ov_import_state_path(repo)),
+    }
+
+
+def ov_status_payload(repo: Path, *, online: bool = True, providers: bool = False, base_url: str = DEFAULT_LM_STUDIO_BASE) -> dict[str, Any]:
+    ov_bin = find_ov_bin()
+    ov_config = Path(os.environ.get("AGENT_BASICS_OV_CONFIG", str(DEFAULT_OV_CONFIG))).expanduser()
+    payload: dict[str, Any] = {
+        "ok": bool(ov_bin),
+        "repo": str(repo),
+        "repo_slug": ov_repo_slug(repo),
+        "namespaces": {
+            "resource_root": ov_repo_resource_root(repo),
+            "memory_roots": {
+                category: f"{DEFAULT_OV_MEMORY_TARGET}/{category}/projects/{ov_repo_slug(repo)}"
+                for category in OV_MEMORY_CATEGORIES
+            },
+        },
+        "source_store": {
+            "path": str(repo / ".agents" / "memory"),
+            "exists": (repo / ".agents" / "memory").exists(),
+            "canonical": ov_import_staleness(repo),
+            "legacy_present": {
+                name: (repo / ".agents" / "memory" / name).exists()
+                for name in ["memory", "documentations", "templates", "rag"]
+            },
+        },
+        "openviking": {
+            "home": str(DEFAULT_OV_HOME),
+            "bin": str(ov_bin) if ov_bin else None,
+            "bin_exists": bool(ov_bin and ov_bin.exists()),
+            "config_path": str(ov_config),
+            "config_exists": ov_config.exists(),
+            "config": load_json_file(ov_config),
+            "repo_local_install_present": (repo / ".agents" / "openviking" / "venv").exists(),
+        },
+    }
+    if ov_bin:
+        payload["openviking"]["version"] = summarize_command_payload(run_command([str(ov_bin), "version"]))
+        if online:
+            health = ov_command_payload([str(ov_bin), "health", "-o", "json"], timeout=None)
+            status = ov_command_payload([str(ov_bin), "status", "-o", "json"], timeout=None)
+            payload["openviking"]["health"] = {
+                **summarize_command_payload(health),
+                "json": health.get("json"),
+            }
+            payload["openviking"]["status"] = {
+                **summarize_command_payload(status),
+                "json": status.get("json"),
+            }
+            payload["ok"] = bool(health.get("ok")) and bool(status.get("ok"))
+    if providers:
+        payload["lmstudio"] = lmstudio_status_payload(base_url, timeout=5)
+        payload["ok"] = bool(payload["ok"]) and bool(payload["lmstudio"].get("ok"))
+    if not ov_bin:
+        payload["recommendation"] = "Run `agent-basics ov install-system` or install OpenViking under ~/.openviking."
+    return payload
+
+
+def command_ov_status(args: argparse.Namespace) -> int:
+    payload = ov_status_payload(
+        repo_root_from_args(args),
+        online=not args.offline,
+        providers=args.providers,
+        base_url=args.base_url,
+    )
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def command_ov_ingest_changed(args: argparse.Namespace) -> int:
+    payload_args = argparse.Namespace(
+        repo=getattr(args, "repo", None),
+        target=args.target,
+        memory_target=args.memory_target,
+        timeout=args.timeout,
+        include_review=args.include_review,
+        force=False,
+        dry_run=args.dry_run,
+        wait=True,
+        wait_memory=True,
+        wait_resources=True,
+        busy_retries=args.busy_retries,
+        busy_delay=args.busy_delay,
+        write=not args.dry_run,
+    )
+    return command_ov_import_repo_memory(payload_args)
 
 
 def lmstudio_status_payload(base_url: str, timeout: float | None = 5) -> dict[str, Any]:
@@ -1725,10 +2424,416 @@ def command_migrate_inventory(args: argparse.Namespace) -> int:
     return 0
 
 
+MCP_SERVER_NAME = "agent-basics-openviking"
+MCP_SERVER_VERSION = "0.1.0"
+MCP_SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
+MCP_ERROR_PARSE = -32700
+MCP_ERROR_INVALID_REQUEST = -32600
+MCP_ERROR_METHOD_NOT_FOUND = -32601
+MCP_ERROR_INVALID_PARAMS = -32602
+MCP_ERROR_INTERNAL = -32603
+
+
+MCP_REPO_PATH_SCHEMA = {
+    "type": "string",
+    "description": "Optional absolute repository root. Defaults to the MCP server working directory.",
+}
+
+MCP_TOOLS: list[dict[str, Any]] = [
+    {
+        "name": "search",
+        "title": "Search repo OpenViking context",
+        "description": "Repo-scoped semantic search across OpenViking memories, resources, and skills.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 5},
+                "include_global": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "When true, allow global OpenViking search outside the repo namespace.",
+                },
+                "repo_path": MCP_REPO_PATH_SCHEMA,
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "read",
+        "title": "Read OpenViking URI",
+        "description": "Read exact content from a URI returned by repo-scoped search.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "uri": {"type": "string"},
+                "allow_global": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "When true, allow reads outside the repo namespace.",
+                },
+                "repo_path": MCP_REPO_PATH_SCHEMA,
+            },
+            "required": ["uri"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "record",
+        "title": "Record durable OpenViking memory",
+        "description": "Write a repo source-store memory file and import it into the repo OpenViking memory namespace.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "enum": OV_MEMORY_CATEGORIES},
+                "title": {"type": "string"},
+                "content": {"type": "string"},
+                "summary": {"type": "string"},
+                "tags": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
+                "status": {"type": "string", "default": "active"},
+                "wait": {"type": "boolean", "default": True},
+                "repo_path": MCP_REPO_PATH_SCHEMA,
+            },
+            "required": ["category", "title", "content"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "add_resource",
+        "title": "Add repo OpenViking resource",
+        "description": "Ingest a local file, directory, or URL into the repo OpenViking resource namespace.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path_or_url": {"type": "string"},
+                "reason": {"type": "string"},
+                "instruction": {"type": "string"},
+                "wait": {"type": "boolean", "default": True},
+                "repo_path": MCP_REPO_PATH_SCHEMA,
+            },
+            "required": ["path_or_url"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "add_skill",
+        "title": "Add OpenViking skill",
+        "description": "Register a skill file or raw skill content with OpenViking.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path_or_content": {"type": "string"},
+                "wait": {"type": "boolean", "default": True},
+                "repo_path": MCP_REPO_PATH_SCHEMA,
+            },
+            "required": ["path_or_content"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "ingest_changed",
+        "title": "Import changed repo memory source store",
+        "description": "Import reviewed OV-native source-store memories, resources, and skills into OpenViking.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "include_review": {"type": "boolean", "default": False},
+                "repo_path": MCP_REPO_PATH_SCHEMA,
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "status",
+        "title": "Report repo OpenViking status",
+        "description": "Report repo namespaces, source-store staleness, OpenViking health, and optional provider health.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "online": {"type": "boolean", "default": True},
+                "providers": {"type": "boolean", "default": False},
+                "repo_path": MCP_REPO_PATH_SCHEMA,
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "doctor",
+        "title": "Diagnose OpenViking setup",
+        "description": "Run the same repo-aware status checks as status, with provider checks disabled by default.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "online": {"type": "boolean", "default": True},
+                "providers": {"type": "boolean", "default": False},
+                "repo_path": MCP_REPO_PATH_SCHEMA,
+            },
+            "additionalProperties": False,
+        },
+    },
+]
+
+
+class McpError(Exception):
+    def __init__(self, code: int, message: str, data: Any = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.data = data
+
+
+def mcp_protocol_version(params: dict[str, Any]) -> str:
+    requested = str(params.get("protocolVersion", ""))
+    if requested in MCP_SUPPORTED_PROTOCOL_VERSIONS:
+        return requested
+    return MCP_SUPPORTED_PROTOCOL_VERSIONS[0]
+
+
+def mcp_json_response(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def mcp_json_error(request_id: Any, code: int, message: str, data: Any = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+    if data is not None:
+        payload["error"]["data"] = data
+    return payload
+
+
+def mcp_emit(message: dict[str, Any]) -> None:
+    print(json.dumps(message, separators=(",", ":"), ensure_ascii=False), flush=True)
+
+
+def mcp_tool_result(payload: dict[str, Any], *, is_error: bool | None = None) -> dict[str, Any]:
+    error = bool(not payload.get("ok")) if is_error is None else is_error
+    text = json.dumps(payload, indent=2, sort_keys=True)
+    return {
+        "content": [{"type": "text", "text": text}],
+        "structuredContent": payload,
+        "isError": error,
+    }
+
+
+def mcp_arguments(params: dict[str, Any]) -> dict[str, Any]:
+    arguments = params.get("arguments", {})
+    if arguments is None:
+        return {}
+    if not isinstance(arguments, dict):
+        raise McpError(MCP_ERROR_INVALID_PARAMS, "tools/call arguments must be an object")
+    return arguments
+
+
+def mcp_string(arguments: dict[str, Any], key: str) -> str:
+    value = arguments.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise McpError(MCP_ERROR_INVALID_PARAMS, f"`{key}` must be a non-empty string")
+    return value
+
+
+def mcp_bool(arguments: dict[str, Any], key: str, default: bool = False) -> bool:
+    value = arguments.get(key, default)
+    if not isinstance(value, bool):
+        raise McpError(MCP_ERROR_INVALID_PARAMS, f"`{key}` must be a boolean")
+    return value
+
+
+def mcp_int(arguments: dict[str, Any], key: str, default: int, *, minimum: int, maximum: int) -> int:
+    value = arguments.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise McpError(MCP_ERROR_INVALID_PARAMS, f"`{key}` must be an integer")
+    if value < minimum or value > maximum:
+        raise McpError(MCP_ERROR_INVALID_PARAMS, f"`{key}` must be between {minimum} and {maximum}")
+    return value
+
+
+def mcp_repo(arguments: dict[str, Any], default_repo: Path) -> Path:
+    value = arguments.get("repo_path")
+    if value is None or value == "":
+        return default_repo
+    if not isinstance(value, str):
+        raise McpError(MCP_ERROR_INVALID_PARAMS, "`repo_path` must be a string")
+    return Path(value).expanduser().resolve()
+
+
+def ov_ingest_changed_payload(repo: Path, *, include_review: bool = False, dry_run: bool = False) -> dict[str, Any]:
+    args = argparse.Namespace(
+        repo=str(repo),
+        target=None,
+        memory_target=DEFAULT_OV_MEMORY_TARGET,
+        timeout=DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+        include_review=include_review,
+        force=False,
+        dry_run=dry_run,
+        wait=True,
+        wait_memory=True,
+        wait_resources=True,
+        busy_retries=120,
+        busy_delay=5,
+        write=not dry_run,
+    )
+    output = io.StringIO()
+    with redirect_stdout(output):
+        returncode = command_ov_import_repo_memory(args)
+    try:
+        payload = json.loads(output.getvalue())
+    except json.JSONDecodeError:
+        payload = {"ok": False, "stdout": output.getvalue(), "error": "ingest output was not JSON"}
+    payload.setdefault("ok", returncode == 0)
+    payload["returncode"] = returncode
+    return payload
+
+
+def mcp_call_tool(default_repo: Path, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    repo = mcp_repo(arguments, default_repo)
+    if name == "search":
+        return mcp_tool_result(
+            ov_search_payload(
+                repo,
+                query=mcp_string(arguments, "query"),
+                limit=mcp_int(arguments, "limit", 5, minimum=1, maximum=50),
+                include_global=mcp_bool(arguments, "include_global", False),
+                timeout=None,
+            )
+        )
+    if name == "read":
+        return mcp_tool_result(
+            ov_read_payload(
+                repo,
+                uri=mcp_string(arguments, "uri"),
+                allow_global=mcp_bool(arguments, "allow_global", False),
+                timeout=None,
+            )
+        )
+    if name == "record":
+        return mcp_tool_result(
+            ov_record_payload(
+                repo,
+                category=mcp_string(arguments, "category"),
+                title=mcp_string(arguments, "title"),
+                content=mcp_string(arguments, "content"),
+                summary=str(arguments.get("summary", "") or ""),
+                tags=arguments.get("tags", []),
+                status=str(arguments.get("status", "active") or "active"),
+                wait=mcp_bool(arguments, "wait", True),
+            )
+        )
+    if name == "add_resource":
+        return mcp_tool_result(
+            ov_add_resource_payload(
+                repo,
+                source=mcp_string(arguments, "path_or_url"),
+                reason=str(arguments.get("reason", "agent-basics repo resource import") or "agent-basics repo resource import"),
+                instruction=str(arguments.get("instruction", "") or ""),
+                wait=mcp_bool(arguments, "wait", True),
+            )
+        )
+    if name == "add_skill":
+        return mcp_tool_result(
+            ov_add_skill_payload(
+                repo,
+                data=mcp_string(arguments, "path_or_content"),
+                wait=mcp_bool(arguments, "wait", True),
+            )
+        )
+    if name == "ingest_changed":
+        return mcp_tool_result(ov_ingest_changed_payload(repo, include_review=mcp_bool(arguments, "include_review", False)))
+    if name in {"status", "doctor"}:
+        return mcp_tool_result(
+            ov_status_payload(
+                repo,
+                online=mcp_bool(arguments, "online", True),
+                providers=mcp_bool(arguments, "providers", False),
+            )
+        )
+    raise McpError(MCP_ERROR_METHOD_NOT_FOUND, f"unknown tool: {name}")
+
+
+def mcp_handle_request(default_repo: Path, message: dict[str, Any]) -> dict[str, Any] | None:
+    if message.get("jsonrpc") != "2.0":
+        raise McpError(MCP_ERROR_INVALID_REQUEST, "jsonrpc must be 2.0")
+    method = message.get("method")
+    request_id = message.get("id")
+    is_notification = "id" not in message
+    if not isinstance(method, str):
+        raise McpError(MCP_ERROR_INVALID_REQUEST, "method must be a string")
+    if is_notification:
+        return None
+    params = message.get("params", {})
+    if params is None:
+        params = {}
+    if not isinstance(params, dict):
+        raise McpError(MCP_ERROR_INVALID_PARAMS, "params must be an object")
+
+    if method == "initialize":
+        return mcp_json_response(
+            request_id,
+            {
+                "protocolVersion": mcp_protocol_version(params),
+                "capabilities": {"tools": {"listChanged": False}},
+                "serverInfo": {
+                    "name": MCP_SERVER_NAME,
+                    "title": "agent-basics OpenViking",
+                    "version": MCP_SERVER_VERSION,
+                },
+                "instructions": (
+                    "Use search before answering vague or history-dependent project requests. "
+                    "Use record for durable decisions, preferences, facts, cases, events, patterns, tools, and skills. "
+                    "All default operations are scoped to the MCP working-directory repository."
+                ),
+            },
+        )
+    if method == "ping":
+        return mcp_json_response(request_id, {})
+    if method == "tools/list":
+        return mcp_json_response(request_id, {"tools": MCP_TOOLS})
+    if method == "tools/call":
+        name = params.get("name")
+        if not isinstance(name, str) or not name:
+            raise McpError(MCP_ERROR_INVALID_PARAMS, "tools/call params.name must be a non-empty string")
+        return mcp_json_response(request_id, mcp_call_tool(default_repo, name, mcp_arguments(params)))
+    raise McpError(MCP_ERROR_METHOD_NOT_FOUND, f"unknown method: {method}")
+
+
+def mcp_handle_message(default_repo: Path, message: Any) -> list[dict[str, Any]]:
+    if isinstance(message, list):
+        responses: list[dict[str, Any]] = []
+        for item in message:
+            responses.extend(mcp_handle_message(default_repo, item))
+        return responses
+    if not isinstance(message, dict):
+        return [mcp_json_error(None, MCP_ERROR_INVALID_REQUEST, "JSON-RPC message must be an object")]
+    try:
+        response = mcp_handle_request(default_repo, message)
+        return [response] if response is not None else []
+    except McpError as exc:
+        return [mcp_json_error(message.get("id"), exc.code, exc.message, exc.data)]
+    except Exception as exc:
+        return [mcp_json_error(message.get("id"), MCP_ERROR_INTERNAL, "internal error", str(exc))]
+
+
+def command_mcp(args: argparse.Namespace) -> int:
+    default_repo = repo_root_from_args(args)
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError as exc:
+            mcp_emit(mcp_json_error(None, MCP_ERROR_PARSE, "parse error", str(exc)))
+            continue
+        for response in mcp_handle_message(default_repo, message):
+            mcp_emit(response)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agent-basics-ov")
     parser.add_argument("--repo", help="Repository root for repo-aware operations")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    mcp = subparsers.add_parser("mcp")
+    mcp.set_defaults(func=command_mcp)
 
     ov = subparsers.add_parser("ov")
     ov_sub = ov.add_subparsers(dest="ov_command", required=True)
@@ -1771,6 +2876,66 @@ def build_parser() -> argparse.ArgumentParser:
     import_memory.add_argument("--busy-delay", type=float, default=5)
     import_memory.add_argument("--write", action="store_true")
     import_memory.set_defaults(func=command_ov_import_repo_memory)
+
+    search = ov_sub.add_parser("search")
+    search.add_argument("query")
+    search.add_argument("--limit", type=int, default=5)
+    search.add_argument("--uri")
+    search.add_argument("--threshold", type=float)
+    search.add_argument("--include-global", action="store_true")
+    search.set_defaults(func=command_ov_search)
+
+    read = ov_sub.add_parser("read")
+    read.add_argument("uri")
+    read.add_argument("--allow-global", action="store_true")
+    read.set_defaults(func=command_ov_read)
+
+    record = ov_sub.add_parser("record")
+    record.add_argument("category", choices=OV_MEMORY_CATEGORIES)
+    record.add_argument("title")
+    record.add_argument("--content")
+    record.add_argument("--from-file")
+    record.add_argument("--summary", default="")
+    record.add_argument("--tags", default="")
+    record.add_argument("--tag", action="append")
+    record.add_argument("--status", default="active")
+    record.add_argument("--timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+    record.add_argument("--no-wait", action="store_true")
+    record.add_argument("--dry-run", action="store_true")
+    record.set_defaults(func=command_ov_record)
+
+    add_resource = ov_sub.add_parser("add-resource")
+    add_resource.add_argument("path_or_url")
+    add_resource.add_argument("--target")
+    add_resource.add_argument("--reason", default="agent-basics repo resource import")
+    add_resource.add_argument("--instruction", default="")
+    add_resource.add_argument("--timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+    add_resource.add_argument("--no-wait", action="store_true")
+    add_resource.add_argument("--dry-run", action="store_true")
+    add_resource.set_defaults(func=command_ov_add_resource)
+
+    add_skill = ov_sub.add_parser("add-skill")
+    add_skill.add_argument("path_or_content")
+    add_skill.add_argument("--timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+    add_skill.add_argument("--no-wait", action="store_true")
+    add_skill.add_argument("--dry-run", action="store_true")
+    add_skill.set_defaults(func=command_ov_add_skill)
+
+    ingest_changed = ov_sub.add_parser("ingest-changed")
+    ingest_changed.add_argument("--target", default=None)
+    ingest_changed.add_argument("--memory-target", default=DEFAULT_OV_MEMORY_TARGET)
+    ingest_changed.add_argument("--timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+    ingest_changed.add_argument("--include-review", action="store_true")
+    ingest_changed.add_argument("--dry-run", action="store_true")
+    ingest_changed.add_argument("--busy-retries", type=int, default=120)
+    ingest_changed.add_argument("--busy-delay", type=float, default=5)
+    ingest_changed.set_defaults(func=command_ov_ingest_changed)
+
+    status_parser = ov_sub.add_parser("status")
+    status_parser.add_argument("--offline", action="store_true")
+    status_parser.add_argument("--providers", action="store_true")
+    status_parser.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
+    status_parser.set_defaults(func=command_ov_status)
 
     lm = subparsers.add_parser("lmstudio")
     lm_sub = lm.add_subparsers(dest="lmstudio_command", required=True)

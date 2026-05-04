@@ -260,6 +260,111 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertTrue(result["verified_existing"])
 
+    def test_ov_search_payload_scopes_every_category_to_repo(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+            commands.append(command)
+            scope = command[command.index("--uri") + 1]
+            result = {"memories": [], "resources": [], "skills": [], "total": 0}
+            if scope.endswith("/preferences/projects/agent-basics"):
+                result["memories"] = [
+                    {
+                        "context_type": "memory",
+                        "uri": "viking://user/default/memories/preferences/projects/agent-basics/example.md",
+                        "score": 0.9,
+                    }
+                ]
+                result["total"] = 1
+            if scope == "viking://resources/projects/agent-basics":
+                result["resources"] = [
+                    {
+                        "context_type": "resource",
+                        "uri": "viking://resources/projects/agent-basics/README.md",
+                        "score": 0.8,
+                    }
+                ]
+                result["total"] = 1
+            return {
+                "ok": True,
+                "command": command,
+                "returncode": 0,
+                "stdout": json.dumps({"ok": True, "result": result}),
+                "stderr": "",
+                "elapsed_seconds": 0.01,
+            }
+
+        original_find_ov_bin = agent_basics_ov.find_ov_bin
+        original_run_command = agent_basics_ov.run_command
+        try:
+            agent_basics_ov.find_ov_bin = lambda: Path("/tmp/ov")
+            agent_basics_ov.run_command = fake_run
+            payload = agent_basics_ov.ov_search_payload(
+                Path("/tmp/agent-basics"),
+                query="repo memory",
+                limit=5,
+            )
+        finally:
+            agent_basics_ov.find_ov_bin = original_find_ov_bin
+            agent_basics_ov.run_command = original_run_command
+
+        scopes = [command[command.index("--uri") + 1] for command in commands]
+        self.assertTrue(payload["ok"])
+        self.assertIn("viking://resources/projects/agent-basics", scopes)
+        self.assertIn("viking://user/default/memories/preferences/projects/agent-basics", scopes)
+        self.assertEqual(
+            payload["result"]["memories"][0]["uri"],
+            "viking://user/default/memories/preferences/projects/agent-basics/example.md",
+        )
+        self.assertNotIn("stdout", payload["commands"][0])
+
+    def test_ov_read_rejects_global_uri_without_explicit_opt_in(self) -> None:
+        payload = agent_basics_ov.ov_read_payload(
+            Path("/tmp/agent-basics"),
+            uri="viking://resources/projects/other-repo/README.md",
+        )
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("--allow-global", payload["error"])
+
+    def test_ov_record_dry_run_uses_source_store_and_openviking_project_namespace(self) -> None:
+        payload = agent_basics_ov.ov_record_payload(
+            Path("/tmp/Agent Basics"),
+            category="preferences",
+            title="Prefer repo scoped OV writes",
+            content="Record through agent-basics so repo source files and OV stay aligned.",
+            dry_run=True,
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertIn(
+            "/.agents/memory/memories/preferences/",
+            payload["source_path"],
+        )
+        self.assertIn(
+            "viking://user/default/memories/preferences/projects/agent-basics/",
+            payload["target"],
+        )
+
+    def test_ov_add_resource_dry_run_defaults_to_repo_resource_namespace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "agent-basics"
+            resource = repo / "docs" / "api.md"
+            resource.parent.mkdir(parents=True)
+            resource.write_text("# API\n", encoding="utf-8")
+
+            payload = agent_basics_ov.ov_add_resource_payload(
+                repo,
+                source="docs/api.md",
+                dry_run=True,
+            )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(
+            payload["target"],
+            "viking://resources/projects/agent-basics/resources/docs/api.md",
+        )
+
     def test_ov_default_config_uses_positive_vlm_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "ov.conf"

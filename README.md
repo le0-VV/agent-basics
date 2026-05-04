@@ -6,7 +6,7 @@
 
 `agent-basics` is a repo-local programming harness. Its direction is to make one user-level OpenViking installation the required memory, documentation, resource, skill, semantic organization, and retrieval backend, while `agent-basics` owns the repository contract around that backend.
 
-`.agents/memory/` is the repo-owned OpenViking source store. Older agent-basics mini-RAG files may still exist as compatibility input while the OpenViking gateway is being built, but new durable memory should be adapted toward the OV-native layout documented in `.agents/memory/SCHEMA.md` and `.agents/memory/ADAPTATION.md`.
+`.agents/memory/` is the repo-owned OpenViking source store. Older agent-basics mini-RAG files may still exist as fallback compatibility input, but new durable memory should be adapted toward the OV-native layout documented in `.agents/memory/SCHEMA.md` and `.agents/memory/ADAPTATION.md`.
 
 ## Direction
 
@@ -54,7 +54,7 @@ Target responsibilities:
 
 ## Current Compatibility Commands
 
-These commands exist today and are kept while the OpenViking-backed gateway is being built:
+These compatibility commands remain for older repos or explicit fallback installs:
 
 ```bash
 agent-basics setup /path/to/project
@@ -63,12 +63,11 @@ agent-basics memory validate
 agent-basics memory rebuild
 agent-basics memory search "what did we decide about memory?"
 agent-basics memory doctor --online
-agent-basics mcp
 ```
 
 `setup` and `upgrade` run the same safe setup flow. Re-running setup on an existing repository is the supported upgrade path for older agent-basics layouts: overlapping markdown files prompt for keep, replace, append, manual merge, web merge, or save-beside.
 
-Fresh setup now creates `.agents/memory/` as the OpenViking source store instead of installing the legacy mini-RAG layout by default. If an older `.agents/memory/{templates,memory,documentations,rag}` tree already exists, setup preserves a source snapshot under `.agents/openviking/legacy-memory/<unix-timestamp>/` so agents can adapt useful material into OV-native records. The old compatibility mini-RAG can still be installed explicitly with `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` while the OpenViking-backed gateway is incomplete.
+Fresh setup now creates `.agents/memory/` as the OpenViking source store instead of installing the legacy mini-RAG layout by default. If an older `.agents/memory/{templates,memory,documentations,rag}` tree already exists, setup preserves a source snapshot under `.agents/openviking/legacy-memory/<unix-timestamp>/` so agents can adapt useful material into OV-native records. The old compatibility mini-RAG can still be installed explicitly with `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` for fallback use.
 
 ## Target Repository Layout
 
@@ -126,7 +125,7 @@ Before reshaping this repo, the existing compatibility source tree was copied to
 
 ## OpenViking Gateway
 
-The planned gateway keeps OpenViking executable details out of normal agent workflows:
+The gateway keeps OpenViking executable details out of normal agent workflows:
 
 - `agent-basics ov doctor`: verify the user-level OpenViking installation, repo config, provider health, and ingest state.
 - `agent-basics ov install-system`: install OpenViking under `~/.openviking` when it is missing.
@@ -243,10 +242,11 @@ This builds and installs one binary:
 - `agent-basics ov install-system`: install OpenViking under `~/.openviking`.
 - `agent-basics ov write-default-config`: write the default LM Studio-backed OpenViking config.
 - `agent-basics ov import-repo-memory`: import the repo-owned OpenViking source store into the user-level OpenViking database. OV-native memory files are written directly under `viking://user/default/memories/<category>/projects/<repo>/`; they are not routed back through `ov add-memory`. If OpenViking reports the memory tree is busy, the command retries memory writes before failing.
+- `agent-basics ov search|read|record|add-resource|add-skill|ingest-changed|status`: repo-aware OpenViking operations scoped to the current repository by default.
 - `agent-basics lmstudio status|hardware|plan|configure|load|unload|route-test`: inspect and manage LM Studio through persisted model defaults plus REST/OpenAI-compatible HTTP only.
 - `agent-basics migrate memory-to-openviking`: inventory legacy `.agents/memory/` records into OV-native categories.
 - `agent-basics memory ...`: run compatibility memory/RAG operations for the current working repository.
-- `agent-basics mcp`: run the stdio MCP server for the current working repository. This is currently compatibility memory-backed and should become OpenViking-backed.
+- `agent-basics mcp`: run the OpenViking-backed stdio MCP server for the current working repository.
 
 Upgrade with:
 

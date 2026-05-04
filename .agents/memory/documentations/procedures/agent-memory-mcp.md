@@ -4,9 +4,9 @@ type: procedure
 title: Use the compatibility agent-basics memory MCP server
 status: compatibility
 created: 1777766400
-updated: 1777827387
+updated: 1777919266
 tags: [agent-basics, memory, rag, mcp, compatibility]
-summary: Use `agent-basics mcp` or `.agents/memory/rag/memory-mcp.py` only while the OpenViking gateway is unavailable.
+summary: Use `.agents/memory/rag/memory-mcp.py` only when the OpenViking gateway is unavailable.
 ---
 
 # Use the compatibility agent-basics memory MCP server
@@ -18,8 +18,8 @@ Use this only when the OpenViking-backed `agent-basics mcp` or `agent-basics ov 
 ## Steps
 
 1. Prefer the OpenViking gateway procedure first.
-2. Configure the agent's MCP client to run `agent-basics mcp` from the repository root when the installed command is still backed by the compatibility memory server.
-3. If the systemwide command is unavailable, configure the client to run the absolute repo-local `.agents/memory/rag/memory-mcp.py` path from the repository root.
+2. Configure the agent's MCP client to run the absolute repo-local `.agents/memory/rag/memory-mcp.py` path from the repository root.
+3. Do not use `agent-basics mcp` for compatibility fallback; that command is the OpenViking-backed gateway.
 4. Call `memory_search` before answering requests that depend on prior project context.
 5. Call `memory_record` when the user asks to remember something or when a durable decision, fact, preference, gotcha, event, source, or procedure should be preserved before OpenViking migration.
 6. Pass structured fields such as `rationale`, `consequences`, `notes`, `steps`, and `related` when they apply, so the recorder can generate polished markdown without manual edits.
@@ -34,8 +34,8 @@ In Settings -> MCP servers -> Connect to a custom MCP, use these fields when the
 
 - Name: `agent-basics-memory`
 - Transport: `STDIO`
-- Command to launch: `agent-basics` when installed, otherwise the absolute path to `.agents/memory/rag/memory-mcp.py`
-- Arguments: `mcp` when using `agent-basics`; none when using the repo-local fallback script
+- Command to launch: the absolute path to `.agents/memory/rag/memory-mcp.py`
+- Arguments: none
 - Environment variables: leave blank unless `.agents/memory/rag/config.json` names an API key variable in `embedding.api_key_env`
 - Environment variable passthrough: same API key variable only when needed
 - Working directory: absolute path to the repository root
