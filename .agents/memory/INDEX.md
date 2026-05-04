@@ -12,6 +12,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 - [Defer memory rebuilds for routine MCP records](memory/decisions/1777766400-defer-memory-rebuilds-for-routine-mcp-records.md)
 - [Make agent-basics an OpenViking-backed repo harness](memory/decisions/1777852800-make-agent-basics-an-openviking-backed-repo-harness.md)
 - [Use Unix timestamps in memory metadata](memory/decisions/1777826593-use-unix-timestamps-in-memory-metadata.md)
+- [Use OpenViking-native memory categories](memory/decisions/1777890776-use-openviking-native-memory-categories.md)
 
 ## Facts
 
@@ -20,10 +21,11 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 ## Preferences
 
 - [Keep markdown files ending with an empty trailing line](memory/preferences/agent-basics.md)
+- [Use Gemma 4 E2B by default](memory/preferences/1777890776-use-gemma-4-e2b-by-default.md)
 
 ## Gotchas
 
-- None yet.
+- [Avoid lms CLI from Codex](memory/gotchas/1777890776-avoid-lms-cli-from-codex.md)
 
 ## Events
 

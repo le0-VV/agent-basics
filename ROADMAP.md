@@ -8,8 +8,8 @@ The project should not grow into a second memory engine. OpenViking should own m
 
 - `agent-basics` is the one-command Rust binary entry point.
 - OpenViking is the required memory and context backend.
-- `agent-basics` installs, verifies, configures, and wraps OpenViking for each repository.
-- Repository-specific OpenViking state lives under `.agents/`.
+- `agent-basics` installs, verifies, configures, and wraps one user-level OpenViking installation, normally under `~/.openviking`.
+- Repository-specific OpenViking metadata, migration manifests, and locks live under `.agents/`; the OpenViking package and workspace do not live inside each repository by default.
 - Agents access OpenViking through `agent-basics mcp` or stable `agent-basics ov ...` commands, not by ad hoc shell commands.
 - Root `Agents.md` remains the universal agent entrypoint.
 - `.agents/AGENT-BASICS.md` contains the agent-basics operating contract that root `Agents.md` points to.
@@ -54,16 +54,17 @@ Agent client
   -> root Agents.md
   -> agent-basics MCP or CLI
   -> repo-aware OpenViking gateway
-  -> repo-local OpenViking files under .agents/
+  -> user-level OpenViking plus repo metadata under .agents/
 ```
 
 `agent-basics` should provide a repo-aware gateway instead of asking every agent to call OpenViking directly.
 
 Responsibilities:
 
-- Detect whether OpenViking is installed.
+- Detect whether user-level OpenViking is installed.
 - Install or guide installation when it is missing.
-- Create repo-local OpenViking config and data paths under `.agents/`.
+- Create repo-local OpenViking metadata and lock paths under `.agents/`.
+- Keep OpenViking runtime data outside repositories unless the user explicitly chooses another user-level home.
 - Verify the configured LLM/VLM and embedding providers.
 - Configure local providers such as LM Studio when available.
 - Run OpenViking doctor/health checks.
@@ -103,8 +104,8 @@ Target layout:
     ├── TODO.md
     ├── config.toml
     ├── openviking/
-    │   ├── ov.conf
-    │   ├── data/
+    │   ├── repo.json
+    │   ├── migration-manifest.json
     │   └── locks/
     ├── skills/
     │   ├── prework.md
@@ -212,7 +213,7 @@ instead of approving many small command variations.
 2. Detect existing `Agents.md`, `.agents/AGENT-BASICS.md`, legacy `.agents/INSTRUCTIONS.md`, `.agents/memory/`, and existing OpenViking state.
 3. Check whether OpenViking is installed.
 4. Install OpenViking or stop with clear instructions when installation is not allowed.
-5. Configure repo-local OpenViking files under `.agents/openviking/`.
+5. Configure repo-local OpenViking metadata under `.agents/openviking/`.
 6. Configure LLM/VLM and embedding providers.
 7. Verify providers with a doctor check.
 8. Write or merge root `Agents.md`.
@@ -268,12 +269,20 @@ Core commands:
 OpenViking wrapper commands:
 
 - `agent-basics ov doctor`
+- `agent-basics ov install-system`
+- `agent-basics ov write-default-config`
 - `agent-basics ov search <query>`
 - `agent-basics ov record`
 - `agent-basics ov add-resource <path-or-url>`
 - `agent-basics ov add-skill <path>`
 - `agent-basics ov ingest-changed`
 - `agent-basics ov status`
+- `agent-basics lmstudio status`
+- `agent-basics lmstudio hardware`
+- `agent-basics lmstudio plan`
+- `agent-basics lmstudio load`
+- `agent-basics lmstudio unload`
+- `agent-basics lmstudio route-test`
 
 Migration commands:
 
@@ -294,18 +303,20 @@ The local runtime target is LM Studio first, with other OpenAI-compatible provid
 
 - Detect available LM Studio models.
 - Load and unload models through LM Studio's native REST API when the user allows it.
+- Avoid the `lms` CLI from Codex on macOS because it can launch the LM Studio Electron app and crash during AppKit registration.
 - Verify OpenAI-compatible chat and embedding endpoints.
 - Configure OpenViking with the selected chat/VLM model and embedding model.
 - Keep model/provider settings in config files, not scattered environment variables.
 - Store only secret environment variable names, never raw secret values.
+- Assess host hardware with stable macOS system APIs, then produce a deterministic load plan.
 
 Known local setup:
 
-- Chat/VLM: `google/gemma-4-e4b`
+- Chat/VLM: `google/gemma-4-e2b`
 - Embeddings: `text-embedding-embeddinggemma-300m-qat`
 - LM Studio base URL: `http://127.0.0.1:1234`
 
-Gemma 4 should be used with shallow structured-output schemas for routing and setup helpers. Deterministic code must validate and apply the result.
+Gemma 4 E2B should be used with shallow structured-output schemas for routing and setup helpers. Deterministic code must validate and apply the result. The default load plan is max context, max GPU offload, concurrency 1, KV cache quantization `q4_0`, flash attention enabled, and temperature 0 for routing tests.
 
 ## Milestones
 
@@ -320,7 +331,7 @@ Milestone 1: roadmap and architecture reset.
 Milestone 2: OpenViking setup proof.
 
 - Install and configure OpenViking through `agent-basics`.
-- Create repo-local OpenViking state under `.agents/openviking/`.
+- Create repo-local OpenViking metadata under `.agents/openviking/`.
 - Verify LM Studio chat/VLM and embedding providers.
 - Ingest this repo's current agent instructions and documentation.
 - Prove search/record through a repo-aware wrapper.

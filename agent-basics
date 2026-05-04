@@ -51,6 +51,22 @@ find_memory_mcp() {
   return 1
 }
 
+find_ov_helper() {
+  local candidate
+  for candidate in \
+    "${AGENT_BASICS_OV_HELPER:-}" \
+    "$SCRIPT_DIR/agent-basics-ov.py" \
+    "$SCRIPT_DIR/scripts/agent_basics_ov.py"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+      printf "%s\n" "$candidate"
+      return 0
+    fi
+  done
+  echo "Error: agent-basics OpenViking helper was not found." >&2
+  echo "Reinstall agent-basics or run from the full agent-basics checkout." >&2
+  return 1
+}
+
 usage() {
   cat <<'EOT'
 Usage:
@@ -58,7 +74,9 @@ Usage:
   agent-basics [--repo DIR] upgrade [options] [DIR]
   agent-basics [--repo DIR] memory <validate|rebuild|search|record|doctor|install-hooks> [...]
   agent-basics [--repo DIR] mcp
-  agent-basics [--repo DIR] ov <doctor|search|record|add-resource|add-skill|ingest-changed|status> [...]
+  agent-basics [--repo DIR] ov <doctor|install-system|write-default-config> [...]
+  agent-basics [--repo DIR] lmstudio <status|hardware|plan|load|unload|route-test> [...]
+  agent-basics [--repo DIR] migrate memory-to-openviking [--write]
   agent-basics [--repo DIR] doctor [--online]
   agent-basics [--repo DIR] validate|rebuild|search|record|install-hooks [...]
 
@@ -81,8 +99,11 @@ Embedding setup values are validated during setup and written to:
   .agents/memory/rag/config.json
 
 OpenViking is the target required backend for memory, resources, skills, and
-retrieval. The `ov` subcommands are reserved for the OpenViking gateway and
-currently fail fast until that gateway is implemented.
+retrieval. `agent-basics ov` uses a user-level OpenViking installation, normally
+under ~/.openviking, instead of installing OpenViking into each repository.
+
+LM Studio management uses REST/OpenAI-compatible HTTP endpoints only. Do not use
+the `lms` CLI from Codex on macOS; it can launch the Electron app and crash.
 
 MCP clients should use:
   command: agent-basics
@@ -265,9 +286,15 @@ case "$command_name" in
     ;;
   ov|openviking)
     enter_repo
-    echo "Error: agent-basics ov is reserved for the OpenViking gateway, but that gateway is not implemented in this build." >&2
-    echo "Use the compatibility 'agent-basics memory' commands only when OpenViking tooling is unavailable and work must continue." >&2
-    exit 2
+    exec python3 "$(find_ov_helper)" --repo "$(pwd)" ov "$@"
+    ;;
+  lmstudio)
+    enter_repo
+    exec python3 "$(find_ov_helper)" --repo "$(pwd)" lmstudio "$@"
+    ;;
+  migrate)
+    enter_repo
+    exec python3 "$(find_ov_helper)" --repo "$(pwd)" migrate "$@"
     ;;
   validate|rebuild|search|record|doctor|install-hooks)
     enter_repo

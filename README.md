@@ -4,7 +4,7 @@
 
 > **THIS SETUP WILL INCREASE TOKEN USAGE IN EXCHANGE FOR MORE RELIABLE AGENT OPERATIONS**
 
-`agent-basics` is a repo-local programming harness. Its direction is to make OpenViking the required memory, documentation, resource, skill, semantic organization, and retrieval backend, while `agent-basics` owns the repository contract around that backend.
+`agent-basics` is a repo-local programming harness. Its direction is to make one user-level OpenViking installation the required memory, documentation, resource, skill, semantic organization, and retrieval backend, while `agent-basics` owns the repository contract around that backend.
 
 The current implementation still includes a custom `.agents/memory/` markdown tree and generated mini-RAG. Treat that layer as transitional compatibility until the OpenViking gateway is implemented and migration is complete.
 
@@ -18,11 +18,19 @@ agent-basics upgrade /path/to/project
 agent-basics doctor --online
 agent-basics mcp
 agent-basics ov doctor
+agent-basics ov install-system
+agent-basics ov write-default-config --force
 agent-basics ov search "what did we decide about memory?"
 agent-basics ov record
 agent-basics ov add-resource ./docs/api.md
 agent-basics ov add-skill .agents/skills/finish-work.md
 agent-basics ov ingest-changed
+agent-basics lmstudio status
+agent-basics lmstudio hardware
+agent-basics lmstudio plan
+agent-basics lmstudio load --dry-run
+agent-basics lmstudio route-test
+agent-basics migrate memory-to-openviking --write
 agent-basics run start --task "ship the feature"
 agent-basics run status
 agent-basics run checkpoint
@@ -33,7 +41,7 @@ agent-basics commit
 
 Target responsibilities:
 
-- `agent-basics` installs, verifies, configures, and wraps OpenViking.
+- `agent-basics` installs, verifies, configures, and wraps a user-level OpenViking installation, normally under `~/.openviking`.
 - `agent-basics` writes and safely upgrades root `Agents.md`, `.agents/AGENT-BASICS.md`, `.agents/config.toml`, `.agents/openviking/`, `.agents/skills/`, and `.agents/runs/`.
 - `agent-basics mcp` exposes repo-aware OpenViking tools for search, record, resource ingest, skill ingest, changed-file ingest, and health checks.
 - OpenViking owns durable memory, documentation resources, semantic summaries, embedding indexes, vector search, and context organization.
@@ -70,8 +78,8 @@ agent-basics mcp
     ├── TODO.md
     ├── config.toml
     ├── openviking/
-    │   ├── ov.conf
-    │   ├── data/
+    │   ├── repo.json
+    │   ├── migration-manifest.json
     │   └── locks/
     ├── skills/
     │   ├── prework.md
@@ -109,7 +117,9 @@ Markdown under `.agents/memory/` remains the compatibility source of truth until
 
 The planned gateway keeps OpenViking executable details out of normal agent workflows:
 
-- `agent-basics ov doctor`: verify OpenViking installation, repo config, provider health, and ingest state.
+- `agent-basics ov doctor`: verify the user-level OpenViking installation, repo config, provider health, and ingest state.
+- `agent-basics ov install-system`: install OpenViking under `~/.openviking` when it is missing.
+- `agent-basics ov write-default-config`: write a default `~/.openviking/ov.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
 - `agent-basics ov search <query>`: search memory, docs, resources, and skills.
 - `agent-basics ov record`: record durable context into the right OpenViking category.
 - `agent-basics ov add-resource <path-or-url>`: ingest project documentation or external sources.
@@ -149,7 +159,7 @@ The target setup flow should:
 2. Detect existing `Agents.md`, `.agents/AGENT-BASICS.md`, legacy `.agents/INSTRUCTIONS.md`, `.agents/memory/`, and existing OpenViking state.
 3. Check whether OpenViking is installed.
 4. Install OpenViking or stop with clear instructions when installation is not allowed.
-5. Configure repo-local OpenViking files under `.agents/openviking/`.
+5. Configure repo-local OpenViking metadata under `.agents/openviking/`.
 6. Configure LLM/VLM and embedding providers.
 7. Verify providers with a doctor check.
 8. Write or safely merge root `Agents.md`.
@@ -217,6 +227,11 @@ brew install --HEAD le0-VV/agent-basics/agent-basics
 This builds and installs one binary:
 
 - `agent-basics setup [DIR]`: set up or upgrade a repository, including older agent-basics layouts with overlapping markdown files.
+- `agent-basics ov doctor`: inspect the user-level OpenViking installation and config.
+- `agent-basics ov install-system`: install OpenViking under `~/.openviking`.
+- `agent-basics ov write-default-config`: write the default LM Studio-backed OpenViking config.
+- `agent-basics lmstudio status|hardware|plan|load|unload|route-test`: inspect and manage LM Studio through REST/OpenAI-compatible HTTP only.
+- `agent-basics migrate memory-to-openviking`: inventory legacy `.agents/memory/` records into OV-native categories.
 - `agent-basics memory ...`: run compatibility memory/RAG operations for the current working repository.
 - `agent-basics mcp`: run the stdio MCP server for the current working repository. This is currently compatibility memory-backed and should become OpenViking-backed.
 
@@ -234,7 +249,18 @@ brew upgrade agent-basics
 - `ROADMAP.md`: long-horizon architecture, milestones, and non-goals.
 - `.agents/TODO.md`: current agent work plan and cross-session state. It is untracked by git by design.
 - `.agents/config.toml`: target durable repo config.
-- `.agents/openviking/`: target repo-local OpenViking config, data, and locks.
+- `.agents/openviking/`: target repo-local OpenViking metadata, migration manifests, and locks. The OpenViking install and workspace stay under `~/.openviking` unless the user explicitly chooses another user-level location.
 - `.agents/skills/` or `Skills.md`: target repeated workflows that point to stable `agent-basics` commands.
 - `.agents/runs/`: target long-horizon run state and handoff files.
 - `.agents/memory/`: transitional compatibility memory, documentation, and mini-RAG files.
+
+## LM Studio Safety
+
+On macOS, `agent-basics` should not use the `lms` CLI from Codex or other sandboxed agent hosts. On this machine, `lms` launched the LM Studio Electron app and crashed during AppKit registration. The safe path is:
+
+1. The user starts LM Studio and its local server.
+2. Agents call `agent-basics lmstudio status` to verify HTTP reachability.
+3. Agents call `agent-basics lmstudio plan` to inspect the proposed E2B load settings.
+4. Agents call `agent-basics lmstudio load` only when model loading through REST is desired.
+
+The default local model plan is Gemma 4 E2B with max context, max GPU offload, concurrency 1, KV cache quantization `q4_0`, flash attention enabled, and temperature 0 for routing tests.

@@ -35,7 +35,7 @@ In Settings -> MCP servers -> Connect to a custom MCP, use these fields:
 - Transport: `STDIO`
 - Command to launch: `agent-basics`
 - Arguments: `mcp`
-- Environment variables: only provider secret variables named by `.agents/config.toml` or `.agents/openviking/ov.conf`
+- Environment variables: only provider secret variables named by `.agents/config.toml` or user-level OpenViking config
 - Environment variable passthrough: the same provider secret variables, only when needed
 - Working directory: absolute path to the repository root
 

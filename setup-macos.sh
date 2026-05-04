@@ -142,7 +142,7 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 
 - OpenViking is the required target backend for agent-basics memory, documentation, resources, skills, semantic organization, and retrieval.
 - Agents should not call OpenViking with ad hoc commands when an agent-basics gateway exists. Use the repo-aware `agent-basics mcp` server or stable `agent-basics ov ...` commands.
-- Repository-specific OpenViking config and state should live under `.agents/openviking/` once the gateway is implemented.
+- Repository-specific OpenViking metadata and locks should live under `.agents/openviking/` once the gateway is implemented. The OpenViking package and workspace should live in a user-level installation, normally `~/.openviking`, not inside each repository.
 - `agent-basics` owns setup, upgrade, validation, repo path resolution, git hooks, migration safety, and agent-facing command/MCP contracts.
 - OpenViking owns durable context storage, resource ingestion, summaries, semantic search, and vector indexes.
 - Before making context-dependent claims, search OpenViking through the gateway.
@@ -154,7 +154,9 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 The target agent-facing surfaces are:
 
 - `agent-basics mcp`: repo-aware MCP server for OpenViking-backed tools.
-- `agent-basics ov doctor`: check OpenViking installation, repo config, providers, ingest status, and health.
+- `agent-basics ov doctor`: check the user-level OpenViking installation, repo config, providers, ingest status, and health.
+- `agent-basics ov install-system`: install OpenViking under `~/.openviking` when it is missing.
+- `agent-basics ov write-default-config`: write a default `~/.openviking/ov.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
 - `agent-basics ov search <query>`: retrieve prior context for vague or specific project requests.
 - `agent-basics ov record`: record durable context in the correct OpenViking category.
 - `agent-basics ov add-resource <path-or-url>`: ingest documentation or reference material.
@@ -182,7 +184,7 @@ For Codex Desktop custom MCP setup, guide the user to Settings -> MCP servers ->
 - Transport: `STDIO`
 - Command to launch: `agent-basics`
 - Arguments: `mcp`
-- Environment variables: only provider secret variables named by `.agents/config.toml` or `.agents/openviking/ov.conf`
+- Environment variables: only provider secret variables named by `.agents/config.toml` or user-level OpenViking config
 - Environment variable passthrough: the same provider secret variables, only when needed
 - Working directory: absolute path to the repository root
 
@@ -205,13 +207,13 @@ Compatibility files are not the long-term architecture. When `agent-basics ov` a
 
 ## Configuration
 
-- Durable repo configuration belongs in `.agents/config.toml` and `.agents/openviking/` config files once those files exist.
+- Durable repo configuration belongs in `.agents/config.toml` and `.agents/openviking/` metadata files once those files exist. User-level OpenViking runtime configuration belongs under `~/.openviking`.
 - Provider URLs, model names, timeouts, runtime paths, and feature flags should be stored in config files, not scattered through shell environment variables.
 - Environment variables are allowed for secrets, compatibility inputs, and one-off overrides.
 - Never commit raw provider API keys or local-only secrets.
 - Local provider defaults currently being tested are:
   - LM Studio base URL: `http://127.0.0.1:1234`
-  - Chat/VLM model: `google/gemma-4-e4b`
+  - Chat/VLM model: `google/gemma-4-e2b`
   - Embedding model: `text-embedding-embeddinggemma-300m-qat`
 
 ## Long-Horizon Work
@@ -341,7 +343,7 @@ Generated files such as `index.sqlite` and `manifest.json` are rebuildable cache
 
 ## Compatibility RAG Configuration
 
-`.agents/memory/rag/config.json` records the active compatibility embedding provider and durable mini-RAG runtime settings. Long-term OpenViking provider settings should move to `.agents/config.toml` and `.agents/openviking/` config.
+`.agents/memory/rag/config.json` records the active compatibility embedding provider and durable mini-RAG runtime settings. Long-term repo metadata should move to `.agents/config.toml` and `.agents/openviking/`; user-level OpenViking provider settings belong under `~/.openviking`.
 
 The `embedding` object stores:
 
@@ -817,13 +819,13 @@ In Settings -> MCP servers -> Connect to a custom MCP, use these fields:
 - Transport: `STDIO`
 - Command to launch: `agent-basics`
 - Arguments: `mcp`
-- Environment variables: only provider secret variables named by `.agents/config.toml` or `.agents/openviking/ov.conf`
+- Environment variables: only provider secret variables named by `.agents/config.toml` or user-level OpenViking config
 - Environment variable passthrough: the same provider secret variables, only when needed
 - Working directory: absolute path to the repository root
 
 ## Verification
 
-Run `agent-basics ov doctor` or call the MCP doctor tool. The result should report OpenViking installation, repo-local config, provider health, and ingest status.
+Run `agent-basics ov doctor` or call the MCP doctor tool. The result should report user-level OpenViking installation, repo metadata, provider health, and ingest status.
 
 ## Related
 

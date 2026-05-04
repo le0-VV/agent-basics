@@ -12,6 +12,7 @@ const DISPATCHER: &[u8] = include_bytes!("../agent-basics");
 const SETUP: &[u8] = include_bytes!("../setup-macos.sh");
 const MEMORY_CLI: &[u8] = include_bytes!("../.agents/memory/rag/agent-memory.py");
 const MEMORY_MCP: &[u8] = include_bytes!("../.agents/memory/rag/memory-mcp.py");
+const OV_HELPER: &[u8] = include_bytes!("../scripts/agent_basics_ov.py");
 
 struct Runtime {
     root: PathBuf,
@@ -47,6 +48,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             "AGENT_BASICS_MEMORY_MCP",
             runtime.root.join("memory-mcp.py"),
         )
+        .env(
+            "AGENT_BASICS_OV_HELPER",
+            runtime.root.join("agent-basics-ov.py"),
+        )
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -70,6 +75,7 @@ fn ensure_runtime() -> Result<Runtime, Box<dyn Error>> {
     write_executable(&root.join("setup-macos.sh"), SETUP)?;
     write_executable(&root.join("agent-memory.py"), MEMORY_CLI)?;
     write_executable(&root.join("memory-mcp.py"), MEMORY_MCP)?;
+    write_executable(&root.join("agent-basics-ov.py"), OV_HELPER)?;
     fs::write(marker, VERSION.as_bytes())?;
 
     Ok(Runtime { root })
