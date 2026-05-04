@@ -879,23 +879,71 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
     def test_ov_default_config_uses_positive_vlm_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "ov.conf"
+            cli_config_path = Path(tmp) / "ovcli.conf"
             result = agent_basics_ov.command_ov_write_default_config(
                 SimpleNamespace(
                     config=str(config_path),
+                    cli_config=str(cli_config_path),
                     home=str(Path(tmp) / "openviking"),
                     lmstudio_base="http://127.0.0.1:1234",
                     chat_model=agent_basics_ov.DEFAULT_CHAT_MODEL,
                     embedding_model=agent_basics_ov.DEFAULT_EMBEDDING_MODEL,
                     embedding_dimension=768,
                     vlm_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                    server_url="http://127.0.0.1:1933",
+                    cli_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
                     force=False,
                 )
             )
             payload = agent_basics_ov.load_json_file(config_path)
+            cli_payload = agent_basics_ov.load_json_file(cli_config_path)
 
         self.assertEqual(result, 0)
         assert payload is not None
+        assert cli_payload is not None
         self.assertGreater(payload["vlm"]["timeout"], 0)
+        self.assertEqual(cli_payload["timeout"], agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+
+    def test_ov_server_dry_run_wraps_user_level_server(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            server_path = Path(tmp) / "openviking-server"
+            config_path = Path(tmp) / "ov.conf"
+            server_path.write_text("#!/bin/sh\n", encoding="utf-8")
+            server_path.chmod(0o755)
+            config_path.write_text("{}\n", encoding="utf-8")
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = agent_basics_ov.command_ov_server(
+                    SimpleNamespace(
+                        server_bin=str(server_path),
+                        config=str(config_path),
+                        host="127.0.0.1",
+                        port=1933,
+                        workers=1,
+                        bot=False,
+                        with_bot=False,
+                        dry_run=True,
+                    )
+                )
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(
+            payload["command"],
+            [
+                str(server_path),
+                "--config",
+                str(config_path),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "1933",
+                "--workers",
+                "1",
+            ],
+        )
 
     def test_ov_native_memory_paths_map_to_openviking_categories(self) -> None:
         category, reason, review = agent_basics_ov.legacy_to_ov_category(

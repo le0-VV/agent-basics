@@ -36,29 +36,24 @@ class SetupMacosTest(unittest.TestCase):
         fake_dispatcher.write_text(
             "#!/usr/bin/env sh\n"
             "set -eu\n"
-            "printf '%s\\n' \"$*\" > \"$AGENT_BASICS_TEST_OPENVIKING_INSTALL_LOG\"\n"
-            "if [ \"$1\" != \"ov\" ] || [ \"$2\" != \"install-system\" ]; then\n"
+            "printf '%s\\n' \"$*\" >> \"$AGENT_BASICS_TEST_OPENVIKING_INSTALL_LOG\"\n"
+            "if [ \"$1\" != \"ov\" ]; then\n"
             "  echo \"unexpected fake dispatcher command: $*\" >&2\n"
             "  exit 2\n"
             "fi\n"
-            "home=\"\"\n"
-            "while [ \"$#\" -gt 0 ]; do\n"
-            "  case \"$1\" in\n"
-            "    --home)\n"
-            "      home=\"$2\"\n"
-            "      shift 2\n"
-            "      ;;\n"
-            "    *)\n"
-            "      shift\n"
-            "      ;;\n"
-            "  esac\n"
-            "done\n"
-            "if [ -z \"$home\" ]; then\n"
-            "  echo \"missing --home\" >&2\n"
-            "  exit 2\n"
-            "fi\n"
-            "mkdir -p \"$home/venv/bin\"\n"
-            "cat > \"$home/venv/bin/ov\" <<'EOS'\n"
+            "case \"$2\" in\n"
+            "  install-system)\n"
+            "    shift 2\n"
+            "    home=\"\"\n"
+            "    while [ \"$#\" -gt 0 ]; do\n"
+            "      case \"$1\" in\n"
+            "        --home) home=\"$2\"; shift 2 ;;\n"
+            "        *) shift ;;\n"
+            "      esac\n"
+            "    done\n"
+            "    if [ -z \"$home\" ]; then echo \"missing --home\" >&2; exit 2; fi\n"
+            "    mkdir -p \"$home/venv/bin\"\n"
+            "    cat > \"$home/venv/bin/ov\" <<'EOS'\n"
             "#!/usr/bin/env sh\n"
             "case \"$1\" in\n"
             "  --help) echo 'fake installed OpenViking help'; exit 0 ;;\n"
@@ -66,7 +61,33 @@ class SetupMacosTest(unittest.TestCase):
             "  *) exit 0 ;;\n"
             "esac\n"
             "EOS\n"
-            "chmod 0755 \"$home/venv/bin/ov\"\n",
+            "    chmod 0755 \"$home/venv/bin/ov\"\n"
+            "    ;;\n"
+            "  write-default-config)\n"
+            "    shift 2\n"
+            "    home=\"\"\n"
+            "    config=\"\"\n"
+            "    cli_config=\"\"\n"
+            "    while [ \"$#\" -gt 0 ]; do\n"
+            "      case \"$1\" in\n"
+            "        --home) home=\"$2\"; shift 2 ;;\n"
+            "        --config) config=\"$2\"; shift 2 ;;\n"
+            "        --cli-config) cli_config=\"$2\"; shift 2 ;;\n"
+            "        *) shift ;;\n"
+            "      esac\n"
+            "    done\n"
+            "    if [ -z \"$home\" ]; then echo \"missing --home\" >&2; exit 2; fi\n"
+            "    if [ -z \"$config\" ]; then config=\"$home/ov.conf\"; fi\n"
+            "    if [ -z \"$cli_config\" ]; then cli_config=\"$home/ovcli.conf\"; fi\n"
+            "    mkdir -p \"$home\"\n"
+            "    printf '{\"storage\":{\"workspace\":\"%s/workspace\"}}\\n' \"$home\" > \"$config\"\n"
+            "    printf '{\"url\":\"http://127.0.0.1:1933\",\"timeout\":86400}\\n' > \"$cli_config\"\n"
+            "    ;;\n"
+            "  *)\n"
+            "    echo \"unexpected fake dispatcher command: $*\" >&2\n"
+            "    exit 2\n"
+            "    ;;\n"
+            "esac\n",
             encoding="utf-8",
         )
         fake_dispatcher.chmod(0o755)
@@ -228,8 +249,16 @@ class SetupMacosTest(unittest.TestCase):
 
             self.assertIn("Running test-only OpenViking installation via fake dispatcher", result.stdout)
             self.assertIn("Verified user-level OpenViking CLI", result.stdout)
-            self.assertEqual(install_log.read_text(encoding="utf-8").strip(), f"ov install-system --home {ov_home}")
+            self.assertEqual(
+                install_log.read_text(encoding="utf-8").strip().splitlines(),
+                [
+                    f"ov install-system --home {ov_home}",
+                    f"ov write-default-config --home {ov_home} --config {ov_home / 'ov.conf'} --cli-config {ov_home / 'ovcli.conf'}",
+                ],
+            )
             self.assertTrue((ov_home / "venv" / "bin" / "ov").is_file())
+            self.assertTrue((ov_home / "ov.conf").is_file())
+            self.assertTrue((ov_home / "ovcli.conf").is_file())
 
             config = tomllib.loads((repo / ".agents" / "config.toml").read_text(encoding="utf-8"))
             self.assertEqual(config["openviking"]["mcp"]["cwd"], str(repo))

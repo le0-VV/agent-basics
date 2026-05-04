@@ -165,7 +165,8 @@ The target agent-facing surfaces are:
 - `agent-basics mcp`: repo-aware MCP server for OpenViking-backed tools.
 - `agent-basics ov doctor`: check the user-level OpenViking installation, repo config, providers, ingest status, and health.
 - `agent-basics ov install-system`: install OpenViking under `~/.openviking` when it is missing.
-- `agent-basics ov write-default-config`: write a default `~/.openviking/ov.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
+- `agent-basics ov write-default-config`: write default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
+- `agent-basics ov server`: start the configured user-level OpenViking HTTP server in the foreground.
 - `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
 - `agent-basics ov search <query>`: retrieve prior context for vague or specific project requests.
 - `agent-basics ov record`: record durable context in the correct OpenViking category.
@@ -199,21 +200,23 @@ For Codex Desktop custom MCP setup, guide the user to Settings -> MCP servers ->
 - Environment variable passthrough: the same provider secret variables, only when needed
 - Working directory: absolute path to the repository root
 
-## Transitional Compatibility
+## Legacy Compatibility
 
-The current repository may contain the custom `.agents/memory/` markdown tree and generated mini-RAG for fallback compatibility.
+This repository may contain the older `.agents/memory/` markdown mini-RAG source files if it is an agent-basics development checkout or was explicitly configured for fallback compatibility. Fresh setup does not install that legacy mini-RAG unless `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` is set.
 
-Use this layer only when OpenViking tooling is unavailable:
+Use this layer only as fallback compatibility when OpenViking tooling is unavailable and work must continue:
 
 - Prefer the OpenViking-backed `agent-basics mcp` server for normal work.
-- Call `.agents/memory/rag/memory-mcp.py` directly only when the OpenViking gateway is unavailable.
+- Use the compatibility memory MCP server only if it is explicitly configured.
+- Call compatibility `memory_search` for prior context only when OpenViking search is unavailable.
+- Call compatibility `memory_record` for durable records only when OpenViking recording is unavailable.
 - Let routine `memory_record` calls defer rebuilds.
 - Call `memory_rebuild` once after a batch of memory changes, before relying on new entries in search, or before committing memory changes.
 - If MCP is unavailable, use `agent-basics memory ...` or `.agents/memory/rag/agent-memory.py ...`.
 - Keep `.agents/memory/INDEX.md` updated whenever adding, moving, or removing compatibility entries.
 - Do not write `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists.
 
-Compatibility files are not the long-term architecture. When `agent-basics ov` and the OpenViking-backed MCP server are implemented, migrate useful compatibility memory into OpenViking and demote or remove the custom mini-RAG.
+Compatibility files are not the long-term architecture. Useful compatibility memory should be adapted into `.agents/memory/memories/`, `.agents/memory/resources/`, or `.agents/memory/skills/`, ingested through OpenViking, and then treated as legacy source-checkout fallback.
 
 ## Configuration
 
@@ -244,7 +247,7 @@ Compatibility files are not the long-term architecture. When `agent-basics ov` a
 
 - Find up-to-date documentation for any library, framework, API, tool, or programming language used in the project.
 - Record source URLs in OpenViking resources through `agent-basics ov add-resource` when the gateway exists.
-- While the compatibility layer is still in use, record important sources under `.agents/memory/documentations/sources/`.
+- Record important sources under `.agents/memory/resources/` when maintaining repo-owned source-store files. Use legacy `.agents/memory/documentations/sources/` only while explicitly operating the compatibility layer.
 - While writing code, refer to recorded documentation sources before relying on memory for external APIs.
 - Add a new source record when you consult a new external reference that matters for future work.
 EOT
@@ -290,15 +293,17 @@ Use this before non-trivial repository work.
 
 1. Read `Agents.md`, `.agents/AGENT-BASICS.md`, `ROADMAP.md`, `.agents/TODO.md`, and `Skills.md` when they exist.
 2. Start or inspect run state with `agent-basics run start --task "<task>"` or `agent-basics run status`.
-3. Search prior context through the OpenViking MCP server or `agent-basics ov search "<query>"`.
-4. Inspect the git state before editing.
-5. Write or update the concrete checklist in `.agents/TODO.md`.
+3. Verify or start the user-level OpenViking server with `agent-basics ov status --offline`, `agent-basics ov doctor`, or `agent-basics ov server` when live retrieval is needed.
+4. Search prior context through the OpenViking MCP server or `agent-basics ov search "<query>"`.
+5. Inspect the git state before editing.
+6. Write or update the concrete checklist in `.agents/TODO.md`.
 
 ## Commands
 
 ```bash
 agent-basics run status
 agent-basics run start --task "<task>"
+agent-basics ov status --offline
 agent-basics ov search "<query>"
 ```
 
@@ -976,13 +981,14 @@ Use this whenever an agent needs prior project context, durable memory recording
 1. Resolve the repository root before calling the gateway.
 2. Prefer `agent-basics mcp` when the agent client supports MCP.
 3. Configure the MCP server with the repository root as the working directory.
-4. Search prior context through the OpenViking-backed MCP search tool or `agent-basics ov search "<query>"` before answering vague or history-dependent requests.
-5. Record durable decisions, facts, preferences, gotchas, events, procedures, and useful findings through the OpenViking-backed MCP record tool or `agent-basics ov record`.
-6. Add important documentation or reference material with `agent-basics ov add-resource <path-or-url>`.
-7. Add reusable workflows with `agent-basics ov add-skill <path>`.
-8. After adapting repo memory, resources, or skills under `.agents/memory/`, run `agent-basics ov import-repo-memory --write`. OV-native memory files are written directly into their OpenViking memory categories; resources and skills use OpenViking ingestion.
-9. After instruction, documentation, memory, or skill files change, run `agent-basics ov ingest-changed`.
-10. Run `agent-basics ov doctor` before relying on OpenViking if setup, provider configuration, or ingest state is uncertain.
+4. Verify the user-level OpenViking server with `agent-basics ov doctor` or start it in the foreground with `agent-basics ov server` when live retrieval is needed.
+5. Search prior context through the OpenViking-backed MCP search tool or `agent-basics ov search "<query>"` before answering vague or history-dependent requests.
+6. Record durable decisions, facts, preferences, gotchas, events, procedures, and useful findings through the OpenViking-backed MCP record tool or `agent-basics ov record`.
+7. Add important documentation or reference material with `agent-basics ov add-resource <path-or-url>`.
+8. Add reusable workflows with `agent-basics ov add-skill <path>`.
+9. After adapting repo memory, resources, or skills under `.agents/memory/`, run `agent-basics ov import-repo-memory --write`. OV-native memory files are written directly into their OpenViking memory categories; resources and skills use OpenViking ingestion.
+10. After instruction, documentation, memory, or skill files change, run `agent-basics ov ingest-changed`.
+11. Run `agent-basics ov doctor` before relying on OpenViking if setup, provider configuration, or ingest state is uncertain.
 
 ## Codex Desktop Configuration
 
@@ -2186,6 +2192,48 @@ verify_user_openviking_installation() {
   echo "Verified user-level OpenViking CLI: $ov_bin"
 }
 
+ensure_user_openviking_config() {
+  local ov_home
+  local ov_config
+  local ovcli_config
+  local dispatcher
+
+  # Test-only fake CLIs do not imply a real user-level OpenViking config.
+  if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" || "${AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK:-0}" == "1" ]]; then
+    return
+  fi
+
+  if [[ -z "${HOME:-}" ]]; then
+    echo "Error: HOME is required to locate the user-level OpenViking configuration." >&2
+    exit 1
+  fi
+
+  ov_home="$HOME/.openviking"
+  ov_config="$ov_home/ov.conf"
+  ovcli_config="$ov_home/ovcli.conf"
+
+  if [[ -f "$ov_config" && -f "$ovcli_config" ]]; then
+    echo "Verified user-level OpenViking config: $ov_config"
+    echo "Verified user-level OpenViking CLI config: $ovcli_config"
+    return
+  fi
+
+  if ! dispatcher="$(find_agent_basics_dispatcher)"; then
+    echo "Error: user-level OpenViking configuration is missing, but no executable agent-basics dispatcher was found." >&2
+    echo "Run: agent-basics ov write-default-config --home \"$ov_home\"" >&2
+    exit 1
+  fi
+
+  if ! "$dispatcher" ov write-default-config --home "$ov_home" --config "$ov_config" --cli-config "$ovcli_config"; then
+    echo "Error: failed to write user-level OpenViking configuration." >&2
+    echo "Run manually: $dispatcher ov write-default-config --home \"$ov_home\"" >&2
+    exit 1
+  fi
+
+  echo "Verified user-level OpenViking config: $ov_config"
+  echo "Verified user-level OpenViking CLI config: $ovcli_config"
+}
+
 append_gitignore_entry_if_missing() {
   local entry="$1"
 
@@ -2900,6 +2948,7 @@ start_repo_local_embedding_api_for_setup() {
 }
 
 verify_user_openviking_installation
+ensure_user_openviking_config
 snapshot_existing_legacy_memory
 create_memory_layout
 

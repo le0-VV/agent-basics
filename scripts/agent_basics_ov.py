@@ -26,6 +26,7 @@ DEFAULT_EMBEDDING_MODEL = "text-embedding-embeddinggemma-300m-qat"
 DEFAULT_OV_HOME = Path.home() / ".openviking"
 DEFAULT_OV_BIN = DEFAULT_OV_HOME / "venv" / "bin" / "ov"
 DEFAULT_OV_CONFIG = DEFAULT_OV_HOME / "ov.conf"
+DEFAULT_OV_CLI_CONFIG = DEFAULT_OV_HOME / "ovcli.conf"
 DEFAULT_OV_SERVER = DEFAULT_OV_HOME / "venv" / "bin" / "openviking-server"
 DEFAULT_OV_VLM_TIMEOUT_SECONDS = 86400
 DEFAULT_RUN_STALE_SECONDS = 86400
@@ -422,6 +423,20 @@ def find_ov_bin() -> Path | None:
     return None
 
 
+def find_ov_server() -> Path | None:
+    explicit = os.environ.get("AGENT_BASICS_OV_SERVER")
+    if explicit:
+        path = Path(explicit).expanduser()
+        return path if path.exists() else None
+    if DEFAULT_OV_SERVER.exists():
+        return DEFAULT_OV_SERVER
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        candidate = Path(directory) / "openviking-server"
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def load_json_file(path: Path) -> dict[str, Any] | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -704,10 +719,10 @@ def shutil_which(name: str) -> str | None:
 
 def command_ov_write_default_config(args: argparse.Namespace) -> int:
     path = Path(args.config).expanduser()
-    if path.exists() and not args.force:
-        print_json({"ok": False, "error": f"{path} exists; pass --force to replace it"})
-        return 1
-    payload = {
+    home = Path(args.home).expanduser()
+    cli_config_path = Path(getattr(args, "cli_config", None) or home / "ovcli.conf").expanduser()
+    server_url = getattr(args, "server_url", None) or "http://127.0.0.1:1933"
+    config_payload = {
         "storage": {"workspace": str(Path(args.home).expanduser() / "workspace")},
         "log": {"level": "INFO", "output": "stdout"},
         "embedding": {
@@ -732,10 +747,93 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
         },
         "server": {"host": "127.0.0.1", "port": 1933},
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print_json({"ok": True, "path": str(path), "config": payload})
-    return 0
+    cli_payload = {
+        "url": server_url.rstrip("/"),
+        "timeout": getattr(args, "cli_timeout", DEFAULT_OV_VLM_TIMEOUT_SECONDS),
+    }
+
+    results = []
+    ok = True
+    for target, payload in [(path, config_payload), (cli_config_path, cli_payload)]:
+        exists = target.exists()
+        current = load_json_file(target) if exists else None
+        changed = bool(args.force or not exists)
+        error = None
+        if exists and not args.force and isinstance(current, dict) and "_error" in current:
+            changed = False
+            ok = False
+            error = f"{target} is not valid JSON; pass --force to replace it"
+        elif changed:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            current = payload
+        results.append(
+            {
+                "path": str(target),
+                "exists_before": exists,
+                "changed": changed,
+                "config": current,
+                **({"error": error} if error else {}),
+            }
+        )
+
+    print_json(
+        {
+            "ok": ok,
+            "changed": any(item["changed"] for item in results),
+            "path": str(path),
+            "cli_config_path": str(cli_config_path),
+            "config": results[0]["config"],
+            "cli_config": results[1]["config"],
+            "desired_config": config_payload,
+            "desired_cli_config": cli_payload,
+            "files": results,
+        }
+    )
+    return 0 if ok else 1
+
+
+def command_ov_server(args: argparse.Namespace) -> int:
+    server_bin = Path(args.server_bin).expanduser() if args.server_bin else find_ov_server()
+    if server_bin is None:
+        print_json(
+            {
+                "ok": False,
+                "error": "OpenViking server executable not found; run `agent-basics ov install-system` first",
+            }
+        )
+        return 1
+    config = Path(args.config).expanduser()
+    command = [str(server_bin), "--config", str(config)]
+    if args.host:
+        command.extend(["--host", args.host])
+    if args.port is not None:
+        command.extend(["--port", str(args.port)])
+    if args.workers is not None:
+        command.extend(["--workers", str(args.workers)])
+    if args.bot:
+        command.append("--bot")
+    if args.with_bot:
+        command.append("--with-bot")
+    payload = {
+        "ok": True,
+        "command": command,
+        "server_bin": str(server_bin),
+        "config": str(config),
+        "foreground": True,
+    }
+    if args.dry_run:
+        payload["dry_run"] = True
+        print_json(payload)
+        return 0
+    if not server_bin.exists() or not os.access(server_bin, os.X_OK):
+        print_json({"ok": False, "server_bin": str(server_bin), "error": "OpenViking server is not executable"})
+        return 1
+    if not config.exists():
+        print_json({"ok": False, "config": str(config), "error": "OpenViking config does not exist"})
+        return 1
+    os.execv(str(server_bin), command)
+    return 1
 
 
 def ov_native_import_files(repo: Path) -> dict[str, list[Path]]:
@@ -1572,6 +1670,7 @@ def ov_import_staleness(repo: Path) -> dict[str, Any]:
 def ov_status_payload(repo: Path, *, online: bool = True, providers: bool = False, base_url: str = DEFAULT_LM_STUDIO_BASE) -> dict[str, Any]:
     ov_bin = find_ov_bin()
     ov_config = Path(os.environ.get("AGENT_BASICS_OV_CONFIG", str(DEFAULT_OV_CONFIG))).expanduser()
+    ov_cli_config = Path(os.environ.get("AGENT_BASICS_OV_CLI_CONFIG", str(DEFAULT_OV_CLI_CONFIG))).expanduser()
     payload: dict[str, Any] = {
         "ok": bool(ov_bin),
         "repo": str(repo),
@@ -1599,6 +1698,9 @@ def ov_status_payload(repo: Path, *, online: bool = True, providers: bool = Fals
             "config_path": str(ov_config),
             "config_exists": ov_config.exists(),
             "config": load_json_file(ov_config),
+            "cli_config_path": str(ov_cli_config),
+            "cli_config_exists": ov_cli_config.exists(),
+            "cli_config": load_json_file(ov_cli_config),
             "repo_local_install_present": (repo / ".agents" / "openviking" / "venv").exists(),
         },
     }
@@ -3408,14 +3510,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     config = ov_sub.add_parser("write-default-config")
     config.add_argument("--config", default=str(DEFAULT_OV_CONFIG))
+    config.add_argument("--cli-config", default=str(DEFAULT_OV_CLI_CONFIG))
     config.add_argument("--home", default=str(DEFAULT_OV_HOME))
     config.add_argument("--lmstudio-base", default=DEFAULT_LM_STUDIO_BASE)
     config.add_argument("--chat-model", default=DEFAULT_CHAT_MODEL)
     config.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
     config.add_argument("--embedding-dimension", type=int, default=768)
     config.add_argument("--vlm-timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+    config.add_argument("--server-url", default="http://127.0.0.1:1933")
+    config.add_argument("--cli-timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
     config.add_argument("--force", action="store_true")
     config.set_defaults(func=command_ov_write_default_config)
+
+    server = ov_sub.add_parser("server")
+    server.add_argument("--server-bin")
+    server.add_argument("--config", default=str(DEFAULT_OV_CONFIG))
+    server.add_argument("--host")
+    server.add_argument("--port", type=int)
+    server.add_argument("--workers", type=int)
+    server.add_argument("--bot", action="store_true")
+    server.add_argument("--with-bot", action="store_true")
+    server.add_argument("--dry-run", action="store_true")
+    server.set_defaults(func=command_ov_server)
 
     import_memory = ov_sub.add_parser("import-repo-memory")
     import_memory.add_argument("--target", default=None)

@@ -20,6 +20,7 @@ agent-basics mcp
 agent-basics ov doctor
 agent-basics ov install-system
 agent-basics ov write-default-config --force
+agent-basics ov server
 agent-basics ov import-repo-memory --write
 agent-basics ov search "what did we decide about memory?"
 agent-basics ov record
@@ -132,7 +133,8 @@ The gateway keeps OpenViking executable details out of normal agent workflows:
 
 - `agent-basics ov doctor`: verify the user-level OpenViking installation, repo config, provider health, and ingest state.
 - `agent-basics ov install-system`: install OpenViking under `~/.openviking` when it is missing.
-- `agent-basics ov write-default-config`: write a default `~/.openviking/ov.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
+- `agent-basics ov write-default-config`: write default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
+- `agent-basics ov server`: start the configured user-level OpenViking HTTP server in the foreground.
 - `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
 - `agent-basics ov search <query>`: search memory, docs, resources, and skills.
 - `agent-basics ov record`: record durable context into the right OpenViking category.
@@ -245,7 +247,8 @@ This builds and installs one binary:
 - `agent-basics setup [DIR]`: set up or upgrade a repository, including older agent-basics layouts with overlapping markdown files.
 - `agent-basics ov doctor`: inspect the user-level OpenViking installation and config.
 - `agent-basics ov install-system`: install OpenViking under `~/.openviking`.
-- `agent-basics ov write-default-config`: write the default LM Studio-backed OpenViking config.
+- `agent-basics ov write-default-config`: write the default LM Studio-backed OpenViking runtime config and OV CLI HTTP config.
+- `agent-basics ov server`: run `openviking-server` with the configured user-level `ov.conf` without agents needing the executable path.
 - `agent-basics ov import-repo-memory`: import the repo-owned OpenViking source store into the user-level OpenViking database. OV-native memory files are written directly under `viking://user/default/memories/<category>/projects/<repo>/`; they are not routed back through `ov add-memory`. If OpenViking reports the memory tree is busy, the command retries memory writes before failing.
 - `agent-basics ov search|read|record|add-resource|add-skill|ingest-changed|install-hooks|status`: repo-aware OpenViking operations scoped to the current repository by default.
 - `agent-basics ov install-hooks`: installs managed hooks that refresh OpenViking source-store changes and block pre-commit when `.agents/runs/current` is corrupt, complete, or stale. Configure the stale threshold with `[run].stale_after_seconds` in `.agents/config.toml`; use `AGENT_BASICS_RUN_HOOK_SKIP=1` only for emergency bypasses.

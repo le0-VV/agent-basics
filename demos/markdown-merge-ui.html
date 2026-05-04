@@ -380,8 +380,9 @@
           '# **YOU MUST:**',
           '',
           '- Follow .agents/AGENT-BASICS.md for agent-basics operating details.',
-          '- Use .agents/memory/ as the long-term context and memory store.',
-          '- Keep generated RAG files under .agents/memory/rag/.',
+          '- Use OpenViking through agent-basics mcp or agent-basics ov commands.',
+          '- Keep repo-owned OpenViking source files under .agents/memory/.',
+          '- Verify the user-level OpenViking server before context-dependent work.',
           '- Commit using the supervised agent author name.',
           '- Keep diffs narrow and task-focused.'
         ]
@@ -398,9 +399,10 @@
         proposed: [
           '# agent-basics Operating Manual',
           '',
-          '- Use `.agents/memory/` for persistent memory and project context.',
-          '- Store durable memories under `.agents/memory/memory/`.',
-          '- Store project references under `.agents/memory/documentations/`.',
+          '- Use `.agents/memory/` as the repo-owned OpenViking source store.',
+          '- Store durable memories under `.agents/memory/memories/`.',
+          '- Store project references under `.agents/memory/resources/`.',
+          '- Store reusable workflows under `.agents/memory/skills/`.',
           '- Ask before destructive changes.',
           '- Keep markdown files ending with an empty trailing line.'
         ]

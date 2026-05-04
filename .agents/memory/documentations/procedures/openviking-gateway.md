@@ -20,13 +20,14 @@ Use this whenever an agent needs prior project context, durable memory recording
 1. Resolve the repository root before calling the gateway.
 2. Prefer `agent-basics mcp` when the agent client supports MCP.
 3. Configure the MCP server with the repository root as the working directory.
-4. Search prior context through the OpenViking-backed MCP search tool or `agent-basics ov search "<query>"` before answering vague or history-dependent requests.
-5. Record durable decisions, facts, preferences, gotchas, events, procedures, and useful findings through the OpenViking-backed MCP record tool or `agent-basics ov record`.
-6. Add important documentation or reference material with `agent-basics ov add-resource <path-or-url>`.
-7. Add reusable workflows with `agent-basics ov add-skill <path>`.
-8. After adapting repo memory, resources, or skills under `.agents/memory/`, run `agent-basics ov import-repo-memory --write`. OV-native memory files are written directly into their OpenViking memory categories; resources and skills use OpenViking ingestion.
-9. After instruction, documentation, memory, or skill files change, run `agent-basics ov ingest-changed`.
-10. Run `agent-basics ov doctor` before relying on OpenViking if setup, provider configuration, or ingest state is uncertain.
+4. Verify the user-level OpenViking server with `agent-basics ov doctor` or start it in the foreground with `agent-basics ov server` when live retrieval is needed.
+5. Search prior context through the OpenViking-backed MCP search tool or `agent-basics ov search "<query>"` before answering vague or history-dependent requests.
+6. Record durable decisions, facts, preferences, gotchas, events, procedures, and useful findings through the OpenViking-backed MCP record tool or `agent-basics ov record`.
+7. Add important documentation or reference material with `agent-basics ov add-resource <path-or-url>`.
+8. Add reusable workflows with `agent-basics ov add-skill <path>`.
+9. After adapting repo memory, resources, or skills under `.agents/memory/`, run `agent-basics ov import-repo-memory --write`. OV-native memory files are written directly into their OpenViking memory categories; resources and skills use OpenViking ingestion.
+10. After instruction, documentation, memory, or skill files change, run `agent-basics ov ingest-changed`.
+11. Run `agent-basics ov doctor` before relying on OpenViking if setup, provider configuration, or ingest state is uncertain.
 
 ## Codex Desktop Configuration
 
