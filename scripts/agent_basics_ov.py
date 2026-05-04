@@ -23,6 +23,12 @@ DEFAULT_OV_BIN = DEFAULT_OV_HOME / "venv" / "bin" / "ov"
 DEFAULT_OV_CONFIG = DEFAULT_OV_HOME / "ov.conf"
 DEFAULT_OV_SERVER = DEFAULT_OV_HOME / "venv" / "bin" / "openviking-server"
 GEMMA_LLM_KEYS = {"google/gemma-4-e2b", "google/gemma-4-e4b"}
+LMSTUDIO_REPORTED_LOAD_KEYS = (
+    "context_length",
+    "eval_batch_size",
+    "flash_attention",
+    "offload_kv_cache_to_gpu",
+)
 
 OV_MEMORY_CATEGORIES = [
     "profile",
@@ -47,7 +53,18 @@ OpenViking memory categories:
 - tools: specific tool usage insights, parameters, success/failure patterns, and optimization.
 - skills: reusable workflow or skill execution strategy.
 
-Source records and URLs are not memories. Mark them as record_kind "resource" unless the item also contains durable memory.
+Output splitting rules:
+- If one candidate contains multiple durable ideas, output multiple items with the same input_id and different titles.
+- Do not collapse a user preference, a project/system fact, and a backend fact into one item.
+- Keep one independently updatable idea per item.
+
+Record kind rules:
+- Source records and URL-only items are not memories. Mark them as record_kind "resource" and ov_category "none".
+- If record_kind is "resource", ov_category must be "none".
+- Security rules, operating rules, procedures, preferences, facts, decisions, and cases are memories, not resources, even when they mention a tool name.
+- Durable "must/never/always/do not" rules are patterns unless they are clearly user preferences, tool-specific lessons, or concrete failure cases.
+- If record_kind is "memory" or "resource", action must be create, append, or needs_review. Use action "ignore" only when record_kind is "ignore".
+- Each candidate may include suggested_record_kind, suggested_ov_category, and suggested_action. Follow those hints unless clearly wrong.
 
 Tie-breakers:
 - Prefer preferences over entities when the text says the user wants/prefers/dislikes something.
@@ -55,6 +72,7 @@ Tie-breakers:
 - Prefer events for accepted/rejected decisions, milestones, current work, planned work, or dated facts.
 - Prefer cases for concrete failures and fixes.
 - Prefer patterns for repeatable instructions.
+- System/component ownership and responsibility statements are entities, not skills.
 - Use needs_review when a candidate conflicts with existing memory, updates a previous default, or could delete user knowledge.
 """
 
@@ -465,19 +483,19 @@ def lmstudio_plan_payload(args: argparse.Namespace) -> dict[str, Any]:
         "model_present": model_info is not None,
         "embedding_model": args.embedding_model,
         "load_request": {
-            "model_key": args.model,
-            "identifier": args.model,
-            "load_config": {
-                "context_length": max_context,
-                "gpu": {"ratio": "max"},
-                "offload_kv_cache_to_gpu": True,
-                "flash_attention": True,
-                "use_fp16_for_kv_cache": False,
-                "llama_k_cache_quantization_type": "q4_0",
-                "llama_v_cache_quantization_type": "q4_0",
-                "parallel": 1,
-            },
+            "model": args.model,
+            "context_length": max_context,
+            "eval_batch_size": 512,
+            "offload_kv_cache_to_gpu": True,
+            "flash_attention": True,
             "echo_load_config": True,
+        },
+        "unsupported_load_recommendations": {
+            "gpu": {"ratio": "max"},
+            "parallel": 1,
+            "cpu_threads": hardware["recommendation"]["cpu_threads"],
+            "kv_cache_quantization": "q4_0",
+            "note": "LM Studio 0.4 v1 REST load accepts flattened model/context/eval_batch_size/flash_attention/offload_kv_cache_to_gpu fields; these recommendations are not exposed by the current REST load endpoint.",
         },
         "prediction_config": {
             "temperature": 0,
@@ -501,6 +519,18 @@ def command_lmstudio_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def lmstudio_config_mismatches(actual: dict[str, Any], desired: dict[str, Any]) -> list[dict[str, Any]]:
+    mismatches = []
+    for key in LMSTUDIO_REPORTED_LOAD_KEYS:
+        if key not in desired:
+            continue
+        actual_value = actual.get(key)
+        desired_value = desired[key]
+        if actual_value != desired_value:
+            mismatches.append({"key": key, "actual": actual_value, "desired": desired_value})
+    return mismatches
+
+
 def command_lmstudio_load(args: argparse.Namespace) -> int:
     plan = lmstudio_plan_payload(args)
     if not plan.get("ok"):
@@ -508,6 +538,13 @@ def command_lmstudio_load(args: argparse.Namespace) -> int:
         return 1
     loaded_gemma = plan["status"].get("loaded_gemma_llms", [])
     conflicts = [item for item in loaded_gemma if item.get("key") != args.model]
+    same_model = [item for item in loaded_gemma if item.get("key") == args.model]
+    desired_config = plan["load_request"]
+    mismatched = [
+        {"target": item, "mismatches": lmstudio_config_mismatches(item.get("config", {}), desired_config)}
+        for item in same_model
+    ]
+    mismatched = [item for item in mismatched if item["mismatches"]]
     if conflicts and not args.unload_conflicts:
         print_json(
             {
@@ -518,17 +555,47 @@ def command_lmstudio_load(args: argparse.Namespace) -> int:
             }
         )
         return 1
-    for item in conflicts:
-        http_json(args.base_url, "/api/v1/models/unload", {"instance_id": item["id"]}, timeout=args.timeout)
+    if mismatched and not args.reload_mismatched:
+        print_json(
+            {
+                "ok": False,
+                "error": "target Gemma LLM is already loaded with different reported settings",
+                "mismatched": mismatched,
+                "recommendation": "rerun with --reload-mismatched to unload and reload the target model",
+            }
+        )
+        return 1
+
+    unload_targets = [*conflicts, *[item["target"] for item in mismatched]]
     if args.dry_run:
-        print_json({"ok": True, "dry_run": True, "request": plan["load_request"]})
+        print_json({"ok": True, "dry_run": True, "request": plan["load_request"], "would_unload": unload_targets})
+        return 0
+    unload_results = []
+    for item in unload_targets:
+        unload_results.append(
+            {
+                "target": item,
+                "result": http_json(args.base_url, "/api/v1/models/unload", {"instance_id": item["id"]}, timeout=args.timeout),
+            }
+        )
+    if same_model and not mismatched:
+        print_json(
+            {
+                "ok": True,
+                "changed": bool(unload_results),
+                "message": "target model is already loaded with requested reported settings",
+                "request": plan["load_request"],
+                "loaded": same_model,
+                "unloaded": unload_results,
+            }
+        )
         return 0
     try:
         result = http_json(args.base_url, "/api/v1/models/load", plan["load_request"], timeout=None)
     except Exception as exc:
         print_json({"ok": False, "error": str(exc), "request": plan["load_request"]})
         return 1
-    print_json({"ok": True, "request": plan["load_request"], "result": result})
+    print_json({"ok": True, "request": plan["load_request"], "unloaded": unload_results, "result": result})
     return 0
 
 
@@ -565,6 +632,81 @@ def redact(text: str) -> str:
         flags=re.IGNORECASE,
     )
     return text
+
+
+def preingest_candidates(case_name: str, text: str) -> list[dict[str, str]]:
+    redacted = redact(text).strip()
+    fragments = [redacted]
+    if "Workaround:" in redacted:
+        fragments = [redacted]
+    elif "\n" in redacted:
+        fragments = [item.strip() for item in redacted.splitlines() if item.strip()]
+    elif len(redacted) > 120:
+        fragments = [
+            item.strip()
+            for item in re.split(r"(?<=[.!?])\s+(?=(?:The user|agent-basics|OpenViking|Decision|LM Studio|Workaround|Source URL|Durable rule|Temporary key)\b)", redacted)
+            if item.strip()
+        ]
+    return [
+        {
+            "input_id": f"{case_name}.{index + 1}",
+            "text": fragment,
+            **preingest_hint(fragment),
+        }
+        for index, fragment in enumerate(fragments)
+    ]
+
+
+def preingest_hint(text: str) -> dict[str, str]:
+    lower = text.lower()
+    if re.fullmatch(r"(source url:\s*)?https?://\S+", text.strip(), flags=re.IGNORECASE):
+        return {
+            "suggested_action": "create",
+            "suggested_record_kind": "resource",
+            "suggested_ov_category": "none",
+            "hint_reason": "URL-only source record",
+        }
+    if "user wants" in lower or "user prefers" in lower or "user dislikes" in lower:
+        return {
+            "suggested_action": "create",
+            "suggested_record_kind": "memory",
+            "suggested_ov_category": "preferences",
+            "hint_reason": "explicit user preference wording",
+        }
+    if "crashed" in lower and "workaround:" in lower:
+        return {
+            "suggested_action": "create",
+            "suggested_record_kind": "memory",
+            "suggested_ov_category": "cases",
+            "hint_reason": "problem and workaround in one candidate",
+        }
+    if lower.startswith("decision") or "unix time" in lower:
+        return {
+            "suggested_action": "create",
+            "suggested_record_kind": "memory",
+            "suggested_ov_category": "events",
+            "hint_reason": "decision or timestamped event",
+        }
+    if " owns " in lower and ("agent-basics" in lower or "openviking" in lower):
+        return {
+            "suggested_action": "create",
+            "suggested_record_kind": "memory",
+            "suggested_ov_category": "entities",
+            "hint_reason": "system ownership/responsibility statement",
+        }
+    if any(token in lower for token in ["must never", "never store", "must not be preserved", "do not store"]):
+        return {
+            "suggested_action": "create",
+            "suggested_record_kind": "memory",
+            "suggested_ov_category": "patterns",
+            "hint_reason": "durable operating/security rule",
+        }
+    return {
+        "suggested_action": "needs_review",
+        "suggested_record_kind": "memory",
+        "suggested_ov_category": "entities",
+        "hint_reason": "fallback review hint",
+    }
 
 
 def routing_cases() -> list[dict[str, Any]]:
@@ -697,8 +839,8 @@ def command_lmstudio_route_test(args: argparse.Namespace) -> int:
     results = []
     for case in cases:
         user_payload = {
-            "instruction": "Route the candidate into OV-native memory categories or resource records.",
-            "candidate": {"input_id": case["name"], "text": redact(case["text"])},
+            "instruction": "Route these preprocessed candidates into OV-native memory categories or resource records. Respect suggested_action, suggested_record_kind, and suggested_ov_category unless clearly wrong. Keep one output item per durable idea. For URL-only/source records, use record_kind resource and ov_category none. Durable rules are memory patterns unless a more specific OV memory category clearly applies. System ownership and component-responsibility statements are entities, not skills.",
+            "candidates": preingest_candidates(case["name"], case["text"]),
         }
         request = {
             "model": args.model,
@@ -891,6 +1033,7 @@ def build_parser() -> argparse.ArgumentParser:
     load.add_argument("--timeout", type=float, default=5)
     load.add_argument("--dry-run", action="store_true")
     load.add_argument("--unload-conflicts", action="store_true")
+    load.add_argument("--reload-mismatched", action="store_true")
     load.set_defaults(func=command_lmstudio_load)
 
     unload = lm_sub.add_parser("unload")

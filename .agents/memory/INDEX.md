@@ -26,11 +26,13 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 ## Gotchas
 
 - [Avoid lms CLI from Codex](memory/gotchas/1777890776-avoid-lms-cli-from-codex.md)
+- [LM Studio REST load config limits](memory/gotchas/1777892749-lm-studio-rest-load-config-limits.md)
 
 ## Events
 
 - [Dogfood sample subagent run](memory/events/1777766400-dogfood-sample-subagent-run.md)
 - [Gemma 4 categorization test](memory/events/1777766400-gemma-4-categorization-test.md)
+- [Gemma 4 E2B OV routing test](memory/events/1777892177-gemma-4-e2b-ov-routing-test.md)
 
 ## Documentation Sources
 
