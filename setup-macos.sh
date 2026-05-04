@@ -166,6 +166,7 @@ The target agent-facing surfaces are:
 - `agent-basics ov add-resource <path-or-url>`: ingest documentation or reference material.
 - `agent-basics ov add-skill <path>`: register reusable agent workflows.
 - `agent-basics ov ingest-changed`: update OpenViking after source instructions, docs, or memory files change.
+- `agent-basics ov install-hooks`: install repo-local hooks that refresh OpenViking after source-store changes.
 - `agent-basics ov status`: report repo-specific OpenViking state.
 
 When configuring an MCP-capable agent, prefer a systemwide `agent-basics` command with the target repository root as the working directory:
@@ -225,7 +226,7 @@ Compatibility files are not the long-term architecture. When `agent-basics ov` a
 - `.agents/TODO.md` records the current work plan and cross-session state.
 - For substantial work, update `.agents/TODO.md` before editing files and tick items off as they are completed.
 - Preserve useful handoff context in `.agents/TODO.md` or future `.agents/runs/<run-id>/` files when work may continue in another session.
-- Future run commands should route through `agent-basics run start/status/checkpoint/finish/handoff`.
+- Long-horizon work state should route through `agent-basics run start/status/checkpoint/finish/handoff`.
 
 ## Skills And Stable Commands
 
@@ -1731,6 +1732,211 @@ PY
   echo "Created: .agents/openviking/repo.json"
 }
 
+write_repo_config_if_missing() {
+  local repo_config="$REPO_AGENTS_DIR/config.toml"
+  local timestamp
+  local repo_slug
+
+  if [[ -f "$repo_config" ]]; then
+    echo "Exists: .agents/config.toml"
+    return
+  fi
+
+  timestamp="$(date -u +%s)"
+  repo_slug="$(slugify "$PROJECT_NAME")"
+  mkdir -p "$REPO_AGENTS_DIR"
+  python3 - "$repo_config" "$timestamp" "$repo_slug" "$TARGET_DIR" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+
+
+path, timestamp, repo_slug, target_dir = sys.argv[1:]
+
+
+def quote(value: str) -> str:
+    return json.dumps(value)
+
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write("version = 1\n")
+    handle.write(f"generated_at = {int(timestamp)}\n")
+    handle.write(f"repo_slug = {quote(repo_slug)}\n\n")
+    handle.write("[openviking]\n")
+    handle.write("enabled = true\n")
+    handle.write("required = true\n")
+    handle.write('source_store_path = ".agents/memory"\n\n')
+    handle.write("[openviking.mcp]\n")
+    handle.write('command = "agent-basics"\n')
+    handle.write('args = ["mcp"]\n')
+    handle.write(f"cwd = {quote(target_dir)}\n")
+PY
+  echo "Created: .agents/config.toml"
+}
+
+write_repo_mcp_config_snippets() {
+  local codex_snippet="$REPO_OPENVIKING_DIR/codex-mcp.json"
+
+  mkdir -p "$REPO_OPENVIKING_DIR"
+  python3 - "$codex_snippet" "$TARGET_DIR" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+
+path, target_dir = sys.argv[1:]
+payload = {
+    "mcpServers": {
+        "agent-basics": {
+            "command": "agent-basics",
+            "args": ["mcp"],
+            "cwd": target_dir,
+        }
+    }
+}
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
+  echo "Wrote MCP config snippet: .agents/openviking/codex-mcp.json"
+}
+
+openviking_cli_is_valid() {
+  local ov_bin="$1"
+
+  [[ -x "$ov_bin" ]] && "$ov_bin" --help >/dev/null 2>&1
+}
+
+find_agent_basics_dispatcher() {
+  local candidate
+
+  # Tests use a fake dispatcher so setup does not perform network installs.
+  if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_INSTALL_DISPATCHER:-}" ]]; then
+    if [[ -x "$AGENT_BASICS_TEST_OPENVIKING_INSTALL_DISPATCHER" ]]; then
+      printf "%s\n" "$AGENT_BASICS_TEST_OPENVIKING_INSTALL_DISPATCHER"
+      return 0
+    fi
+    return 1
+  fi
+
+  for candidate in "$SCRIPT_DIR/agent-basics"; do
+    if [[ -x "$candidate" ]]; then
+      printf "%s\n" "$candidate"
+      return 0
+    fi
+  done
+
+  candidate="$(command -v agent-basics 2>/dev/null || true)"
+  if [[ -n "$candidate" && -x "$candidate" ]]; then
+    printf "%s\n" "$candidate"
+    return 0
+  fi
+
+  return 1
+}
+
+install_or_repair_user_openviking() {
+  local ov_bin="$1"
+  local ov_home="$2"
+  local mode="$3"
+  local dispatcher
+  local choice
+  local -a install_args
+
+  if ! dispatcher="$(find_agent_basics_dispatcher)"; then
+    echo "Error: user-level OpenViking $mode is required, but no executable agent-basics dispatcher was found." >&2
+    echo "Expected an executable dispatcher next to setup-macos.sh or on PATH as: agent-basics" >&2
+    echo "Install or repair agent-basics, then run: agent-basics ov install-system --home \"$ov_home\"" >&2
+    exit 1
+  fi
+
+  install_args=(ov install-system --home "$ov_home")
+  if [[ "$mode" == "repair" ]]; then
+    install_args+=(--force)
+  fi
+
+  if [[ "${AGENT_BASICS_TEST_OPENVIKING_AUTO_INSTALL:-0}" == "1" && -n "${AGENT_BASICS_TEST_OPENVIKING_INSTALL_DISPATCHER:-}" ]]; then
+    echo "Running test-only OpenViking $mode via fake dispatcher: $dispatcher"
+  else
+    if [[ ! -t 0 ]]; then
+      echo "Error: user-level OpenViking $mode is required, but setup is not running interactively." >&2
+      echo "Expected executable: $ov_bin" >&2
+      echo "Run setup in an interactive terminal, or run this first:" >&2
+      echo "  $dispatcher ov install-system --home \"$ov_home\"" >&2
+      exit 1
+    fi
+
+    printf "User-level OpenViking %s is required at %s. Run '%s ov install-system --home \"%s\"' now? [y/N]: " \
+      "$mode" "$ov_bin" "$dispatcher" "$ov_home" >&2
+    read -r choice
+    case "$choice" in
+      y|Y|yes|YES)
+        ;;
+      *)
+        echo "Error: user-level OpenViking $mode was declined." >&2
+        echo "Install or repair OpenViking with: $dispatcher ov install-system --home \"$ov_home\"" >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  if ! "$dispatcher" "${install_args[@]}"; then
+    echo "Error: OpenViking $mode command failed: $dispatcher ${install_args[*]}" >&2
+    exit 1
+  fi
+
+  if ! openviking_cli_is_valid "$ov_bin"; then
+    echo "Error: OpenViking $mode completed, but the CLI still failed verification." >&2
+    echo "Expected executable: $ov_bin" >&2
+    exit 1
+  fi
+}
+
+verify_user_openviking_installation() {
+  local ov_bin
+  local ov_home
+
+  # Test-only escapes keep unit tests independent of the developer machine.
+  case "${AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK:-0}" in
+    1)
+      echo "Skipped user-level OpenViking verification via AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK (tests only)."
+      return
+      ;;
+  esac
+
+  if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" ]]; then
+    ov_bin="$AGENT_BASICS_TEST_OPENVIKING_BIN"
+  else
+    if [[ -z "${HOME:-}" ]]; then
+      echo "Error: HOME is required to locate the user-level OpenViking installation." >&2
+      exit 1
+    fi
+    ov_home="$HOME/.openviking"
+    ov_bin="$ov_home/venv/bin/ov"
+  fi
+
+  if openviking_cli_is_valid "$ov_bin"; then
+    echo "Verified user-level OpenViking CLI: $ov_bin"
+    return
+  fi
+
+  if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" ]]; then
+    echo "Error: user-level OpenViking installation was not found." >&2
+    echo "Expected executable: $ov_bin" >&2
+    echo "Install or repair OpenViking with: agent-basics ov install-system" >&2
+    exit 1
+  fi
+
+  if [[ ! -x "$ov_bin" ]]; then
+    install_or_repair_user_openviking "$ov_bin" "$ov_home" "installation"
+  else
+    install_or_repair_user_openviking "$ov_bin" "$ov_home" "repair"
+  fi
+
+  echo "Verified user-level OpenViking CLI: $ov_bin"
+}
+
 append_gitignore_entry_if_missing() {
   local entry="$1"
 
@@ -2444,6 +2650,7 @@ start_repo_local_embedding_api_for_setup() {
   done
 }
 
+verify_user_openviking_installation
 snapshot_existing_legacy_memory
 create_memory_layout
 
@@ -2460,6 +2667,8 @@ copy_memory_template_if_missing "memory-schema" ".agents/memory/SCHEMA.md"
 copy_memory_template_if_missing "memory-index" ".agents/memory/INDEX.md"
 copy_memory_template_if_missing "memory-adaptation" ".agents/memory/ADAPTATION.md"
 write_repo_openviking_metadata_if_missing
+write_repo_config_if_missing
+write_repo_mcp_config_snippets
 create_empty_file_if_missing ".agents/memory/memories/profile/.gitkeep"
 create_empty_file_if_missing ".agents/memory/memories/preferences/.gitkeep"
 create_empty_file_if_missing ".agents/memory/memories/entities/.gitkeep"
@@ -2557,6 +2766,12 @@ OpenViking source store:
 
 OpenViking repo metadata:
   .agents/openviking/
+
+OpenViking repo config:
+  .agents/config.toml
+
+MCP config snippets:
+  .agents/openviking/codex-mcp.json
 
 Legacy memory snapshots:
   .agents/openviking/legacy-memory/

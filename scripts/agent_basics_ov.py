@@ -29,6 +29,7 @@ DEFAULT_OV_SERVER = DEFAULT_OV_HOME / "venv" / "bin" / "openviking-server"
 DEFAULT_OV_VLM_TIMEOUT_SECONDS = 86400
 DEFAULT_OV_MEMORY_TARGET = "viking://user/default/memories"
 DEFAULT_OV_RESOURCE_TARGET = "viking://resources/projects"
+OV_HOOK_MARKER = "agent-basics-openviking-hook"
 DEFAULT_LMSTUDIO_HOME = Path.home() / ".lmstudio"
 LMSTUDIO_DEFAULT_CONFIG_ROOT = Path(".internal") / "user-concrete-model-default-config"
 GEMMA_LLM_KEYS = {"google/gemma-4-e2b", "google/gemma-4-e4b"}
@@ -260,18 +261,26 @@ def ov_repo_memory_root(repo: Path, memory_base_uri: str = DEFAULT_OV_MEMORY_TAR
 def ov_repo_scoped_prefixes(repo: Path, memory_base_uri: str = DEFAULT_OV_MEMORY_TARGET) -> list[str]:
     repo_slug = ov_repo_slug(repo)
     return [
-        f"{memory_base_uri.rstrip('/')}/",
         f"viking://resources/projects/{repo_slug}",
-        f"viking://temp/default/",
+        *[f"{memory_base_uri.rstrip('/')}/{category}/projects/{repo_slug}" for category in OV_MEMORY_CATEGORIES],
     ]
+
+
+def uri_has_path_boundary(uri: str, prefix: str) -> bool:
+    normalized_prefix = prefix.rstrip("/")
+    return uri == normalized_prefix or uri.startswith(f"{normalized_prefix}/")
 
 
 def ov_uri_is_repo_scoped(uri: str, repo: Path, memory_base_uri: str = DEFAULT_OV_MEMORY_TARGET) -> bool:
     repo_slug = ov_repo_slug(repo)
-    memory_marker = f"/projects/{repo_slug}/"
+    memory_marker = f"/projects/{repo_slug}"
+    resource_root = f"viking://resources/projects/{repo_slug}"
     return (
-        uri.startswith(f"viking://resources/projects/{repo_slug}")
-        or (uri.startswith(memory_base_uri.rstrip("/") + "/") and memory_marker in uri)
+        uri_has_path_boundary(uri, resource_root)
+        or (
+            uri.startswith(memory_base_uri.rstrip("/") + "/")
+            and (uri.endswith(memory_marker) or f"{memory_marker}/" in uri)
+        )
     )
 
 
@@ -1138,6 +1147,8 @@ def ov_search_payload(
             command.extend(["--threshold", str(threshold)])
         result = ov_command_payload(command, timeout=timeout)
         result["scope"] = scope
+        if isinstance(result.get("json"), dict):
+            result["json"] = filter_ov_find_result(result["json"], repo, include_global=False)
         command_payloads.append(result)
 
     ok = all(ov_find_result_ok(item) for item in command_payloads)
@@ -1639,6 +1650,371 @@ def command_ov_ingest_changed(args: argparse.Namespace) -> int:
         write=not args.dry_run,
     )
     return command_ov_import_repo_memory(payload_args)
+
+
+def ov_source_store_path_is_relevant(path: str) -> bool:
+    normalized = path.replace("\\", "/").strip()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    prefix = ".agents/memory/"
+    if not normalized.startswith(prefix):
+        return False
+    relative = normalized[len(prefix) :]
+    if not relative or relative.endswith("/.gitkeep"):
+        return False
+    if relative in {"SCHEMA.md", "INDEX.md", "ADAPTATION.md"}:
+        return True
+    if not relative.endswith(".md"):
+        return False
+    return relative.startswith("memories/") or relative.startswith("resources/") or relative.startswith("skills/")
+
+
+def ov_relevant_source_store_paths(paths: list[str]) -> list[str]:
+    seen: set[str] = set()
+    relevant = []
+    for path in paths:
+        normalized = path.replace("\\", "/").strip()
+        while normalized.startswith("./"):
+            normalized = normalized[2:]
+        if ov_source_store_path_is_relevant(normalized) and normalized not in seen:
+            seen.add(normalized)
+            relevant.append(normalized)
+    return relevant
+
+
+def git_hooks_dir(repo: Path) -> Path | None:
+    common_dir_result = run_command(["git", "-C", str(repo), "rev-parse", "--git-common-dir"], timeout=10)
+    if common_dir_result.get("ok") and str(common_dir_result.get("stdout", "")).strip():
+        raw = str(common_dir_result["stdout"]).splitlines()[-1].strip()
+        common_dir = Path(raw)
+        if not common_dir.is_absolute():
+            common_dir = repo / common_dir
+        return common_dir / "hooks"
+
+    git_path = repo / ".git"
+    if git_path.is_dir():
+        return git_path / "hooks"
+    if git_path.is_file():
+        text = git_path.read_text(encoding="utf-8", errors="replace").strip()
+        prefix = "gitdir:"
+        if text.lower().startswith(prefix):
+            raw = text[len(prefix) :].strip()
+            git_dir = Path(raw)
+            if not git_dir.is_absolute():
+                git_dir = repo / git_dir
+            return git_dir / "hooks"
+    return None
+
+
+def shell_single_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def ov_managed_hook_content(event: str, helper_path: Path) -> str:
+    quoted_helper = shell_single_quote(str(helper_path))
+    return "\n".join(
+        [
+            "#!/bin/sh",
+            f"# {OV_HOOK_MARKER}",
+            "set -eu",
+            "repo=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0",
+            f"HELPER=${{AGENT_BASICS_OV_HELPER:-{quoted_helper}}}",
+            'PYTHON=${AGENT_BASICS_PYTHON:-python3}',
+            f'exec "$PYTHON" "$HELPER" --repo "$repo" ov hook {event}',
+            "",
+        ]
+    )
+
+
+def ov_install_hooks_payload(repo: Path, *, force: bool = False, helper_path: Path | None = None) -> dict[str, Any]:
+    hooks_dir = git_hooks_dir(repo)
+    if hooks_dir is None:
+        return {
+            "ok": False,
+            "changed": False,
+            "repo": str(repo),
+            "error": "repository does not have a .git directory or worktree gitdir file",
+        }
+    helper = (helper_path or Path(__file__)).resolve()
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    results = []
+    changed = False
+    ok = True
+    for name, event in [("pre-commit", "pre-commit"), ("post-merge", "post-merge")]:
+        path = hooks_dir / name
+        desired = ov_managed_hook_content(event, helper)
+        existing = path.read_text(encoding="utf-8", errors="replace") if path.exists() else None
+        managed = existing is not None and OV_HOOK_MARKER in existing
+        if existing is not None and not managed and not force:
+            ok = False
+            results.append(
+                {
+                    "ok": False,
+                    "hook": name,
+                    "path": str(path),
+                    "changed": False,
+                    "error": "existing hook is not managed by agent-basics; rerun with --force to replace it",
+                }
+            )
+            continue
+        if existing == desired:
+            path.chmod(0o755)
+            results.append({"ok": True, "hook": name, "path": str(path), "changed": False, "managed": True})
+            continue
+        path.write_text(desired, encoding="utf-8")
+        path.chmod(0o755)
+        changed = True
+        results.append(
+            {
+                "ok": True,
+                "hook": name,
+                "path": str(path),
+                "changed": True,
+                "managed": True,
+                "event": event,
+            }
+        )
+    return {
+        "ok": ok,
+        "changed": changed,
+        "repo": str(repo),
+        "hooks_dir": str(hooks_dir),
+        "helper_path": str(helper),
+        "hooks": results,
+    }
+
+
+def command_ov_install_hooks(args: argparse.Namespace) -> int:
+    payload = ov_install_hooks_payload(repo_root_from_args(args), force=args.force)
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def ov_hook_changed_paths(repo: Path, event: str) -> dict[str, Any]:
+    if event == "pre-commit":
+        command = [
+            "git",
+            "-C",
+            str(repo),
+            "diff",
+            "--cached",
+            "--name-only",
+            "--diff-filter=ACDMRT",
+            "--",
+            ".agents/memory",
+        ]
+    elif event == "post-merge":
+        command = [
+            "git",
+            "-C",
+            str(repo),
+            "diff-tree",
+            "-r",
+            "--name-only",
+            "--no-commit-id",
+            "ORIG_HEAD",
+            "HEAD",
+            "--",
+            ".agents/memory",
+        ]
+    else:
+        return {"ok": False, "event": event, "error": "unsupported hook event"}
+    result = run_command(command, timeout=30)
+    paths = [line.strip() for line in str(result.get("stdout", "")).splitlines() if line.strip()]
+    return {
+        "ok": bool(result.get("ok")),
+        "event": event,
+        "command": summarize_command_payload(result),
+        "paths": paths,
+        "relevant_paths": ov_relevant_source_store_paths(paths),
+    }
+
+
+def ov_hook_locks_dir(repo: Path) -> Path:
+    return repo / ".agents" / "openviking" / "locks"
+
+
+def ov_hook_ingest_lock_path(repo: Path) -> Path:
+    return ov_hook_locks_dir(repo) / "ingest.lock"
+
+
+def ov_acquire_hook_ingest_lock(repo: Path, *, event: str) -> dict[str, Any]:
+    locks_dir = ov_hook_locks_dir(repo)
+    lock_path = ov_hook_ingest_lock_path(repo)
+    locks_dir.mkdir(parents=True, exist_ok=True)
+    token = sha256_text(f"{event}:{os.getpid()}:{time.time()}")
+    owner = {
+        "event": event,
+        "pid": os.getpid(),
+        "created": int(time.time()),
+        "token": token,
+    }
+    try:
+        lock_path.mkdir()
+    except FileExistsError:
+        existing = load_json_file(lock_path / "owner.json")
+        return {
+            "ok": False,
+            "locked": True,
+            "lock_path": str(lock_path),
+            "owner": existing,
+            "error": "OpenViking ingest lock is already present",
+        }
+    (lock_path / "owner.json").write_text(json.dumps(owner, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return {"ok": True, "locked": False, "lock_path": str(lock_path), "owner": owner}
+
+
+def ov_release_hook_ingest_lock(repo: Path, lock: dict[str, Any]) -> dict[str, Any]:
+    lock_path = ov_hook_ingest_lock_path(repo)
+    owner_path = lock_path / "owner.json"
+    expected_token = None
+    owner = lock.get("owner")
+    if isinstance(owner, dict):
+        expected_token = owner.get("token")
+    existing = load_json_file(owner_path)
+    if isinstance(existing, dict) and expected_token and existing.get("token") != expected_token:
+        return {
+            "ok": False,
+            "lock_path": str(lock_path),
+            "error": "lock owner changed before release",
+        }
+    try:
+        owner_path.unlink()
+    except FileNotFoundError:
+        pass
+    try:
+        lock_path.rmdir()
+    except OSError as exc:
+        return {"ok": False, "lock_path": str(lock_path), "error": str(exc)}
+    return {"ok": True, "lock_path": str(lock_path)}
+
+
+def agent_basics_command(repo: Path) -> str:
+    explicit = os.environ.get("AGENT_BASICS_BIN")
+    if explicit:
+        return explicit
+    local = repo / "agent-basics"
+    if local.exists():
+        return str(local)
+    return "agent-basics"
+
+
+def truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def ov_hook_prompt_enabled(event: str) -> bool:
+    mode = os.environ.get("AGENT_BASICS_OV_HOOK_MODE", "").strip().lower()
+    if mode in {"auto", "run", "yes", "true", "1"}:
+        return False
+    if mode == "prompt":
+        return True
+    return event == "pre-commit" and sys.stdin.isatty()
+
+
+def ov_prompt_for_ingest(event: str, relevant_paths: list[str]) -> bool:
+    preview = ", ".join(relevant_paths[:5])
+    if len(relevant_paths) > 5:
+        preview = f"{preview}, ..."
+    print(
+        f"OpenViking source-store changes detected for {event}: {preview}",
+        file=sys.stderr,
+    )
+    print("Run `agent-basics ov ingest-changed` now? [Y/n] ", end="", file=sys.stderr, flush=True)
+    answer = sys.stdin.readline().strip().lower()
+    return answer in {"", "y", "yes"}
+
+
+def ov_hook_run_payload(
+    repo: Path,
+    *,
+    event: str,
+    include_review: bool = False,
+    dry_run: bool = False,
+    prompt: bool | None = None,
+) -> dict[str, Any]:
+    if truthy_env("AGENT_BASICS_OV_HOOK_SKIP"):
+        return {
+            "ok": True,
+            "changed": False,
+            "repo": str(repo),
+            "event": event,
+            "action": "skipped",
+            "reason": "AGENT_BASICS_OV_HOOK_SKIP is set",
+        }
+    changes = ov_hook_changed_paths(repo, event)
+    payload: dict[str, Any] = {
+        "ok": bool(changes.get("ok")),
+        "changed": False,
+        "repo": str(repo),
+        "event": event,
+        "source_store": changes,
+    }
+    if not changes.get("ok"):
+        payload["error"] = "failed to inspect git changes for OpenViking source-store paths"
+        return payload
+    relevant_paths = changes.get("relevant_paths", [])
+    if not relevant_paths:
+        payload.update({"ok": True, "action": "none", "reason": "no relevant OpenViking source-store changes"})
+        return payload
+    should_prompt = ov_hook_prompt_enabled(event) if prompt is None else prompt
+    if should_prompt and not ov_prompt_for_ingest(event, list(relevant_paths)):
+        payload.update(
+            {
+                "ok": False,
+                "action": "declined",
+                "error": "OpenViking source-store changes need `agent-basics ov ingest-changed` before commit",
+            }
+        )
+        return payload
+    if dry_run:
+        payload.update(
+            {
+                "ok": True,
+                "changed": False,
+                "dry_run": True,
+                "action": "would_ingest",
+                "ingest_command": [agent_basics_command(repo), "--repo", str(repo), "ov", "ingest-changed"],
+            }
+        )
+        return payload
+    lock = ov_acquire_hook_ingest_lock(repo, event=event)
+    payload["lock"] = lock
+    if not lock.get("ok"):
+        payload.update({"ok": False, "action": "locked", "error": lock.get("error")})
+        return payload
+    command = [agent_basics_command(repo), "--repo", str(repo), "ov", "ingest-changed"]
+    if include_review:
+        command.append("--include-review")
+    result: dict[str, Any] | None = None
+    release: dict[str, Any] | None = None
+    try:
+        result = run_command(command, timeout=None)
+    finally:
+        release = ov_release_hook_ingest_lock(repo, lock)
+    payload.update(
+        {
+            "ok": bool(result and result.get("ok")) and bool(release and release.get("ok")),
+            "changed": bool(result and result.get("ok")),
+            "action": "ingested",
+            "ingest_command": command,
+            "ingest": result,
+            "lock_release": release,
+        }
+    )
+    return payload
+
+
+def command_ov_hook(args: argparse.Namespace) -> int:
+    payload = ov_hook_run_payload(
+        repo_root_from_args(args),
+        event=args.event,
+        include_review=args.include_review,
+        dry_run=args.dry_run,
+        prompt=False if args.no_prompt else None,
+    )
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
 
 
 def lmstudio_status_payload(base_url: str, timeout: float | None = 5) -> dict[str, Any]:
@@ -2930,6 +3306,17 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_changed.add_argument("--busy-retries", type=int, default=120)
     ingest_changed.add_argument("--busy-delay", type=float, default=5)
     ingest_changed.set_defaults(func=command_ov_ingest_changed)
+
+    install_hooks = ov_sub.add_parser("install-hooks")
+    install_hooks.add_argument("--force", action="store_true")
+    install_hooks.set_defaults(func=command_ov_install_hooks)
+
+    hook = ov_sub.add_parser("hook")
+    hook.add_argument("event", choices=["pre-commit", "post-merge"])
+    hook.add_argument("--include-review", action="store_true")
+    hook.add_argument("--dry-run", action="store_true")
+    hook.add_argument("--no-prompt", action="store_true")
+    hook.set_defaults(func=command_ov_hook)
 
     status_parser = ov_sub.add_parser("status")
     status_parser.add_argument("--offline", action="store_true")

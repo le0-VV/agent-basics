@@ -26,6 +26,7 @@ agent-basics ov record
 agent-basics ov add-resource ./docs/api.md
 agent-basics ov add-skill .agents/skills/finish-work.md
 agent-basics ov ingest-changed
+agent-basics ov install-hooks
 agent-basics lmstudio status
 agent-basics lmstudio hardware
 agent-basics lmstudio plan
@@ -35,10 +36,11 @@ agent-basics lmstudio route-test
 agent-basics migrate memory-to-openviking --write
 agent-basics run start --task "ship the feature"
 agent-basics run status
-agent-basics run checkpoint
-agent-basics run finish
+agent-basics run checkpoint --message "what changed"
+agent-basics run handoff --message "handoff notes"
+agent-basics run finish --message "done"
 agent-basics verify
-agent-basics commit
+agent-basics commit "feat(scope): description"
 ```
 
 Target responsibilities:
@@ -242,9 +244,12 @@ This builds and installs one binary:
 - `agent-basics ov install-system`: install OpenViking under `~/.openviking`.
 - `agent-basics ov write-default-config`: write the default LM Studio-backed OpenViking config.
 - `agent-basics ov import-repo-memory`: import the repo-owned OpenViking source store into the user-level OpenViking database. OV-native memory files are written directly under `viking://user/default/memories/<category>/projects/<repo>/`; they are not routed back through `ov add-memory`. If OpenViking reports the memory tree is busy, the command retries memory writes before failing.
-- `agent-basics ov search|read|record|add-resource|add-skill|ingest-changed|status`: repo-aware OpenViking operations scoped to the current repository by default.
+- `agent-basics ov search|read|record|add-resource|add-skill|ingest-changed|install-hooks|status`: repo-aware OpenViking operations scoped to the current repository by default.
 - `agent-basics lmstudio status|hardware|plan|configure|load|unload|route-test`: inspect and manage LM Studio through persisted model defaults plus REST/OpenAI-compatible HTTP only.
 - `agent-basics migrate memory-to-openviking`: inventory legacy `.agents/memory/` records into OV-native categories.
+- `agent-basics run start|status|checkpoint|handoff|finish`: create and maintain repo-local long-horizon run state under `.agents/runs/`.
+- `agent-basics verify`: run the repo's standard local validation checks.
+- `agent-basics commit "type(scope): description"`: commit staged changes with the supervised coding-agent author.
 - `agent-basics memory ...`: run compatibility memory/RAG operations for the current working repository.
 - `agent-basics mcp`: run the OpenViking-backed stdio MCP server for the current working repository.
 

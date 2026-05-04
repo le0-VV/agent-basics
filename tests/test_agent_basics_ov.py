@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -154,6 +155,201 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
                 ".agents/memory/resources/sources/docs.md",
             ],
         )
+
+    def test_ov_source_store_filter_ignores_legacy_memory_and_lock_paths(self) -> None:
+        paths = [
+            ".agents/memory/memories/preferences/keep.md",
+            ".agents/memory/resources/sources/docs.md",
+            ".agents/memory/skills/workflow.md",
+            ".agents/memory/INDEX.md",
+            ".agents/memory/memory/facts/legacy.md",
+            ".agents/memory/rag/write.lock/owner",
+            ".agents/memory/rag/config.json",
+            ".agents/openviking/locks/ingest.lock/owner.json",
+        ]
+
+        self.assertEqual(
+            agent_basics_ov.ov_relevant_source_store_paths(paths),
+            [
+                ".agents/memory/memories/preferences/keep.md",
+                ".agents/memory/resources/sources/docs.md",
+                ".agents/memory/skills/workflow.md",
+                ".agents/memory/INDEX.md",
+            ],
+        )
+
+    def test_ov_install_hooks_writes_managed_git_hooks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            hooks_dir = repo / ".git" / "hooks"
+            hooks_dir.mkdir(parents=True)
+
+            payload = agent_basics_ov.ov_install_hooks_payload(repo)
+            second = agent_basics_ov.ov_install_hooks_payload(repo)
+
+            pre_commit = hooks_dir / "pre-commit"
+            post_merge = hooks_dir / "post-merge"
+            pre_commit_text = pre_commit.read_text(encoding="utf-8")
+            post_merge_text = post_merge.read_text(encoding="utf-8")
+            pre_commit_executable = os.access(pre_commit, os.X_OK)
+            post_merge_executable = os.access(post_merge, os.X_OK)
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["changed"])
+        self.assertFalse(second["changed"])
+        self.assertIn(agent_basics_ov.OV_HOOK_MARKER, pre_commit_text)
+        self.assertIn("ov hook pre-commit", pre_commit_text)
+        self.assertIn("ov hook post-merge", post_merge_text)
+        self.assertTrue(pre_commit_executable)
+        self.assertTrue(post_merge_executable)
+
+    def test_ov_install_hooks_uses_git_common_hooks_for_linked_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "worktree"
+            common_git = root / "common.git"
+            private_git = common_git / "worktrees" / "worktree"
+            repo.mkdir()
+            private_git.mkdir(parents=True)
+            repo.joinpath(".git").write_text(f"gitdir: {private_git}\n", encoding="utf-8")
+
+            def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+                self.assertEqual(command, ["git", "-C", str(repo), "rev-parse", "--git-common-dir"])
+                return {
+                    "ok": True,
+                    "command": command,
+                    "returncode": 0,
+                    "stdout": str(common_git),
+                    "stderr": "",
+                }
+
+            original_run_command = agent_basics_ov.run_command
+            try:
+                agent_basics_ov.run_command = fake_run
+                payload = agent_basics_ov.ov_install_hooks_payload(repo)
+            finally:
+                agent_basics_ov.run_command = original_run_command
+
+            pre_commit = common_git / "hooks" / "pre-commit"
+            private_pre_commit = private_git / "hooks" / "pre-commit"
+            pre_commit_exists = pre_commit.exists()
+            private_pre_commit_exists = private_pre_commit.exists()
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["hooks_dir"], str(common_git / "hooks"))
+        self.assertTrue(pre_commit_exists)
+        self.assertFalse(private_pre_commit_exists)
+
+    def test_ov_install_hooks_refuses_unmanaged_existing_hook_without_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            hook = repo / ".git" / "hooks" / "pre-commit"
+            hook.parent.mkdir(parents=True)
+            hook.write_text("#!/bin/sh\necho custom\n", encoding="utf-8")
+
+            payload = agent_basics_ov.ov_install_hooks_payload(repo)
+            hook_text = hook.read_text(encoding="utf-8")
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(hook_text, "#!/bin/sh\necho custom\n")
+        self.assertIn("not managed", payload["hooks"][0]["error"])
+
+    def test_ov_hook_pre_commit_runs_ingest_for_staged_source_changes_with_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            commands: list[list[str]] = []
+
+            def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+                commands.append(command)
+                if command[:3] == ["git", "-C", str(repo)]:
+                    return {
+                        "ok": True,
+                        "command": command,
+                        "returncode": 0,
+                        "stdout": "\n".join(
+                            [
+                                ".agents/memory/memories/preferences/keep.md",
+                                ".agents/memory/rag/config.json",
+                            ]
+                        ),
+                        "stderr": "",
+                    }
+                return {"ok": True, "command": command, "returncode": 0, "stdout": "{}", "stderr": ""}
+
+            original = agent_basics_ov.run_command
+            try:
+                agent_basics_ov.run_command = fake_run
+                payload = agent_basics_ov.ov_hook_run_payload(repo, event="pre-commit", prompt=False)
+            finally:
+                agent_basics_ov.run_command = original
+
+            lock_path_exists = agent_basics_ov.ov_hook_ingest_lock_path(repo).exists()
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["source_store"]["relevant_paths"], [".agents/memory/memories/preferences/keep.md"])
+        self.assertEqual(commands[0][:6], ["git", "-C", str(repo), "diff", "--cached", "--name-only"])
+        self.assertIn("ingest-changed", commands[1])
+        self.assertFalse(lock_path_exists)
+
+    def test_ov_hook_post_merge_uses_committed_diff_and_ingest_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            commands: list[list[str]] = []
+
+            def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+                commands.append(command)
+                if command[:3] == ["git", "-C", str(repo)]:
+                    return {
+                        "ok": True,
+                        "command": command,
+                        "returncode": 0,
+                        "stdout": ".agents/memory/resources/source.md",
+                        "stderr": "",
+                    }
+                return {"ok": True, "command": command, "returncode": 0, "stdout": "{}", "stderr": ""}
+
+            original = agent_basics_ov.run_command
+            try:
+                agent_basics_ov.run_command = fake_run
+                payload = agent_basics_ov.ov_hook_run_payload(repo, event="post-merge", prompt=False)
+            finally:
+                agent_basics_ov.run_command = original
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(commands[0][3], "diff-tree")
+        self.assertIn("ORIG_HEAD", commands[0])
+        self.assertIn("HEAD", commands[0])
+        self.assertIn("ingest-changed", commands[1])
+
+    def test_ov_hook_does_not_ingest_when_openviking_lock_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            lock_path = agent_basics_ov.ov_hook_ingest_lock_path(repo)
+            lock_path.mkdir(parents=True)
+            (lock_path / "owner.json").write_text('{"pid": 123, "created": 1777900000}\n', encoding="utf-8")
+            commands: list[list[str]] = []
+
+            def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+                commands.append(command)
+                return {
+                    "ok": True,
+                    "command": command,
+                    "returncode": 0,
+                    "stdout": ".agents/memory/memories/preferences/keep.md",
+                    "stderr": "",
+                }
+
+            original = agent_basics_ov.run_command
+            try:
+                agent_basics_ov.run_command = fake_run
+                payload = agent_basics_ov.ov_hook_run_payload(repo, event="pre-commit", prompt=False)
+            finally:
+                agent_basics_ov.run_command = original
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["action"], "locked")
+        self.assertEqual(len(commands), 1)
+        self.assertIn(".agents/openviking/locks/ingest.lock", payload["lock"]["lock_path"])
 
     def test_ov_mkdir_p_builds_valid_viking_uris(self) -> None:
         commands: list[list[str]] = []
@@ -318,6 +514,107 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         )
         self.assertNotIn("stdout", payload["commands"][0])
 
+    def test_ov_search_payload_filters_sibling_repo_results(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+            commands.append(command)
+            scope = command[command.index("--uri") + 1]
+            result = {"memories": [], "resources": [], "skills": [], "total": 0}
+            if scope == "viking://resources/projects/agent":
+                result["resources"] = [
+                    {
+                        "context_type": "resource",
+                        "uri": "viking://resources/projects/agent/resources/README.md",
+                        "score": 0.9,
+                    },
+                    {
+                        "context_type": "resource",
+                        "uri": "viking://resources/projects/agent-tools/resources/README.md",
+                        "score": 0.95,
+                    },
+                ]
+            if scope.endswith("/preferences/projects/agent"):
+                result["memories"] = [
+                    {
+                        "context_type": "memory",
+                        "uri": "viking://user/default/memories/preferences/projects/agent/prefer.md",
+                        "score": 0.9,
+                    },
+                    {
+                        "context_type": "memory",
+                        "uri": "viking://user/default/memories/preferences/projects/agent-tools/prefer.md",
+                        "score": 0.95,
+                    },
+                ]
+            result["total"] = len(result["memories"]) + len(result["resources"]) + len(result["skills"])
+            return {
+                "ok": True,
+                "command": command,
+                "returncode": 0,
+                "stdout": json.dumps({"ok": True, "result": result}),
+                "stderr": "",
+                "elapsed_seconds": 0.01,
+            }
+
+        original_find_ov_bin = agent_basics_ov.find_ov_bin
+        original_run_command = agent_basics_ov.run_command
+        try:
+            agent_basics_ov.find_ov_bin = lambda: Path("/tmp/ov")
+            agent_basics_ov.run_command = fake_run
+            payload = agent_basics_ov.ov_search_payload(Path("/tmp/agent"), query="repo memory", limit=5)
+        finally:
+            agent_basics_ov.find_ov_bin = original_find_ov_bin
+            agent_basics_ov.run_command = original_run_command
+
+        result_uris = [
+            item["uri"]
+            for key in ["memories", "resources", "skills"]
+            for item in payload["result"][key]
+        ]
+        scopes = [command[command.index("--uri") + 1] for command in commands]
+        self.assertTrue(payload["ok"])
+        self.assertIn("viking://resources/projects/agent", scopes)
+        self.assertNotIn("viking://resources/projects/agent-tools", scopes)
+        self.assertEqual(
+            result_uris,
+            [
+                "viking://user/default/memories/preferences/projects/agent/prefer.md",
+                "viking://resources/projects/agent/resources/README.md",
+            ],
+        )
+
+    def test_ov_search_payload_uses_distinct_scopes_for_two_repos(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+            commands.append(command)
+            return {
+                "ok": True,
+                "command": command,
+                "returncode": 0,
+                "stdout": json.dumps({"ok": True, "result": {"memories": [], "resources": [], "skills": [], "total": 0}}),
+                "stderr": "",
+                "elapsed_seconds": 0.01,
+            }
+
+        original_find_ov_bin = agent_basics_ov.find_ov_bin
+        original_run_command = agent_basics_ov.run_command
+        try:
+            agent_basics_ov.find_ov_bin = lambda: Path("/tmp/ov")
+            agent_basics_ov.run_command = fake_run
+            payload_a = agent_basics_ov.ov_search_payload(Path("/tmp/Agent"), query="repo memory", limit=5)
+            payload_b = agent_basics_ov.ov_search_payload(Path("/tmp/Agent Tools"), query="repo memory", limit=5)
+        finally:
+            agent_basics_ov.find_ov_bin = original_find_ov_bin
+            agent_basics_ov.run_command = original_run_command
+
+        self.assertTrue(payload_a["ok"])
+        self.assertTrue(payload_b["ok"])
+        self.assertIn("viking://resources/projects/agent", payload_a["scopes"])
+        self.assertIn("viking://resources/projects/agent-tools", payload_b["scopes"])
+        self.assertFalse(set(payload_a["scopes"]) & set(payload_b["scopes"]))
+
     def test_ov_read_rejects_global_uri_without_explicit_opt_in(self) -> None:
         payload = agent_basics_ov.ov_read_payload(
             Path("/tmp/agent-basics"),
@@ -326,6 +623,39 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
 
         self.assertFalse(payload["ok"])
         self.assertIn("--allow-global", payload["error"])
+
+    def test_ov_read_payload_two_repos_have_distinct_namespace_permissions(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+            commands.append(command)
+            return {"ok": True, "command": command, "returncode": 0, "stdout": "content", "stderr": ""}
+
+        original_find_ov_bin = agent_basics_ov.find_ov_bin
+        original_run_command = agent_basics_ov.run_command
+        try:
+            agent_basics_ov.find_ov_bin = lambda: Path("/tmp/ov")
+            agent_basics_ov.run_command = fake_run
+            repo_a = Path("/tmp/Agent")
+            repo_b = Path("/tmp/Agent Tools")
+            uri_a = "viking://resources/projects/agent/resources/README.md"
+            uri_b = "viking://resources/projects/agent-tools/resources/README.md"
+
+            accepted_a = agent_basics_ov.ov_read_payload(repo_a, uri=uri_a)
+            rejected_a_to_b = agent_basics_ov.ov_read_payload(repo_a, uri=uri_b)
+            accepted_b = agent_basics_ov.ov_read_payload(repo_b, uri=uri_b)
+            rejected_b_to_a = agent_basics_ov.ov_read_payload(repo_b, uri=uri_a)
+        finally:
+            agent_basics_ov.find_ov_bin = original_find_ov_bin
+            agent_basics_ov.run_command = original_run_command
+
+        self.assertTrue(accepted_a["ok"])
+        self.assertTrue(accepted_b["ok"])
+        self.assertFalse(rejected_a_to_b["ok"])
+        self.assertFalse(rejected_b_to_a["ok"])
+        self.assertEqual(accepted_a["repo_slug"], "agent")
+        self.assertEqual(accepted_b["repo_slug"], "agent-tools")
+        self.assertEqual([command[1] for command in commands], ["read", "stat", "read", "stat"])
 
     def test_ov_record_dry_run_uses_source_store_and_openviking_project_namespace(self) -> None:
         payload = agent_basics_ov.ov_record_payload(
@@ -346,6 +676,30 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
             payload["target"],
         )
 
+    def test_ov_record_dry_run_two_repos_have_distinct_source_paths_and_targets(self) -> None:
+        payload_a = agent_basics_ov.ov_record_payload(
+            Path("/tmp/Agent"),
+            category="preferences",
+            title="Prefer scoped writes",
+            content="Repo A record.",
+            dry_run=True,
+        )
+        payload_b = agent_basics_ov.ov_record_payload(
+            Path("/tmp/Agent Tools"),
+            category="preferences",
+            title="Prefer scoped writes",
+            content="Repo B record.",
+            dry_run=True,
+        )
+
+        self.assertTrue(payload_a["ok"])
+        self.assertTrue(payload_b["ok"])
+        self.assertIn("/Agent/.agents/memory/memories/preferences/", payload_a["source_path"])
+        self.assertIn("/Agent Tools/.agents/memory/memories/preferences/", payload_b["source_path"])
+        self.assertIn("viking://user/default/memories/preferences/projects/agent/", payload_a["target"])
+        self.assertIn("viking://user/default/memories/preferences/projects/agent-tools/", payload_b["target"])
+        self.assertNotEqual(payload_a["target"], payload_b["target"])
+
     def test_ov_add_resource_dry_run_defaults_to_repo_resource_namespace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "agent-basics"
@@ -364,6 +718,33 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
             payload["target"],
             "viking://resources/projects/agent-basics/resources/docs/api.md",
         )
+
+    def test_ov_add_resource_dry_run_two_repos_have_distinct_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_a = Path(tmp) / "Agent"
+            repo_b = Path(tmp) / "Agent Tools"
+            resource_a = repo_a / "docs" / "api.md"
+            resource_b = repo_b / "docs" / "api.md"
+            resource_a.parent.mkdir(parents=True)
+            resource_b.parent.mkdir(parents=True)
+            resource_a.write_text("# API A\n", encoding="utf-8")
+            resource_b.write_text("# API B\n", encoding="utf-8")
+
+            payload_a = agent_basics_ov.ov_add_resource_payload(repo_a, source="docs/api.md", dry_run=True)
+            payload_b = agent_basics_ov.ov_add_resource_payload(repo_b, source="docs/api.md", dry_run=True)
+            rejected = agent_basics_ov.ov_add_resource_payload(
+                repo_a,
+                source="docs/api.md",
+                target="viking://resources/projects/agent-tools/resources/docs/api.md",
+                dry_run=True,
+            )
+
+        self.assertTrue(payload_a["ok"])
+        self.assertTrue(payload_b["ok"])
+        self.assertEqual(payload_a["target"], "viking://resources/projects/agent/resources/docs/api.md")
+        self.assertEqual(payload_b["target"], "viking://resources/projects/agent-tools/resources/docs/api.md")
+        self.assertFalse(rejected["ok"])
+        self.assertIn("repo namespace", rejected["error"])
 
     def test_ov_default_config_uses_positive_vlm_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

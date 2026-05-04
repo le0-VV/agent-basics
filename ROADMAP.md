@@ -39,7 +39,7 @@ Implemented and verified in this repository:
 Still transitional or incomplete:
 
 - The custom `.agents/memory/rag/` mini-RAG still exists as fallback compatibility.
-- Setup/upgrade can create the source-store structure, but the full polished OpenViking setup, bundled MCP configuration, git hook integration, and merge UI flow are not complete.
+- Setup/upgrade can create the source-store structure, verify or install user-level OpenViking, write `.agents/config.toml`, and generate a Codex-style MCP snippet. The full merge UI flow is still incomplete.
 
 ## What agent-basics Is
 
@@ -315,17 +315,17 @@ Core commands:
 
 | Command | Status | Notes |
 | --- | --- | --- |
-| `agent-basics setup [directory]` | Partial | Creates the modern source-store shape, but full OV setup, MCP configuration, and merge UI polish are incomplete. |
-| `agent-basics upgrade [directory]` | Partial | Uses the setup path for existing repos; conflict UX still needs the bundled merge UI. |
+| `agent-basics setup [directory]` | Partial | Creates the modern source-store shape, verifies or installs user-level OV, writes repo config, and emits MCP snippets; merge UI polish remains. |
+| `agent-basics upgrade [directory]` | Partial | Uses the setup path for existing repos; OpenViking checks/config run, but conflict UX still needs the bundled merge UI. |
 | `agent-basics doctor [--online]` | Partial | Needs stronger OV/provider/repo-state checks. |
 | `agent-basics mcp` | Implemented | Repo-aware OpenViking-backed MCP server with search, read, record, add-resource, add-skill, ingest, status, and doctor tools. |
 | `agent-basics ov <command>` | Implemented | Repo-aware setup/import/search/read/record/resource/skill/status wrappers exist; polish remains for setup integration. |
 | `agent-basics lmstudio <command>` | Implemented | REST/OpenAI-compatible management and route tests exist; LM Studio API coverage still limits some load/inference settings. |
 | `agent-basics migrate memory-to-openviking` | Implemented | Inventories/adapts legacy memory into OV-native categories and manifest state. |
 | `agent-basics memory <command>` | Implemented | Transitional mini-RAG compatibility only. |
-| `agent-basics run <command>` | Planned | Long-horizon run state. |
-| `agent-basics verify` | Planned | Unified validation entrypoint. |
-| `agent-basics commit` | Planned | Supervised-author commit helper and hook integration. |
+| `agent-basics run <command>` | Implemented | Initial repo-local long-horizon run state under `.agents/runs/`. |
+| `agent-basics verify` | Implemented | Runs unit tests, Cargo tests, shell syntax, formula syntax, and offline OV status when available. |
+| `agent-basics commit` | Implemented | Commits staged changes with the supervised coding-agent author and validates commit-message shape. |
 
 OpenViking wrapper commands:
 
@@ -341,6 +341,7 @@ OpenViking wrapper commands:
 | `agent-basics ov add-resource <path-or-url>` | Implemented | Repo-aware resource ingestion wrapper. |
 | `agent-basics ov add-skill <path>` | Implemented | Registers skills through OpenViking; OpenViking currently does not expose a target URI for skills. |
 | `agent-basics ov ingest-changed` | Implemented | Incremental import/ingest after source-store changes. |
+| `agent-basics ov install-hooks` | Implemented | Installs managed `pre-commit` and `post-merge` hooks that run repo-scoped OpenViking ingest for source-store changes. |
 | `agent-basics ov status` | Implemented | Repo-scoped import, source-store, namespace, and OpenViking status. |
 
 LM Studio commands:
@@ -397,12 +398,12 @@ Gemma 4 E2B should be used with shallow structured-output schemas for routing an
 
 ## Immediate Next Work
 
-The next unlock is setup and workflow polish around the OpenViking-backed gateway:
+The next unlock is dogfooding and cleanup around the OpenViking-backed harness:
 
-1. Teach setup/upgrade to verify or install user-level OpenViking as part of the normal flow.
-2. Generate repo-local MCP configuration guidance and optional client config snippets from setup.
-3. Add repo isolation tests against two temporary repos sharing the same OpenViking server or mocked OpenViking command layer.
-4. Wire git hooks so changed `.agents/memory/` source-store files prompt `agent-basics ov ingest-changed`.
+1. Dogfood fresh setup and upgrade on sample repositories with real user-level OpenViking.
+2. Wire the markdown merge UI into setup conflict prompts as a first-class path.
+3. Add hook checks for unfinished or stale `.agents/runs/` state.
+4. Add `Skills.md` or `.agents/skills/` workflows for prework, memory update, verification, and finish-work.
 5. Decide when `.agents/memory/rag/` can be removed from new installs and retained only as legacy fallback.
 
 ## Milestones
@@ -435,7 +436,7 @@ Acceptance criteria:
 
 Milestone 3: MCP gateway.
 
-Status: implemented, with broader integration tests and setup-generated config still planned.
+Status: implemented, with broader live integration tests still planned.
 
 - Keep `agent-basics mcp` as the repo-aware OpenViking gateway.
 - Require `repo_path` or current working directory resolution per tool call.
@@ -449,11 +450,11 @@ Acceptance criteria:
 - Search defaults to the current repo namespace and can optionally include wider context.
 - Record writes to the correct `viking://user/default/memories/<category>/projects/<repo-slug>/` namespace.
 - Add-resource writes to the correct `viking://resources/projects/<repo-slug>/` namespace; add-skill uses OpenViking's skill registration surface and includes repo attribution in source content.
-- Tests cover at least two repositories sharing one OpenViking server.
+- Tests cover at least two repositories sharing one mocked OpenViking command layer; a live shared-server test is still desirable.
 
 Milestone 4: long-horizon workflow.
 
-Status: planned.
+Status: initial implementation complete.
 
 - Implement `agent-basics run start/status/checkpoint/finish/handoff`.
 - Add `.agents/runs/` state.

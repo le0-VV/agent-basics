@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -12,14 +14,87 @@ SETUP = ROOT / "setup-macos.sh"
 
 
 class SetupMacosTest(unittest.TestCase):
-    def run_setup(self, repo: Path, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    def write_fake_openviking(self, repo: Path) -> Path:
+        fake_bin = repo / ".test-openviking" / "ov"
+        fake_bin.parent.mkdir(parents=True)
+        fake_bin.write_text(
+            "#!/usr/bin/env sh\n"
+            "case \"$1\" in\n"
+            "  --help) echo 'fake OpenViking help'; exit 0 ;;\n"
+            "  version) echo 'CLI: 0.0.0-test'; exit 0 ;;\n"
+            "  *) exit 0 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        fake_bin.chmod(0o755)
+        return fake_bin
+
+    def write_fake_openviking_installer(self, repo: Path) -> tuple[Path, Path]:
+        fake_dispatcher = repo / ".test-openviking" / "agent-basics"
+        log_path = repo / ".test-openviking" / "install.log"
+        fake_dispatcher.parent.mkdir(parents=True)
+        fake_dispatcher.write_text(
+            "#!/usr/bin/env sh\n"
+            "set -eu\n"
+            "printf '%s\\n' \"$*\" > \"$AGENT_BASICS_TEST_OPENVIKING_INSTALL_LOG\"\n"
+            "if [ \"$1\" != \"ov\" ] || [ \"$2\" != \"install-system\" ]; then\n"
+            "  echo \"unexpected fake dispatcher command: $*\" >&2\n"
+            "  exit 2\n"
+            "fi\n"
+            "home=\"\"\n"
+            "while [ \"$#\" -gt 0 ]; do\n"
+            "  case \"$1\" in\n"
+            "    --home)\n"
+            "      home=\"$2\"\n"
+            "      shift 2\n"
+            "      ;;\n"
+            "    *)\n"
+            "      shift\n"
+            "      ;;\n"
+            "  esac\n"
+            "done\n"
+            "if [ -z \"$home\" ]; then\n"
+            "  echo \"missing --home\" >&2\n"
+            "  exit 2\n"
+            "fi\n"
+            "mkdir -p \"$home/venv/bin\"\n"
+            "cat > \"$home/venv/bin/ov\" <<'EOS'\n"
+            "#!/usr/bin/env sh\n"
+            "case \"$1\" in\n"
+            "  --help) echo 'fake installed OpenViking help'; exit 0 ;;\n"
+            "  version) echo 'CLI: 0.0.0-installed-test'; exit 0 ;;\n"
+            "  *) exit 0 ;;\n"
+            "esac\n"
+            "EOS\n"
+            "chmod 0755 \"$home/venv/bin/ov\"\n",
+            encoding="utf-8",
+        )
+        fake_dispatcher.chmod(0o755)
+        return fake_dispatcher, log_path
+
+    def run_setup(
+        self,
+        repo: Path,
+        extra_env: dict[str, str] | None = None,
+        *,
+        check: bool = True,
+        fake_openviking: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
         env = dict(os.environ)
+        env.pop("AGENT_BASICS_TEST_OPENVIKING_BIN", None)
+        env.pop("AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK", None)
+        env.pop("AGENT_BASICS_TEST_OPENVIKING_AUTO_INSTALL", None)
+        env.pop("AGENT_BASICS_TEST_OPENVIKING_INSTALL_DISPATCHER", None)
+        env.pop("AGENT_BASICS_TEST_OPENVIKING_INSTALL_LOG", None)
         env.update(
             {
+                "AGENT_BASICS_INSTALL_COMPAT_MEMORY": "0",
                 "AGENT_BASICS_OPEN_MERGE_UI": "0",
                 "AGENT_BASICS_PROJECT_NAME": "setup-test",
             }
         )
+        if fake_openviking:
+            env["AGENT_BASICS_TEST_OPENVIKING_BIN"] = str(self.write_fake_openviking(repo))
         if extra_env:
             env.update(extra_env)
         return subprocess.run(
@@ -27,18 +102,20 @@ class SetupMacosTest(unittest.TestCase):
             cwd=ROOT,
             env=env,
             text=True,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            check=True,
+            check=check,
             timeout=60,
         )
 
     def test_fresh_setup_creates_ov_source_store_without_legacy_minirag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            self.run_setup(repo)
+            result = self.run_setup(repo)
 
             memory_root = repo / ".agents" / "memory"
+            self.assertIn("Verified user-level OpenViking CLI", result.stdout)
             self.assertTrue((memory_root / "SCHEMA.md").is_file())
             self.assertTrue((memory_root / "ADAPTATION.md").is_file())
             self.assertTrue((memory_root / "memories" / "preferences" / ".gitkeep").is_file())
@@ -51,6 +128,37 @@ class SetupMacosTest(unittest.TestCase):
             self.assertFalse((memory_root / "documentations").exists())
             self.assertFalse((memory_root / "templates").exists())
             self.assertFalse((memory_root / "rag").exists())
+
+            config = tomllib.loads((repo / ".agents" / "config.toml").read_text(encoding="utf-8"))
+            self.assertEqual(config["repo_slug"], "setup-test")
+            self.assertIsInstance(config["generated_at"], int)
+            self.assertEqual(
+                config["openviking"],
+                {
+                    "enabled": True,
+                    "required": True,
+                    "source_store_path": ".agents/memory",
+                    "mcp": {
+                        "command": "agent-basics",
+                        "args": ["mcp"],
+                        "cwd": str(repo),
+                    },
+                },
+            )
+
+            snippet = json.loads((repo / ".agents" / "openviking" / "codex-mcp.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                snippet,
+                {
+                    "mcpServers": {
+                        "agent-basics": {
+                            "command": "agent-basics",
+                            "args": ["mcp"],
+                            "cwd": str(repo),
+                        }
+                    }
+                },
+            )
 
     def test_setup_snapshots_existing_legacy_memory_without_generated_rag_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -71,6 +179,75 @@ class SetupMacosTest(unittest.TestCase):
             self.assertTrue((snapshot / "memory" / "facts" / "old.md").is_file())
             self.assertTrue((snapshot / "rag" / "config.json").is_file())
             self.assertFalse((snapshot / "rag" / "index.sqlite").exists())
+
+    def test_setup_fails_when_user_openviking_install_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            home = Path(tmp) / "home"
+            repo.mkdir()
+            home.mkdir()
+
+            result = self.run_setup(
+                repo,
+                {"HOME": str(home)},
+                check=False,
+                fake_openviking=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("user-level OpenViking installation is required", result.stderr)
+            self.assertIn("setup is not running interactively", result.stderr)
+            self.assertIn("agent-basics ov install-system", result.stderr)
+            self.assertFalse((repo / ".agents" / "config.toml").exists())
+
+    def test_setup_invokes_fake_install_and_generates_config_when_openviking_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            home = Path(tmp) / "home"
+            repo.mkdir()
+            home.mkdir()
+            dispatcher, install_log = self.write_fake_openviking_installer(repo)
+            ov_home = home / ".openviking"
+
+            result = self.run_setup(
+                repo,
+                {
+                    "AGENT_BASICS_TEST_OPENVIKING_AUTO_INSTALL": "1",
+                    "AGENT_BASICS_TEST_OPENVIKING_INSTALL_DISPATCHER": str(dispatcher),
+                    "AGENT_BASICS_TEST_OPENVIKING_INSTALL_LOG": str(install_log),
+                    "HOME": str(home),
+                },
+                fake_openviking=False,
+            )
+
+            self.assertIn("Running test-only OpenViking installation via fake dispatcher", result.stdout)
+            self.assertIn("Verified user-level OpenViking CLI", result.stdout)
+            self.assertEqual(install_log.read_text(encoding="utf-8").strip(), f"ov install-system --home {ov_home}")
+            self.assertTrue((ov_home / "venv" / "bin" / "ov").is_file())
+
+            config = tomllib.loads((repo / ".agents" / "config.toml").read_text(encoding="utf-8"))
+            self.assertEqual(config["openviking"]["mcp"]["cwd"], str(repo))
+            snippet = json.loads((repo / ".agents" / "openviking" / "codex-mcp.json").read_text(encoding="utf-8"))
+            self.assertEqual(snippet["mcpServers"]["agent-basics"]["cwd"], str(repo))
+
+    def test_setup_can_skip_openviking_check_with_test_only_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            home = Path(tmp) / "home"
+            repo.mkdir()
+            home.mkdir()
+
+            result = self.run_setup(
+                repo,
+                {
+                    "AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK": "1",
+                    "HOME": str(home),
+                },
+                fake_openviking=False,
+            )
+
+            self.assertIn("Skipped user-level OpenViking verification", result.stdout)
+            self.assertTrue((repo / ".agents" / "config.toml").is_file())
 
 
 if __name__ == "__main__":
