@@ -2,23 +2,6 @@
 
 This index is maintained by agents and setup tooling. Update it whenever entries are added, moved, or removed.
 
-## OpenViking Source Store
-
-- [Schema](SCHEMA.md)
-- [Adaptation guide](ADAPTATION.md)
-- `memories/`: OV-native memory source records grouped by OpenViking category.
-- `resources/`: documentation and references to ingest as OpenViking resources.
-- `skills/`: reusable workflows to register as OpenViking skills.
-- `imports/`: copied source material awaiting adaptation.
-- [Keep .agents/memory as the OpenViking source store](memories/preferences/1777901050-keep-memory-as-ov-source-store.md)
-- [Legacy compatibility memory snapshot created](memories/events/1777901050-legacy-memory-snapshot-created.md)
-
-## Legacy Compatibility Snapshot
-
-- `.agents/openviking/legacy-memory/1777901050/` preserves the compatibility markdown source tree that existed before `.agents/memory/` was redirected toward the OpenViking source-store layout.
-
-The sections below are the legacy mini-RAG index and remain temporarily useful while compatibility commands still exist.
-
 ## Decisions
 
 - [Use repo-local structured memory with generated RAG support](memory/decisions/repo-local-memory-rag.md)

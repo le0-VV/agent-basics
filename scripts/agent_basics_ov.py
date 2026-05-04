@@ -1235,6 +1235,27 @@ def parse_front_matter(text: str) -> tuple[dict[str, str], str]:
 
 def legacy_to_ov_category(path: Path, legacy_type: str, text: str) -> tuple[str, str, bool]:
     lower = text.lower()
+    path_text = path.as_posix()
+    if "/memories/profile/" in path_text:
+        return "profile", "OV-native profile memory", False
+    if "/memories/preferences/" in path_text:
+        return "preferences", "OV-native preference memory", False
+    if "/memories/entities/" in path_text:
+        return "entities", "OV-native entity memory", False
+    if "/memories/events/" in path_text:
+        return "events", "OV-native event memory", False
+    if "/memories/cases/" in path_text:
+        return "cases", "OV-native case memory", False
+    if "/memories/patterns/" in path_text:
+        return "patterns", "OV-native pattern memory", False
+    if "/memories/tools/" in path_text:
+        return "tools", "OV-native tool memory", False
+    if "/memories/skills/" in path_text or "/skills/" in path_text:
+        return "skills", "OV-native skill memory or workflow", False
+    if "/resources/" in path_text:
+        return "none", "OV-native resource, not memory", False
+    if "/imports/" in path_text or "/inbox/" in path_text:
+        return "none", "copied source material awaiting adaptation", True
     if legacy_type == "preference":
         return "preferences", "user/project preference", False
     if legacy_type == "fact":
@@ -1264,16 +1285,23 @@ def command_migrate_inventory(args: argparse.Namespace) -> int:
     output_path = repo / ".agents" / "openviking" / "migration-manifest.json"
     records = []
     for path in sorted(memory_root.rglob("*.md")):
-        if path.name in {"SCHEMA.md", "INDEX.md"} or "/templates/" in str(path):
+        if path.name in {"SCHEMA.md", "INDEX.md", "ADAPTATION.md", "README.md"} or "/templates/" in str(path):
             continue
         text = path.read_text(encoding="utf-8")
         meta, body = parse_front_matter(text)
         legacy_type = meta.get("type", "")
         category, reason, review = legacy_to_ov_category(path, legacy_type, text)
-        record_kind = "resource" if category == "none" and "documentations/sources" in str(path) else "memory"
-        if category == "none" and record_kind != "resource":
+        path_text = str(path)
+        if category == "none" and ("documentations/sources" in path_text or "/resources/" in path_text):
+            record_kind = "resource"
+        elif "/skills/" in path_text and "/memories/skills/" not in path_text:
+            record_kind = "skill"
+        else:
+            record_kind = "memory"
+        if category == "none" and record_kind not in {"resource", "skill"}:
             record_kind = "ignore"
-        stale = any(token in body.lower() for token in ["memoryhub", "repo-local mini-rag", "compatibility"])
+        is_ov_native = any(token in path_text for token in ["/memories/", "/resources/", "/skills/"])
+        stale = False if is_ov_native else any(token in body.lower() for token in ["memoryhub", "repo-local mini-rag", "compatibility"])
         records.append(
             {
                 "legacy_path": str(path.relative_to(repo)),
@@ -1292,6 +1320,7 @@ def command_migrate_inventory(args: argparse.Namespace) -> int:
         "generated": int(time.time()),
         "repo": str(repo),
         "policy": "OpenViking native categories are canonical; source records are resources, not memory.",
+        "legacy_snapshots": str(repo / ".agents" / "openviking" / "legacy-memory"),
         "records": records,
     }
     if args.write:

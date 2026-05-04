@@ -1,0 +1,13 @@
+{
+  "copied_at": 1777901050,
+  "source": ".agents/memory",
+  "target": ".agents/openviking/legacy-memory/1777901050",
+  "purpose": "Preserve the previous compatibility memory tree before redirecting .agents/memory toward the OpenViking repo source-store layout.",
+  "excluded_generated_files": [
+    "rag/index.sqlite",
+    "rag/manifest.json",
+    "rag/*.sqlite-*",
+    "rag/write.lock/"
+  ],
+  "adaptation_guide": ".agents/memory/ADAPTATION.md"
+}

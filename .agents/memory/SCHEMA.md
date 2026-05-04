@@ -1,8 +1,8 @@
 # Memory Schema
 
-`.agents/memory/` is the compatibility source tree for agent memory and documentation while agent-basics migrates to OpenViking.
+`.agents/memory/` is the repo-owned source store for OpenViking-facing memory, resources, and skills.
 
-OpenViking is the target required backend for memory, documentation, resources, skills, semantic organization, and retrieval. Generated compatibility RAG indexes, vector stores, model caches, and embedding API virtualenvs are support artifacts. They must be rebuildable from markdown in this directory until migration is complete.
+OpenViking is the required runtime backend for durable memory, documentation resources, semantic organization, vector indexes, and retrieval. The files in this directory are project-owned source material that agents and setup tooling can inspect, adapt, ingest, and version-control. The OpenViking package, workspace, generated summaries, and vector database remain outside the repository unless the user explicitly configures otherwise.
 
 ## Directory Contract
 
@@ -10,59 +10,87 @@ OpenViking is the target required backend for memory, documentation, resources, 
 .agents/memory/
   SCHEMA.md
   INDEX.md
-  templates/
-    decision.md
-    fact.md
-    preference.md
-    source.md
-    procedure.md
-    gotcha.md
-    event.md
-  memory/
-    decisions/
-    facts/
+  ADAPTATION.md
+  inbox/
+  imports/
+  memories/
+    profile/
     preferences/
-    gotchas/
+    entities/
     events/
-  documentations/
+    cases/
+    patterns/
+    tools/
+    skills/
+  resources/
     sources/
     procedures/
     references/
-  rag/
-    agent-memory.py
-    memory-mcp.py
-    config.json
-    index.sqlite
-    manifest.json
-    write.lock/
+  skills/
+  sessions/
 ```
 
-## Entry Rules
+## OpenViking Source Rules
 
-- Every entry must be markdown.
+- Every source entry should be markdown unless it is a resource file that needs to stay in its original format.
 - Every entry must start with YAML front matter.
-- Every entry must have `id`, `type`, `title`, `status`, `created`, `updated`, `tags`, and `summary`.
+- Every entry must have `id`, `record_kind`, `ov_category`, `title`, `status`, `created`, `updated`, `tags`, and `summary`.
 - Use Unix timestamp seconds for `created`, `updated`, and event timestamps.
-- Event entries must use `event_timestamp`, not `event_date`.
 - Keep one durable idea per file.
+- Preserve source paths in `source_paths` when adapting legacy memory.
 - Prefer short, searchable headings.
 - Link related entries with relative paths.
 - Record source URLs for external documentation.
 - Do not store secrets.
+- Use `requires_human_review: true` when a record is stale, transitional, conflicts with existing knowledge, or changes user intent.
 
-## Types
+## Record Kinds
 
-- `decision`: accepted or rejected project choice and rationale.
-- `fact`: stable project fact.
-- `preference`: user or project preference.
-- `source`: documentation source record.
-- `procedure`: repeatable workflow.
-- `gotcha`: pitfall, failure mode, or workaround.
-- `event`: dated thing that happened.
+- `memory`: durable user, project, system, tool, case, pattern, or skill knowledge for OpenViking memory.
+- `resource`: documentation, references, source URLs, and other files that should be ingested as OpenViking resources.
+- `skill`: reusable workflows that should be registered with OpenViking as skills.
+- `ignore`: preserved migration material that should not be ingested.
 
-## RAG Locking
+## OpenViking Categories
 
-`.agents/memory/rag/write.lock/` is an exclusive lock directory.
+- `profile`: stable user identity or attributes.
+- `preferences`: what the user wants, prefers, dislikes, or habitually asks agents to do.
+- `entities`: named things and stable attributes, including projects, systems, tools, repositories, people, organizations, and configured technologies.
+- `events`: time-bound things that happened, are happening, or are planned.
+- `cases`: specific problem, cause, solution, workaround, or outcome.
+- `patterns`: reusable process or method for similar situations.
+- `tools`: tool usage insights, parameters, success/failure patterns, and optimization.
+- `skills`: reusable workflow or skill execution strategy.
+- `none`: resources, ignored material, or records that should not become OpenViking memory.
+
+## Adaptation Workflow
+
+Agents adapting an existing project must follow `.agents/memory/ADAPTATION.md`.
+
+High-level rules:
+
+1. Copy existing memory/documentation material into `.agents/memory/imports/<unix-timestamp>-<source>/` or `.agents/openviking/legacy-memory/<unix-timestamp>/` before changing it.
+2. Split durable material into one independently updatable idea per file under `memories/<ov_category>/`, `resources/`, or `skills/`.
+3. Preserve provenance with `source_paths`.
+4. Mark stale compatibility records with `requires_human_review: true` instead of silently importing them.
+5. Ingest through `agent-basics ov ...` or the OpenViking-backed MCP gateway when available.
+6. Verify with OpenViking retrieval before demoting legacy material.
+
+## Transitional Compatibility
+
+The older agent-basics compatibility mini-RAG used these legacy paths:
+
+```text
+.agents/memory/
+  templates/
+  memory/
+  documentations/
+  rag/
+```
+
+Those paths may still exist in this repository while the OpenViking-backed gateway is being implemented. They are compatibility input, not the target source-store shape. The current compatibility source snapshot has been copied to `.agents/openviking/legacy-memory/1777901050/` for migration reference.
+
+Compatibility writers must still respect `.agents/memory/rag/write.lock/` while the legacy mini-RAG is in use:
 
 - Memory writers must wait while it exists.
 - Indexers must create it before hashing, chunking, embedding, or replacing indexes.

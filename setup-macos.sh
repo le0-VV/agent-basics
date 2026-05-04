@@ -243,9 +243,9 @@ EOT
       cat > "$template_file" <<'EOT'
 # Memory Schema
 
-`.agents/memory/` is the compatibility source tree for agent memory and documentation while agent-basics migrates to OpenViking.
+`.agents/memory/` is the repo-owned source store for OpenViking-facing memory, resources, and skills.
 
-OpenViking is the target required backend for memory, documentation, resources, skills, semantic organization, and retrieval. Generated compatibility RAG indexes, vector stores, model caches, and embedding API virtualenvs are support artifacts. They must be rebuildable from markdown in this directory until migration is complete.
+OpenViking is the required runtime backend for durable memory, documentation resources, semantic organization, vector indexes, and retrieval. The files in this directory are project-owned source material that agents and setup tooling can inspect, adapt, ingest, and version-control. The OpenViking package, workspace, generated summaries, and vector database remain outside the repository unless the user explicitly configures otherwise.
 
 ## Directory Contract
 
@@ -253,120 +253,90 @@ OpenViking is the target required backend for memory, documentation, resources, 
 .agents/memory/
   SCHEMA.md
   INDEX.md
-  templates/
-    decision.md
-    fact.md
-    preference.md
-    source.md
-    procedure.md
-    gotcha.md
-    event.md
-  memory/
-    decisions/
-    facts/
+  ADAPTATION.md
+  inbox/
+  imports/
+  memories/
+    profile/
     preferences/
-    gotchas/
+    entities/
     events/
-  documentations/
+    cases/
+    patterns/
+    tools/
+    skills/
+  resources/
     sources/
     procedures/
     references/
-  rag/
-    agent-memory.py
-    memory-mcp.py
-    config.json
-    index.sqlite
-    manifest.json
-    write.lock/
+  skills/
+  sessions/
 ```
 
-## Entry Rules
+## OpenViking Source Rules
 
-- Every entry must be markdown.
+- Every source entry should be markdown unless it is a resource file that needs to stay in its original format.
 - Every entry must start with YAML front matter.
-- Every entry must have `id`, `type`, `title`, `status`, `created`, `updated`, `tags`, and `summary`.
+- Every entry must have `id`, `record_kind`, `ov_category`, `title`, `status`, `created`, `updated`, `tags`, and `summary`.
 - Use Unix timestamp seconds for `created`, `updated`, and event timestamps.
-- Event entries must use `event_timestamp`, not `event_date`.
 - Keep one durable idea per file.
+- Preserve source paths in `source_paths` when adapting legacy memory.
 - Prefer short, searchable headings.
 - Link related entries with relative paths.
 - Record source URLs for external documentation.
 - Do not store secrets.
+- Use `requires_human_review: true` when a record is stale, transitional, conflicts with existing knowledge, or changes user intent.
 
-## Types
+## Record Kinds
 
-- `decision`: accepted or rejected project choice and rationale.
-- `fact`: stable project fact.
-- `preference`: user or project preference.
-- `source`: documentation source record.
-- `procedure`: repeatable workflow.
-- `gotcha`: pitfall, failure mode, or workaround.
-- `event`: dated thing that happened.
+- `memory`: durable user, project, system, tool, case, pattern, or skill knowledge for OpenViking memory.
+- `resource`: documentation, references, source URLs, and other files that should be ingested as OpenViking resources.
+- `skill`: reusable workflows that should be registered with OpenViking as skills.
+- `ignore`: preserved migration material that should not be ingested.
 
-## RAG Locking
+## OpenViking Categories
 
-`.agents/memory/rag/write.lock/` is an exclusive lock directory.
+- `profile`: stable user identity or attributes.
+- `preferences`: what the user wants, prefers, dislikes, or habitually asks agents to do.
+- `entities`: named things and stable attributes, including projects, systems, tools, repositories, people, organizations, and configured technologies.
+- `events`: time-bound things that happened, are happening, or are planned.
+- `cases`: specific problem, cause, solution, workaround, or outcome.
+- `patterns`: reusable process or method for similar situations.
+- `tools`: tool usage insights, parameters, success/failure patterns, and optimization.
+- `skills`: reusable workflow or skill execution strategy.
+- `none`: resources, ignored material, or records that should not become OpenViking memory.
+
+## Adaptation Workflow
+
+Agents adapting an existing project must follow `.agents/memory/ADAPTATION.md`.
+
+High-level rules:
+
+1. Copy existing memory/documentation material into `.agents/memory/imports/<unix-timestamp>-<source>/` or `.agents/openviking/legacy-memory/<unix-timestamp>/` before changing it.
+2. Split durable material into one independently updatable idea per file under `memories/<ov_category>/`, `resources/`, or `skills/`.
+3. Preserve provenance with `source_paths`.
+4. Mark stale compatibility records with `requires_human_review: true` instead of silently importing them.
+5. Ingest through `agent-basics ov ...` or the OpenViking-backed MCP gateway when available.
+6. Verify with OpenViking retrieval before demoting legacy material.
+
+## Transitional Compatibility
+
+The older agent-basics compatibility mini-RAG used these legacy paths:
+
+```text
+.agents/memory/
+  templates/
+  memory/
+  documentations/
+  rag/
+```
+
+Those paths may still exist while the OpenViking-backed gateway is being implemented. They are compatibility input, not the target source-store shape. Compatibility writers must still respect `.agents/memory/rag/write.lock/` while the legacy mini-RAG is in use:
 
 - Memory writers must wait while it exists.
 - Indexers must create it before hashing, chunking, embedding, or replacing indexes.
 - Indexers must remove it only after the generated index is consistent with source markdown.
 - If the lock is stale because a process crashed, use a deliberate repair command rather than deleting it opportunistically.
-
-## Compatibility Memory MCP
-
-The OpenViking-backed `agent-basics mcp` gateway is the target MCP surface. Until that gateway exists, `agent-basics mcp` may still expose the compatibility memory server, and `.agents/memory/rag/memory-mcp.py` remains the repo-local fallback generated by setup.
-
-Supported tools:
-
-- `memory_search`: run hybrid embedding and full-text retrieval.
-- `memory_record`: create a structured memory entry and update `INDEX.md`; rebuild is deferred by default.
-- `memory_doctor`: report layout, config, manifest, index, and optional embedding endpoint health.
-- `memory_rebuild`: rebuild the generated SQLite RAG cache.
-- `memory_validate`: check layout and entry front matter.
-
-Agents should prefer OpenViking-backed MCP tools when available, then compatibility MCP tools, then direct compatibility CLI calls.
-
-## Compatibility Memory CLI
-
-`agent-basics ov ...` is the target OpenViking wrapper. Until it exists, `agent-basics memory` and `.agents/memory/rag/agent-memory.py` are compatibility commands for hooks, setup, fallback use, and MCP implementation support.
-
-Supported commands:
-
-- `validate`: check layout and entry front matter.
-- `rebuild`: rebuild the generated SQLite RAG cache.
-- `search <query>`: run hybrid embedding and full-text retrieval.
-- `record <type> <title>`: create a structured memory entry, update `INDEX.md`, and rebuild the index unless `--no-rebuild` is passed.
-- `doctor`: report layout, embedding, and index health.
-- `install-hooks`: install local git hooks that validate memory before commit and warn when the generated index is stale. Set `AGENT_BASICS_HOOK_AUTO_REBUILD=1` only when hook-triggered embedding calls are acceptable.
-
-Generated files such as `index.sqlite` and `manifest.json` are rebuildable cache state and should not be committed.
-
-## Compatibility RAG Configuration
-
-`.agents/memory/rag/config.json` records the active compatibility embedding provider and durable mini-RAG runtime settings. Long-term repo metadata should move to `.agents/config.toml` and `.agents/openviking/`; user-level OpenViking provider settings belong under `~/.openviking`.
-
-The `embedding` object stores:
-
-- `provider`
-- `base_url`
-- `model`
-- `dimensions`
-- `api_key_env`
-
-Repo-local HuggingFace mode additionally stores these fields in `embedding`:
-
-- `service_dir`
-- `start_command`
-- `cache_dir`
-
-The `runtime` object stores:
-
-- `embedding_timeout_seconds`
-- `embedding_batch_size`
-- `embedding_minimum_dimensions`
-- `hook_auto_rebuild`
-
-The API key value must stay in the environment and must not be committed.
 EOT
       ;;
     memory-index)
@@ -374,6 +344,17 @@ EOT
 # Memory Index
 
 This index is maintained by agents and setup tooling. Update it whenever entries are added, moved, or removed.
+
+## OpenViking Source Store
+
+- [Schema](SCHEMA.md)
+- [Adaptation guide](ADAPTATION.md)
+- `memories/`: OV-native memory source records grouped by OpenViking category.
+- `resources/`: documentation and references to ingest as OpenViking resources.
+- `skills/`: reusable workflows to register as OpenViking skills.
+- `imports/`: copied source material awaiting adaptation.
+
+The sections below are the legacy mini-RAG index and remain temporarily useful while compatibility commands still exist.
 
 ## Decisions
 
@@ -409,6 +390,72 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 ## References
 
 - None yet.
+EOT
+      ;;
+    memory-adaptation)
+      cat > "$template_file" <<'EOT'
+# OpenViking Memory Adaptation Guide
+
+Use this guide when converting existing project memory, documentation notes, agent instructions, or compatibility mini-RAG files into the `.agents/memory/` OpenViking source-store shape.
+
+## Goal
+
+The goal is not to preserve the old folder taxonomy. The goal is to preserve useful project knowledge as OpenViking-ready source material with clear provenance and one independently updatable idea per file.
+
+## Required Steps
+
+1. Inventory existing files before changing them.
+2. Copy original material into `.agents/memory/imports/<unix-timestamp>-<source>/` or `.agents/openviking/legacy-memory/<unix-timestamp>/`.
+3. Decide whether each item is `memory`, `resource`, `skill`, or `ignore`.
+4. For memory records, choose one OpenViking category: `profile`, `preferences`, `entities`, `events`, `cases`, `patterns`, `tools`, or `skills`.
+5. Split mixed records. Do not combine a user preference, project fact, tool gotcha, and dated event in one file.
+6. Preserve `source_paths` and important related links.
+7. Mark stale, transitional, or conflicting records with `requires_human_review: true`.
+8. Ingest only reviewed or clearly safe records through `agent-basics ov ...` or the OpenViking-backed MCP gateway.
+9. Run `ov wait` or the equivalent `agent-basics ov` command after ingest.
+10. Verify representative queries with OpenViking retrieval before deleting, demoting, or ignoring legacy material.
+
+## Mapping Rules
+
+- Legacy `preference` records usually become `record_kind: memory` and `ov_category: preferences`.
+- Stable facts about projects, tools, repositories, or configuration usually become `entities`.
+- Decisions and dated milestones usually become `events`.
+- Gotchas, crashes, caveats, and workaround records usually become `cases`.
+- Procedures usually become `patterns`, unless they are packaged as reusable OpenViking skills.
+- Documentation source records and URL-only files become `record_kind: resource` and `ov_category: none`.
+- Reusable agent workflows can become `record_kind: skill` and may also have an associated `skills` memory record summarizing when to use them.
+- Compatibility-only instructions for retired tooling should be preserved as `ignore` or marked `requires_human_review: true`.
+
+## Front Matter
+
+Use this shape for adapted memory records:
+
+```yaml
+---
+id: ov-memory-UNIXTIMESTAMP-short-name
+record_kind: memory
+ov_category: preferences
+title: Short title
+status: active
+created: UNIX_TIMESTAMP
+updated: UNIX_TIMESTAMP
+tags: []
+summary: One sentence summary.
+source_paths: []
+requires_human_review: false
+---
+```
+
+Use `record_kind: resource` and `ov_category: none` for documentation resources. Use `record_kind: skill` for reusable workflows intended for OpenViking skill registration.
+
+## Quality Bar
+
+- Keep one idea per file.
+- Prefer concrete, searchable wording over broad summaries.
+- Do not store raw secrets.
+- Do not erase user-specific preferences during cleanup.
+- Do not treat stale compatibility machinery as active project direction.
+- Record uncertainty explicitly instead of guessing.
 EOT
       ;;
     template-decision)
@@ -942,6 +989,21 @@ EOT
 
 create_memory_layout() {
   mkdir -p \
+    "$REPO_MEMORY_ROOT/inbox" \
+    "$REPO_MEMORY_ROOT/imports" \
+    "$REPO_MEMORY_ROOT/memories/profile" \
+    "$REPO_MEMORY_ROOT/memories/preferences" \
+    "$REPO_MEMORY_ROOT/memories/entities" \
+    "$REPO_MEMORY_ROOT/memories/events" \
+    "$REPO_MEMORY_ROOT/memories/cases" \
+    "$REPO_MEMORY_ROOT/memories/patterns" \
+    "$REPO_MEMORY_ROOT/memories/tools" \
+    "$REPO_MEMORY_ROOT/memories/skills" \
+    "$REPO_MEMORY_ROOT/resources/sources" \
+    "$REPO_MEMORY_ROOT/resources/procedures" \
+    "$REPO_MEMORY_ROOT/resources/references" \
+    "$REPO_MEMORY_ROOT/skills" \
+    "$REPO_MEMORY_ROOT/sessions" \
     "$REPO_MEMORY_ROOT/templates" \
     "$REPO_MEMORY_ROOT/memory/decisions" \
     "$REPO_MEMORY_ROOT/memory/facts" \
@@ -2288,6 +2350,7 @@ create_empty_file_if_missing ".agents/TODO.md"
 
 copy_memory_template_if_missing "memory-schema" ".agents/memory/SCHEMA.md"
 copy_memory_template_if_missing "memory-index" ".agents/memory/INDEX.md"
+copy_memory_template_if_missing "memory-adaptation" ".agents/memory/ADAPTATION.md"
 copy_memory_template_if_missing "template-decision" ".agents/memory/templates/decision.md"
 copy_memory_template_if_missing "template-fact" ".agents/memory/templates/fact.md"
 copy_memory_template_if_missing "template-preference" ".agents/memory/templates/preference.md"
@@ -2306,16 +2369,31 @@ create_empty_file_if_missing ".agents/memory/memory/facts/.gitkeep"
 create_empty_file_if_missing ".agents/memory/memory/gotchas/.gitkeep"
 create_empty_file_if_missing ".agents/memory/memory/events/.gitkeep"
 create_empty_file_if_missing ".agents/memory/documentations/references/.gitkeep"
+create_empty_file_if_missing ".agents/memory/memories/profile/.gitkeep"
+create_empty_file_if_missing ".agents/memory/memories/preferences/.gitkeep"
+create_empty_file_if_missing ".agents/memory/memories/entities/.gitkeep"
+create_empty_file_if_missing ".agents/memory/memories/events/.gitkeep"
+create_empty_file_if_missing ".agents/memory/memories/cases/.gitkeep"
+create_empty_file_if_missing ".agents/memory/memories/patterns/.gitkeep"
+create_empty_file_if_missing ".agents/memory/memories/tools/.gitkeep"
+create_empty_file_if_missing ".agents/memory/memories/skills/.gitkeep"
+create_empty_file_if_missing ".agents/memory/resources/sources/.gitkeep"
+create_empty_file_if_missing ".agents/memory/resources/procedures/.gitkeep"
+create_empty_file_if_missing ".agents/memory/resources/references/.gitkeep"
+create_empty_file_if_missing ".agents/memory/skills/.gitkeep"
+create_empty_file_if_missing ".agents/memory/inbox/.gitkeep"
+create_empty_file_if_missing ".agents/memory/imports/.gitkeep"
+create_empty_file_if_missing ".agents/memory/sessions/.gitkeep"
 migrate_legacy_markdown_if_missing \
   ".agents/DOCUMENTATIONS.md" \
-  ".agents/memory/documentations/references/legacy-documentations.md" \
+  ".agents/memory/imports/legacy-documentations.md" \
   "source" \
   "Legacy DOCUMENTATIONS.md" \
   "Legacy documentation records migrated from .agents/DOCUMENTATIONS.md." \
   "[legacy, documentation]"
 migrate_legacy_markdown_if_missing \
   ".agents/MEMORY.md" \
-  ".agents/memory/memory/facts/legacy-memory.md" \
+  ".agents/memory/imports/legacy-memory.md" \
   "fact" \
   "Legacy MEMORY.md" \
   "Legacy memory records migrated from .agents/MEMORY.md." \

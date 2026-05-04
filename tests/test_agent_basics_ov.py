@@ -100,6 +100,34 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(load["llm.load.numParallelSessions"], 1)
         self.assertEqual(load["custom.load"], "preserve")
 
+    def test_ov_native_memory_paths_map_to_openviking_categories(self) -> None:
+        category, reason, review = agent_basics_ov.legacy_to_ov_category(
+            Path(".agents/memory/memories/preferences/example.md"),
+            "",
+            "The user wants .agents/memory to stay as the OV source store.",
+        )
+        self.assertEqual(category, "preferences")
+        self.assertEqual(reason, "OV-native preference memory")
+        self.assertFalse(review)
+
+        category, reason, review = agent_basics_ov.legacy_to_ov_category(
+            Path(".agents/memory/resources/sources/example.md"),
+            "",
+            "https://example.com",
+        )
+        self.assertEqual(category, "none")
+        self.assertEqual(reason, "OV-native resource, not memory")
+        self.assertFalse(review)
+
+        category, reason, review = agent_basics_ov.legacy_to_ov_category(
+            Path(".agents/memory/imports/legacy-memory.md"),
+            "",
+            "Raw copied material.",
+        )
+        self.assertEqual(category, "none")
+        self.assertEqual(reason, "copied source material awaiting adaptation")
+        self.assertTrue(review)
+
 
 if __name__ == "__main__":
     unittest.main()

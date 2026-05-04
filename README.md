@@ -6,7 +6,7 @@
 
 `agent-basics` is a repo-local programming harness. Its direction is to make one user-level OpenViking installation the required memory, documentation, resource, skill, semantic organization, and retrieval backend, while `agent-basics` owns the repository contract around that backend.
 
-The current implementation still includes a custom `.agents/memory/` markdown tree and generated mini-RAG. Treat that layer as transitional compatibility until the OpenViking gateway is implemented and migration is complete.
+`.agents/memory/` is the repo-owned OpenViking source store. Older agent-basics mini-RAG files may still exist as compatibility input while the OpenViking gateway is being built, but new durable memory should be adapted toward the OV-native layout documented in `.agents/memory/SCHEMA.md` and `.agents/memory/ADAPTATION.md`.
 
 ## Direction
 
@@ -81,7 +81,16 @@ agent-basics mcp
     ├── openviking/
     │   ├── repo.json
     │   ├── migration-manifest.json
+    │   ├── legacy-memory/
     │   └── locks/
+    ├── memory/
+    │   ├── SCHEMA.md
+    │   ├── INDEX.md
+    │   ├── ADAPTATION.md
+    │   ├── memories/
+    │   ├── resources/
+    │   ├── skills/
+    │   └── imports/
     ├── skills/
     │   ├── prework.md
     │   ├── memory-update.md
@@ -95,12 +104,10 @@ agent-basics mcp
     └── backups/
 ```
 
-The current compatibility layout also creates `.agents/memory/`:
+The old compatibility mini-RAG layout may still exist during migration:
 
 ```text
 .agents/memory/
-  SCHEMA.md
-  INDEX.md
   templates/
   memory/
   documentations/
@@ -112,7 +119,7 @@ The current compatibility layout also creates `.agents/memory/`:
     manifest.json
 ```
 
-Markdown under `.agents/memory/` remains the compatibility source of truth until migration. Generated RAG indexes, vector stores, model caches, and embedding API virtualenvs are rebuildable support state.
+Before reshaping this repo, the existing compatibility source tree was copied to `.agents/openviking/legacy-memory/1777901050/`. Future setup agents should copy existing project memory into `.agents/memory/imports/<timestamp>-<source>/` or `.agents/openviking/legacy-memory/<timestamp>/`, then adapt it into OV-native `memories/`, `resources/`, and `skills/` records.
 
 ## OpenViking Gateway
 
@@ -174,7 +181,7 @@ The target setup flow should:
 
 The current setup script already handles markdown conflicts safely. When an existing markdown file differs from the agent-basics template, it prompts per file to keep, replace with backup, append with backup, manually merge in `$EDITOR`, use a local web merge UI, or save the incoming template beside the existing file as `*.agent-basics.new`.
 
-If legacy `.agents/DOCUMENTATIONS.md` or `.agents/MEMORY.md` files exist, the compatibility setup copies their content into `.agents/memory/` migration entries without deleting the original files.
+If legacy `.agents/DOCUMENTATIONS.md`, `.agents/MEMORY.md`, or older agent-basics memory trees exist, setup should preserve the original material before adapting it. Agents should follow `.agents/memory/ADAPTATION.md`: inventory, copy, classify as memory/resource/skill/ignore, split mixed records, preserve `source_paths`, mark uncertain records for human review, ingest through OpenViking, then verify retrieval.
 
 ## Compatibility Embedding Setup
 
@@ -253,7 +260,8 @@ brew upgrade agent-basics
 - `.agents/openviking/`: target repo-local OpenViking metadata, migration manifests, and locks. The OpenViking install and workspace stay under `~/.openviking` unless the user explicitly chooses another user-level location.
 - `.agents/skills/` or `Skills.md`: target repeated workflows that point to stable `agent-basics` commands.
 - `.agents/runs/`: target long-horizon run state and handoff files.
-- `.agents/memory/`: transitional compatibility memory, documentation, and mini-RAG files.
+- `.agents/memory/`: repo-owned OpenViking source store for memory, resources, skills, imports, and adaptation instructions.
+- `.agents/openviking/legacy-memory/`: preserved legacy memory snapshots used as migration input.
 
 ## LM Studio Safety
 

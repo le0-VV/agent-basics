@@ -106,7 +106,16 @@ Target layout:
     ├── openviking/
     │   ├── repo.json
     │   ├── migration-manifest.json
+    │   ├── legacy-memory/
     │   └── locks/
+    ├── memory/
+    │   ├── SCHEMA.md
+    │   ├── INDEX.md
+    │   ├── ADAPTATION.md
+    │   ├── memories/
+    │   ├── resources/
+    │   ├── skills/
+    │   └── imports/
     ├── skills/
     │   ├── prework.md
     │   ├── memory-update.md
@@ -120,7 +129,7 @@ Target layout:
     └── backups/
 ```
 
-The existing `.agents/memory/` tree remains important until OpenViking integration is proven and migration is implemented. The roadmap target is to demote custom RAG files to migration/fallback support, then remove them when OpenViking covers the needed behavior.
+`.agents/memory/` remains important permanently as the repo-owned OpenViking source store. The roadmap target is to adapt old custom mini-RAG memory into OV-native `memories/`, `resources/`, and `skills/` files, preserve legacy snapshots under `.agents/openviking/legacy-memory/`, and demote custom RAG code to fallback support until the OpenViking-backed gateway replaces it.
 
 ## Enforcement Model
 
@@ -237,7 +246,7 @@ Initial scope:
 - Proposed root `Agents.md`.
 - Existing `.agents/AGENT-BASICS.md` or legacy `.agents/INSTRUCTIONS.md`.
 - Proposed `.agents/AGENT-BASICS.md`.
-- Existing `.agents/memory/` markdown that may need migration into OpenViking.
+- Existing `.agents/memory/` or legacy agent-basics markdown that may need adaptation into the OV-native source-store layout.
 
 The UI should let users:
 
@@ -366,7 +375,7 @@ Milestone 6: migration UI.
 
 - Wire the markdown merge prototype into setup.
 - Support safe review of `Agents.md` and `.agents/AGENT-BASICS.md`.
-- Support migration of legacy `.agents/memory/` markdown into OpenViking.
+- Support migration of legacy agent-basics markdown into `.agents/memory/` OV-native source files and then into OpenViking.
 - Preserve backups and unresolved merge sessions.
 
 Milestone 7: optional runner.
