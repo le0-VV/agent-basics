@@ -19,6 +19,8 @@ The goal is not to preserve the old folder taxonomy. The goal is to preserve use
 9. Run `ov wait` or the equivalent `agent-basics ov` command after ingest.
 10. Verify representative queries with OpenViking retrieval before deleting, demoting, or ignoring legacy material.
 
+Do not delete `.agents/memory/` during migration. That directory is the repo-specific OpenViking source store. Legacy compatibility directories inside it can stay temporarily, but their useful content should be snapshotted, adapted into `memories/`, `resources/`, or `skills/`, ingested into OpenViking, and only then demoted by an explicit cleanup step.
+
 ## Mapping Rules
 
 - Legacy `preference` records usually become `record_kind: memory` and `ov_category: preferences`.

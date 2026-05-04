@@ -76,6 +76,8 @@ High-level rules:
 5. Ingest through `agent-basics ov ...` or the OpenViking-backed MCP gateway when available.
 6. Verify with OpenViking retrieval before demoting legacy material.
 
+Setup must not delete `.agents/memory/`. For fresh repositories, setup creates the OV source-store directories only. For older repositories, setup snapshots legacy compatibility directories such as `templates/`, `memory/`, `documentations/`, and `rag/` under `.agents/openviking/legacy-memory/<unix-timestamp>/` before agents adapt useful content into this schema.
+
 ## Transitional Compatibility
 
 The older agent-basics compatibility mini-RAG used these legacy paths:

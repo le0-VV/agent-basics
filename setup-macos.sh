@@ -17,6 +17,9 @@ TARGET_DIR="$(pwd)"
 PROJECT_NAME="${AGENT_BASICS_PROJECT_NAME:-$(basename "$TARGET_DIR")}"
 REPO_AGENTS_DIR="$TARGET_DIR/.agents"
 REPO_MEMORY_ROOT="$REPO_AGENTS_DIR/memory"
+REPO_OPENVIKING_DIR="$REPO_AGENTS_DIR/openviking"
+REPO_BACKUPS_DIR="$REPO_AGENTS_DIR/backups"
+REPO_MERGE_SESSIONS_DIR="$REPO_AGENTS_DIR/merge-sessions"
 RAG_DIR="$REPO_MEMORY_ROOT/rag"
 EMBEDDING_API_DIR="$RAG_DIR/embedding-api"
 
@@ -319,6 +322,8 @@ High-level rules:
 5. Ingest through `agent-basics ov ...` or the OpenViking-backed MCP gateway when available.
 6. Verify with OpenViking retrieval before demoting legacy material.
 
+Setup must not delete `.agents/memory/`. For fresh repositories, setup creates the OV source-store directories only. For older repositories, setup snapshots legacy compatibility directories such as `templates/`, `memory/`, `documentations/`, and `rag/` under `.agents/openviking/legacy-memory/<unix-timestamp>/` before agents adapt useful content into this schema.
+
 ## Transitional Compatibility
 
 The older agent-basics compatibility mini-RAG used these legacy paths:
@@ -354,42 +359,10 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 - `skills/`: reusable workflows to register as OpenViking skills.
 - `imports/`: copied source material awaiting adaptation.
 
-The sections below are the legacy mini-RAG index and remain temporarily useful while compatibility commands still exist.
+## Legacy Material
 
-## Decisions
-
-- [Use repo-local structured memory with generated RAG support](memory/decisions/repo-local-memory-rag.md)
-
-## Facts
-
-- None yet.
-
-## Preferences
-
-- [Keep markdown files ending with an empty trailing line](memory/preferences/agent-basics.md)
-
-## Gotchas
-
-- None yet.
-
-## Events
-
-- None yet.
-
-## Documentation Sources
-
-- [agent-basics documentation sources](documentations/sources/agent-basics.md)
-
-## Procedures
-
-- [Use the agent-basics OpenViking gateway](documentations/procedures/openviking-gateway.md)
-- [Use the compatibility agent-basics memory MCP server](documentations/procedures/agent-memory-mcp.md)
-- [Use the compatibility agent-basics memory CLI](documentations/procedures/agent-memory-cli.md)
-- [Run the compatibility repo-local HuggingFace embedding API](documentations/procedures/local-huggingface-embedding-api.md)
-
-## References
-
-- None yet.
+- `.agents/openviking/legacy-memory/`: preserved snapshots of older `.agents/memory/` compatibility trees.
+- `imports/`: copied legacy markdown awaiting adaptation.
 EOT
       ;;
     memory-adaptation)
@@ -414,6 +387,8 @@ The goal is not to preserve the old folder taxonomy. The goal is to preserve use
 8. Ingest only reviewed or clearly safe records through `agent-basics ov ...` or the OpenViking-backed MCP gateway.
 9. Run `ov wait` or the equivalent `agent-basics ov` command after ingest.
 10. Verify representative queries with OpenViking retrieval before deleting, demoting, or ignoring legacy material.
+
+Do not delete `.agents/memory/` during migration. That directory is the repo-specific OpenViking source store. Legacy compatibility directories inside it can stay temporarily, but their useful content should be snapshotted, adapted into `memories/`, `resources/`, or `skills/`, ingested into OpenViking, and only then demoted by an explicit cleanup step.
 
 ## Mapping Rules
 
@@ -989,6 +964,10 @@ EOT
 
 create_memory_layout() {
   mkdir -p \
+    "$REPO_OPENVIKING_DIR/legacy-memory" \
+    "$REPO_OPENVIKING_DIR/locks" \
+    "$REPO_BACKUPS_DIR" \
+    "$REPO_MERGE_SESSIONS_DIR" \
     "$REPO_MEMORY_ROOT/inbox" \
     "$REPO_MEMORY_ROOT/imports" \
     "$REPO_MEMORY_ROOT/memories/profile" \
@@ -1003,7 +982,11 @@ create_memory_layout() {
     "$REPO_MEMORY_ROOT/resources/procedures" \
     "$REPO_MEMORY_ROOT/resources/references" \
     "$REPO_MEMORY_ROOT/skills" \
-    "$REPO_MEMORY_ROOT/sessions" \
+    "$REPO_MEMORY_ROOT/sessions"
+}
+
+create_compat_memory_layout() {
+  mkdir -p \
     "$REPO_MEMORY_ROOT/templates" \
     "$REPO_MEMORY_ROOT/memory/decisions" \
     "$REPO_MEMORY_ROOT/memory/facts" \
@@ -1013,9 +996,91 @@ create_memory_layout() {
     "$REPO_MEMORY_ROOT/documentations/sources" \
     "$REPO_MEMORY_ROOT/documentations/procedures" \
     "$REPO_MEMORY_ROOT/documentations/references" \
-    "$REPO_MEMORY_ROOT/backups" \
-    "$REPO_MEMORY_ROOT/merge-sessions" \
     "$RAG_DIR"
+}
+
+compat_memory_enabled() {
+  case "${AGENT_BASICS_INSTALL_COMPAT_MEMORY:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+snapshot_existing_legacy_memory() {
+  local timestamp
+  local snapshot_root
+  local legacy_path
+  local found=0
+  local existing_snapshot_count=0
+  local -a legacy_dirs
+  local -a rag_files
+
+  if [[ ! -d "$REPO_MEMORY_ROOT" ]]; then
+    return
+  fi
+
+  legacy_dirs=("templates" "memory" "documentations")
+  for legacy_path in "${legacy_dirs[@]}"; do
+    if [[ -e "$REPO_MEMORY_ROOT/$legacy_path" ]]; then
+      found=1
+    fi
+  done
+  if [[ -d "$RAG_DIR" ]]; then
+    found=1
+  fi
+
+  if [[ "$found" -ne 1 ]]; then
+    return
+  fi
+
+  if [[ -d "$REPO_OPENVIKING_DIR/legacy-memory" ]]; then
+    existing_snapshot_count="$(find "$REPO_OPENVIKING_DIR/legacy-memory" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+  fi
+  if [[ "$existing_snapshot_count" -gt 0 && "${AGENT_BASICS_FORCE_LEGACY_MEMORY_SNAPSHOT:-0}" != "1" ]]; then
+    echo "Legacy memory snapshot already exists under .agents/openviking/legacy-memory/"
+    return
+  fi
+
+  timestamp="$(date -u +%s)"
+  snapshot_root="$REPO_OPENVIKING_DIR/legacy-memory/$timestamp"
+  mkdir -p "$snapshot_root"
+
+  for legacy_path in "${legacy_dirs[@]}"; do
+    if [[ -e "$REPO_MEMORY_ROOT/$legacy_path" ]]; then
+      cp -R "$REPO_MEMORY_ROOT/$legacy_path" "$snapshot_root/$legacy_path"
+    fi
+  done
+
+  if [[ -d "$RAG_DIR" ]]; then
+    mkdir -p "$snapshot_root/rag"
+    rag_files=("agent-memory.py" "memory-mcp.py" "config.json" "config.example.json" "embedding.json" "README.md")
+    for legacy_path in "${rag_files[@]}"; do
+      if [[ -f "$RAG_DIR/$legacy_path" ]]; then
+        cp "$RAG_DIR/$legacy_path" "$snapshot_root/rag/$legacy_path"
+      fi
+    done
+  fi
+
+  cat > "$snapshot_root/manifest.json" <<EOT
+{
+  "created": $timestamp,
+  "source": ".agents/memory",
+  "reason": "Preserve legacy agent-basics memory material before adapting the repo to the OpenViking source-store layout.",
+  "excluded_generated_files": [
+    ".agents/memory/rag/index.sqlite",
+    ".agents/memory/rag/manifest.json",
+    ".agents/memory/rag/write.lock",
+    ".agents/memory/rag/embedding-api/venv",
+    ".agents/memory/rag/embedding-api/models"
+  ]
+}
+EOT
+
+  echo "Snapshotted legacy memory material: .agents/openviking/legacy-memory/$timestamp"
 }
 
 backup_existing_file() {
@@ -1025,9 +1090,9 @@ backup_existing_file() {
   timestamp="$(date +%s)"
   backup_name="${file_path//\//__}.$timestamp.bak"
 
-  mkdir -p "$REPO_MEMORY_ROOT/backups"
-  cp "$file_path" "$REPO_MEMORY_ROOT/backups/$backup_name"
-  echo "Backed up existing file: .agents/memory/backups/$backup_name"
+  mkdir -p "$REPO_BACKUPS_DIR"
+  cp "$file_path" "$REPO_BACKUPS_DIR/$backup_name"
+  echo "Backed up existing file: .agents/backups/$backup_name"
 }
 
 create_empty_file_if_missing() {
@@ -1126,7 +1191,7 @@ manual_merge_file() {
   local editor
   local apply_choice
 
-  merge_file="$REPO_MEMORY_ROOT/merge-sessions/$(basename "$destination_path").$(date +%s).md"
+  merge_file="$REPO_MERGE_SESSIONS_DIR/$(basename "$destination_path").$(date +%s).md"
   editor="${EDITOR:-vi}"
   mkdir -p "$(dirname "$merge_file")"
 
@@ -1170,7 +1235,7 @@ web_merge_file() {
 
   require_interactive "$destination_path needs an interactive terminal for the web merge UI."
 
-  merge_file="$REPO_MEMORY_ROOT/merge-sessions/$(basename "$destination_path").$(date +%s).web.md"
+  merge_file="$REPO_MERGE_SESSIONS_DIR/$(basename "$destination_path").$(date +%s).web.md"
   server_script="$(mktemp "${TMPDIR:-/tmp}/agent-basics-web-merge.XXXXXX.py")"
   mkdir -p "$(dirname "$merge_file")"
 
@@ -1606,14 +1671,17 @@ migrate_legacy_markdown_if_missing() {
 
   {
     printf -- "---\n"
-    printf "id: %s-%s-%s-legacy\n" "$entry_type" "$timestamp" "$(slugify "$PROJECT_NAME")"
-    printf "type: %s\n" "$entry_type"
+    printf "id: ov-import-%s-%s-legacy\n" "$timestamp" "$(slugify "$PROJECT_NAME")"
+    printf "record_kind: ignore\n"
+    printf "ov_category: none\n"
     printf "title: %s\n" "$title"
-    printf "status: migrated\n"
+    printf "status: imported\n"
     printf "created: %s\n" "$timestamp"
     printf "updated: %s\n" "$timestamp"
     printf "tags: %s\n" "$tags"
     printf "summary: %s\n" "$summary"
+    printf "source_paths: [\"%s\"]\n" "$source_path"
+    printf "requires_human_review: true\n"
     printf -- "---\n\n"
     printf "# %s\n\n" "$title"
     printf "## Legacy Content\n\n"
@@ -1622,6 +1690,44 @@ migrate_legacy_markdown_if_missing() {
   } > "$destination_path"
 
   echo "Migrated legacy markdown: $source_path -> $destination_path"
+}
+
+write_repo_openviking_metadata_if_missing() {
+  local repo_metadata="$REPO_OPENVIKING_DIR/repo.json"
+  local timestamp
+
+  if [[ -f "$repo_metadata" ]]; then
+    echo "Exists: .agents/openviking/repo.json"
+    return
+  fi
+
+  timestamp="$(date -u +%s)"
+  mkdir -p "$REPO_OPENVIKING_DIR"
+  python3 - "$repo_metadata" "$timestamp" "$PROJECT_NAME" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+
+path, timestamp, project_name = sys.argv[1:]
+payload = {
+    "version": 1,
+    "created": int(timestamp),
+    "updated": int(timestamp),
+    "project_name": project_name,
+    "memory_source": ".agents/memory",
+    "legacy_snapshots": ".agents/openviking/legacy-memory",
+    "runtime_home": "~/.openviking",
+    "notes": (
+        "Repository-specific source material stays here; OpenViking runtime data and indexes stay in "
+        "the user-level OpenViking home unless explicitly configured otherwise."
+    ),
+}
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
+  echo "Created: .agents/openviking/repo.json"
 }
 
 append_gitignore_entry_if_missing() {
@@ -2337,6 +2443,7 @@ start_repo_local_embedding_api_for_setup() {
   done
 }
 
+snapshot_existing_legacy_memory
 create_memory_layout
 
 agents_template="$(create_template_file "agents")"
@@ -2351,24 +2458,7 @@ create_empty_file_if_missing ".agents/TODO.md"
 copy_memory_template_if_missing "memory-schema" ".agents/memory/SCHEMA.md"
 copy_memory_template_if_missing "memory-index" ".agents/memory/INDEX.md"
 copy_memory_template_if_missing "memory-adaptation" ".agents/memory/ADAPTATION.md"
-copy_memory_template_if_missing "template-decision" ".agents/memory/templates/decision.md"
-copy_memory_template_if_missing "template-fact" ".agents/memory/templates/fact.md"
-copy_memory_template_if_missing "template-preference" ".agents/memory/templates/preference.md"
-copy_memory_template_if_missing "template-source" ".agents/memory/templates/source.md"
-copy_memory_template_if_missing "template-procedure" ".agents/memory/templates/procedure.md"
-copy_memory_template_if_missing "template-gotcha" ".agents/memory/templates/gotcha.md"
-copy_memory_template_if_missing "template-event" ".agents/memory/templates/event.md"
-copy_memory_template_if_missing "agent-basics-preference" ".agents/memory/memory/preferences/agent-basics.md"
-copy_memory_template_if_missing "agent-basics-decision" ".agents/memory/memory/decisions/repo-local-memory-rag.md"
-copy_memory_template_if_missing "agent-basics-doc-sources" ".agents/memory/documentations/sources/agent-basics.md"
-copy_memory_template_if_missing "openviking-gateway-procedure" ".agents/memory/documentations/procedures/openviking-gateway.md"
-copy_memory_template_if_missing "agent-memory-mcp-procedure" ".agents/memory/documentations/procedures/agent-memory-mcp.md"
-copy_memory_template_if_missing "agent-memory-cli-procedure" ".agents/memory/documentations/procedures/agent-memory-cli.md"
-copy_memory_template_if_missing "local-embedding-procedure" ".agents/memory/documentations/procedures/local-huggingface-embedding-api.md"
-create_empty_file_if_missing ".agents/memory/memory/facts/.gitkeep"
-create_empty_file_if_missing ".agents/memory/memory/gotchas/.gitkeep"
-create_empty_file_if_missing ".agents/memory/memory/events/.gitkeep"
-create_empty_file_if_missing ".agents/memory/documentations/references/.gitkeep"
+write_repo_openviking_metadata_if_missing
 create_empty_file_if_missing ".agents/memory/memories/profile/.gitkeep"
 create_empty_file_if_missing ".agents/memory/memories/preferences/.gitkeep"
 create_empty_file_if_missing ".agents/memory/memories/entities/.gitkeep"
@@ -2384,6 +2474,29 @@ create_empty_file_if_missing ".agents/memory/skills/.gitkeep"
 create_empty_file_if_missing ".agents/memory/inbox/.gitkeep"
 create_empty_file_if_missing ".agents/memory/imports/.gitkeep"
 create_empty_file_if_missing ".agents/memory/sessions/.gitkeep"
+
+if compat_memory_enabled; then
+  create_compat_memory_layout
+  copy_memory_template_if_missing "template-decision" ".agents/memory/templates/decision.md"
+  copy_memory_template_if_missing "template-fact" ".agents/memory/templates/fact.md"
+  copy_memory_template_if_missing "template-preference" ".agents/memory/templates/preference.md"
+  copy_memory_template_if_missing "template-source" ".agents/memory/templates/source.md"
+  copy_memory_template_if_missing "template-procedure" ".agents/memory/templates/procedure.md"
+  copy_memory_template_if_missing "template-gotcha" ".agents/memory/templates/gotcha.md"
+  copy_memory_template_if_missing "template-event" ".agents/memory/templates/event.md"
+  copy_memory_template_if_missing "agent-basics-preference" ".agents/memory/memory/preferences/agent-basics.md"
+  copy_memory_template_if_missing "agent-basics-decision" ".agents/memory/memory/decisions/repo-local-memory-rag.md"
+  copy_memory_template_if_missing "agent-basics-doc-sources" ".agents/memory/documentations/sources/agent-basics.md"
+  copy_memory_template_if_missing "openviking-gateway-procedure" ".agents/memory/documentations/procedures/openviking-gateway.md"
+  copy_memory_template_if_missing "agent-memory-mcp-procedure" ".agents/memory/documentations/procedures/agent-memory-mcp.md"
+  copy_memory_template_if_missing "agent-memory-cli-procedure" ".agents/memory/documentations/procedures/agent-memory-cli.md"
+  copy_memory_template_if_missing "local-embedding-procedure" ".agents/memory/documentations/procedures/local-huggingface-embedding-api.md"
+  create_empty_file_if_missing ".agents/memory/memory/facts/.gitkeep"
+  create_empty_file_if_missing ".agents/memory/memory/gotchas/.gitkeep"
+  create_empty_file_if_missing ".agents/memory/memory/events/.gitkeep"
+  create_empty_file_if_missing ".agents/memory/documentations/references/.gitkeep"
+fi
+
 migrate_legacy_markdown_if_missing \
   ".agents/DOCUMENTATIONS.md" \
   ".agents/memory/imports/legacy-documentations.md" \
@@ -2399,18 +2512,21 @@ migrate_legacy_markdown_if_missing \
   "Legacy memory records migrated from .agents/MEMORY.md." \
   "[legacy, memory]"
 
-configure_embedding
-write_memory_tool_files
-
 append_gitignore_entry_if_missing ".agents/TODO.md"
-append_gitignore_entry_if_missing ".agents/memory/backups/"
-append_gitignore_entry_if_missing ".agents/memory/merge-sessions/"
-append_gitignore_entry_if_missing ".agents/memory/rag/write.lock/"
-append_gitignore_entry_if_missing ".agents/memory/rag/manifest.json"
-append_gitignore_entry_if_missing ".agents/memory/rag/*.sqlite"
-append_gitignore_entry_if_missing ".agents/memory/rag/*.sqlite-*"
-append_gitignore_entry_if_missing ".agents/memory/rag/embedding-api/venv/"
-append_gitignore_entry_if_missing ".agents/memory/rag/embedding-api/models/"
+append_gitignore_entry_if_missing ".agents/backups/"
+append_gitignore_entry_if_missing ".agents/merge-sessions/"
+append_gitignore_entry_if_missing ".agents/openviking/locks/"
+
+if compat_memory_enabled; then
+  configure_embedding
+  write_memory_tool_files
+  append_gitignore_entry_if_missing ".agents/memory/rag/write.lock/"
+  append_gitignore_entry_if_missing ".agents/memory/rag/manifest.json"
+  append_gitignore_entry_if_missing ".agents/memory/rag/*.sqlite"
+  append_gitignore_entry_if_missing ".agents/memory/rag/*.sqlite-*"
+  append_gitignore_entry_if_missing ".agents/memory/rag/embedding-api/venv/"
+  append_gitignore_entry_if_missing ".agents/memory/rag/embedding-api/models/"
+fi
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "Git repository already initialized"
@@ -2419,30 +2535,34 @@ else
   echo "Initialized empty Git repository"
 fi
 
-".agents/memory/rag/agent-memory.py" install-hooks
+if compat_memory_enabled; then
+  ".agents/memory/rag/agent-memory.py" install-hooks
+fi
 
 while IFS= read -r markdown_file; do
   ensure_trailing_blank_line "$markdown_file"
 done < <(find "Agents.md" ".agents" -type f -name "*.md" 2>/dev/null | sort)
 
-start_repo_local_embedding_api_for_setup
-".agents/memory/rag/agent-memory.py" rebuild
+if compat_memory_enabled; then
+  start_repo_local_embedding_api_for_setup
+  ".agents/memory/rag/agent-memory.py" rebuild
+fi
 
 cat <<EOT
 agent-basics setup complete.
 
-OpenViking target:
-  agent-basics ov ... and OpenViking-backed MCP are the required direction.
-  This compatibility setup has not completed OpenViking migration yet.
-
-Compatibility memory source:
+OpenViking source store:
   .agents/memory/
 
-Compatibility RAG config:
-  .agents/memory/rag/config.json
+OpenViking repo metadata:
+  .agents/openviking/
 
-Compatibility memory MCP server:
-  .agents/memory/rag/memory-mcp.py
+Legacy memory snapshots:
+  .agents/openviking/legacy-memory/
+
+Conflict backups and merge sessions:
+  .agents/backups/
+  .agents/merge-sessions/
 
 Codex Desktop custom MCP fields for the target gateway:
   Name: agent-basics
@@ -2451,6 +2571,9 @@ Codex Desktop custom MCP fields for the target gateway:
   Arguments: mcp
   Working directory: $TARGET_DIR
 
-If agent-basics is not installed and you must use compatibility memory, use this command with no arguments:
-  $TARGET_DIR/.agents/memory/rag/memory-mcp.py
+Compatibility mini-RAG:
+  Not installed by default. Re-run with AGENT_BASICS_INSTALL_COMPAT_MEMORY=1 only if you need the old fallback memory CLI/MCP while OpenViking gateway work is incomplete.
+
+If legacy material was snapshotted, adapt it with:
+  .agents/memory/ADAPTATION.md
 EOT

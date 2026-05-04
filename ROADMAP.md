@@ -131,6 +131,8 @@ Target layout:
 
 `.agents/memory/` remains important permanently as the repo-owned OpenViking source store. The roadmap target is to adapt old custom mini-RAG memory into OV-native `memories/`, `resources/`, and `skills/` files, preserve legacy snapshots under `.agents/openviking/legacy-memory/`, and demote custom RAG code to fallback support until the OpenViking-backed gateway replaces it.
 
+Fresh setup should create only the OpenViking source-store shape under `.agents/memory/`. Existing legacy mini-RAG trees should be copied to `.agents/openviking/legacy-memory/<unix-timestamp>/` as migration input, not reinstalled into new projects unless the user explicitly enables compatibility fallback.
+
 ## Enforcement Model
 
 There is no universal way to force every agent client to perform pre-work and post-work routines. `agent-basics` should use progressive enforcement.
@@ -231,8 +233,9 @@ instead of approving many small command variations.
 11. Create `.agents/TODO.md`, `.agents/skills/`, `.agents/runs/`, `.agents/backups/`, and `.agents/merge-sessions/`.
 12. Configure `agent-basics mcp` for the repository where possible.
 13. Install git hooks.
-14. Ingest initial project instructions and selected documentation into OpenViking.
-15. Report final paths, health, and next agent actions.
+14. Snapshot any existing legacy `.agents/memory/{templates,memory,documentations,rag}` material before adaptation.
+15. Ingest initial project instructions and selected documentation into OpenViking.
+16. Report final paths, health, and next agent actions.
 
 `agent-basics upgrade [directory]` should perform the same checks but treat every existing file as user-owned unless the user explicitly accepts a merge or replacement.
 

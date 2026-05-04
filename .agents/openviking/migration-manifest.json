@@ -1,5 +1,5 @@
 {
-  "generated": 1777902445,
+  "generated": 1777904014,
   "legacy_snapshots": "/Users/leonardw/Projects/agent-basics/.agents/openviking/legacy-memory",
   "policy": "OpenViking native categories are canonical; source records are resources, not memory.",
   "records": [
@@ -101,6 +101,17 @@
       "stale_or_transitional": false,
       "status": "active",
       "title": "Keep .agents/memory as the OpenViking source store"
+    },
+    {
+      "legacy_path": ".agents/memory/memories/preferences/1777903459-setup-keeps-memory-as-ov-source-store.md",
+      "legacy_type": "unknown",
+      "ov_category": "preferences",
+      "reason": "OV-native preference memory",
+      "record_kind": "memory",
+      "requires_human_review": false,
+      "stale_or_transitional": false,
+      "status": "active",
+      "title": "Setup keeps .agents/memory as the OV source store"
     },
     {
       "legacy_path": ".agents/memory/memory/decisions/1777766400-defer-memory-rebuilds-for-routine-mcp-records.md",

@@ -67,6 +67,8 @@ agent-basics mcp
 
 `setup` and `upgrade` run the same safe setup flow. Re-running setup on an existing repository is the supported upgrade path for older agent-basics layouts: overlapping markdown files prompt for keep, replace, append, manual merge, web merge, or save-beside.
 
+Fresh setup now creates `.agents/memory/` as the OpenViking source store instead of installing the legacy mini-RAG layout by default. If an older `.agents/memory/{templates,memory,documentations,rag}` tree already exists, setup preserves a source snapshot under `.agents/openviking/legacy-memory/<unix-timestamp>/` so agents can adapt useful material into OV-native records. The old compatibility mini-RAG can still be installed explicitly with `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` while the OpenViking-backed gateway is incomplete.
+
 ## Target Repository Layout
 
 ```text
@@ -104,7 +106,7 @@ agent-basics mcp
     └── backups/
 ```
 
-The old compatibility mini-RAG layout may still exist during migration:
+The old compatibility mini-RAG layout may still exist during migration or when `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` is used:
 
 ```text
 .agents/memory/
@@ -119,7 +121,7 @@ The old compatibility mini-RAG layout may still exist during migration:
     manifest.json
 ```
 
-Before reshaping this repo, the existing compatibility source tree was copied to `.agents/openviking/legacy-memory/1777901050/`. Future setup agents should copy existing project memory into `.agents/memory/imports/<timestamp>-<source>/` or `.agents/openviking/legacy-memory/<timestamp>/`, then adapt it into OV-native `memories/`, `resources/`, and `skills/` records.
+Before reshaping this repo, the existing compatibility source tree was copied to `.agents/openviking/legacy-memory/1777901050/`. Future setup agents should preserve existing project memory into `.agents/memory/imports/<timestamp>-<source>/` or `.agents/openviking/legacy-memory/<timestamp>/`, then adapt it into OV-native `memories/`, `resources/`, and `skills/` records. Setup should not delete `.agents/memory/`; that directory is the repo-specific source store OpenViking will ingest from.
 
 ## OpenViking Gateway
 
@@ -185,12 +187,12 @@ If legacy `.agents/DOCUMENTATIONS.md`, `.agents/MEMORY.md`, or older agent-basic
 
 ## Compatibility Embedding Setup
 
-Compatibility mini-RAG setup requires one embedding configuration.
+Compatibility mini-RAG setup requires one embedding configuration and is no longer part of the default setup path. Use it only when the old fallback memory CLI/MCP is needed:
 
 Use an existing OpenAI-compatible embeddings API:
 
 ```bash
-agent-basics setup /path/to/project \
+AGENT_BASICS_INSTALL_COMPAT_MEMORY=1 agent-basics setup /path/to/project \
   --embedding-mode api \
   --embedding-base-url http://127.0.0.1:1234/v1 \
   --embedding-model text-embedding-embeddinggemma-300m-qat
@@ -202,7 +204,7 @@ If an embedding provider needs a secret, keep the secret in your shell and pass 
 
 ```bash
 export MY_EMBEDDING_API_KEY="..."
-agent-basics setup /path/to/project \
+AGENT_BASICS_INSTALL_COMPAT_MEMORY=1 agent-basics setup /path/to/project \
   --embedding-mode api \
   --embedding-base-url https://embedding.example/v1 \
   --embedding-model my-embedding-model \
@@ -214,7 +216,7 @@ Environment variables are still accepted as setup inputs, secret pointers, and o
 Or provide a HuggingFace model id or URL. Setup installs a repo-local Python virtualenv, pulls the model, verifies that it can produce finite vectors, and writes a small OpenAI-compatible API under `.agents/memory/rag/embedding-api/`.
 
 ```bash
-agent-basics setup /path/to/project \
+AGENT_BASICS_INSTALL_COMPAT_MEMORY=1 agent-basics setup /path/to/project \
   --embedding-mode huggingface \
   --embedding-hf-model Qwen/Qwen3-Embedding-0.6B
 ```

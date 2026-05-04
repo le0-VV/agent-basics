@@ -11,6 +11,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 - `skills/`: reusable workflows to register as OpenViking skills.
 - `imports/`: copied source material awaiting adaptation.
 - [Keep .agents/memory as the OpenViking source store](memories/preferences/1777901050-keep-memory-as-ov-source-store.md)
+- [Setup keeps .agents/memory as the OV source store](memories/preferences/1777903459-setup-keeps-memory-as-ov-source-store.md)
 - [Legacy compatibility memory snapshot created](memories/events/1777901050-legacy-memory-snapshot-created.md)
 
 ## Legacy Compatibility Snapshot

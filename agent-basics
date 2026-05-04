@@ -95,12 +95,15 @@ Setup options:
   --embedding-min-dimensions N
   --project-name NAME
 
-Embedding setup values are validated during setup and written to:
+Compatibility embedding setup values are validated during setup and written to:
   .agents/memory/rag/config.json
 
 OpenViking is the target required backend for memory, resources, skills, and
 retrieval. `agent-basics ov` uses a user-level OpenViking installation, normally
 under ~/.openviking, instead of installing OpenViking into each repository.
+Fresh setup creates `.agents/memory/` as the OpenViking source store and does
+not install the legacy mini-RAG unless AGENT_BASICS_INSTALL_COMPAT_MEMORY=1 is
+set.
 
 LM Studio management uses REST/OpenAI-compatible HTTP endpoints only. Do not use
 the `lms` CLI from Codex on macOS; it can launch the Electron app and crash.
