@@ -20,6 +20,8 @@ REPO_MEMORY_ROOT="$REPO_AGENTS_DIR/memory"
 REPO_OPENVIKING_DIR="$REPO_AGENTS_DIR/openviking"
 REPO_BACKUPS_DIR="$REPO_AGENTS_DIR/backups"
 REPO_MERGE_SESSIONS_DIR="$REPO_AGENTS_DIR/merge-sessions"
+REPO_SKILLS_DIR="$REPO_AGENTS_DIR/skills"
+REPO_RUNS_DIR="$REPO_AGENTS_DIR/runs"
 RAG_DIR="$REPO_MEMORY_ROOT/rag"
 EMBEDDING_API_DIR="$RAG_DIR/embedding-api"
 
@@ -241,6 +243,149 @@ Compatibility files are not the long-term architecture. When `agent-basics ov` a
 - While the compatibility layer is still in use, record important sources under `.agents/memory/documentations/sources/`.
 - While writing code, refer to recorded documentation sources before relying on memory for external APIs.
 - Add a new source record when you consult a new external reference that matters for future work.
+EOT
+      ;;
+    skills-index)
+      cat > "$template_file" <<'EOT'
+# Skills
+
+This file indexes repo-local agent workflows. Skills reduce repeated prompt overhead, but stable `agent-basics` commands remain the executable contract.
+
+## Available Skills
+
+- [Prework](.agents/skills/prework.md): establish context, run state, and plan before editing.
+- [Memory Update](.agents/skills/memory-update.md): record durable decisions, preferences, facts, cases, resources, and skills through OpenViking.
+- [Finish Work](.agents/skills/finish-work.md): verify, checkpoint, ingest, and commit completed work.
+
+## Command Surface
+
+Prefer these stable command prefixes:
+
+```bash
+agent-basics run
+agent-basics ov
+agent-basics verify
+agent-basics commit
+```
+
+Agents should use the OpenViking-backed MCP server when available and fall back to the same `agent-basics ov ...` commands when MCP is unavailable.
+EOT
+      ;;
+    skill-prework)
+      cat > "$template_file" <<'EOT'
+---
+name: agent-basics-prework
+description: Establish context, run state, and a concrete plan before editing an agent-basics repository.
+---
+
+# Prework Skill
+
+Use this before non-trivial repository work.
+
+## Steps
+
+1. Read `Agents.md`, `.agents/AGENT-BASICS.md`, `ROADMAP.md`, `.agents/TODO.md`, and `Skills.md` when they exist.
+2. Start or inspect run state with `agent-basics run start --task "<task>"` or `agent-basics run status`.
+3. Search prior context through the OpenViking MCP server or `agent-basics ov search "<query>"`.
+4. Inspect the git state before editing.
+5. Write or update the concrete checklist in `.agents/TODO.md`.
+
+## Commands
+
+```bash
+agent-basics run status
+agent-basics run start --task "<task>"
+agent-basics ov search "<query>"
+```
+
+## Output
+
+Proceed only when the current task, prior context, and planned file scope are clear.
+EOT
+      ;;
+    skill-memory-update)
+      cat > "$template_file" <<'EOT'
+---
+name: agent-basics-memory-update
+description: Record durable project context through the OpenViking-backed agent-basics gateway.
+---
+
+# Memory Update Skill
+
+Use this whenever durable project context should survive the current session.
+
+## Record
+
+Record through the OpenViking MCP server when available. Otherwise use `agent-basics ov record`.
+
+Use OpenViking memory categories:
+
+- `profile`
+- `preferences`
+- `entities`
+- `events`
+- `cases`
+- `patterns`
+- `tools`
+- `skills`
+
+Use resources for external documentation, URLs, references, and larger source material.
+
+## Steps
+
+1. Decide whether the information is durable enough to keep.
+2. Split mixed information into one independently updatable idea per record.
+3. Avoid secrets and local-only credentials.
+4. Record memory with `agent-basics ov record` or ingest resources with `agent-basics ov add-resource`.
+5. Run `agent-basics ov ingest-changed` after editing `.agents/memory/` source-store files.
+6. Verify retrieval with `agent-basics ov search "<query>"` when the record matters for future work.
+
+## Commands
+
+```bash
+agent-basics ov record <category> "<title>" --content "<content>"
+agent-basics ov add-resource <path-or-url>
+agent-basics ov add-skill <path>
+agent-basics ov ingest-changed
+agent-basics ov search "<query>"
+```
+EOT
+      ;;
+    skill-finish-work)
+      cat > "$template_file" <<'EOT'
+---
+name: agent-basics-finish-work
+description: Verify, ingest, checkpoint, and commit completed agent-basics repository work.
+---
+
+# Finish Work Skill
+
+Use this before handing work back to the user or another agent.
+
+## Steps
+
+1. Run `agent-basics verify` or the narrowest reliable validation for the changed surface.
+2. Record durable decisions, gotchas, and follow-up context through the memory update workflow.
+3. Run `agent-basics ov ingest-changed` after source-store, instruction, documentation, or skill changes.
+4. Update `.agents/TODO.md` by ticking completed items and recording blockers.
+5. Check `git status --short`.
+6. Stage intentional changes.
+7. Commit with `agent-basics commit "type(scope): description"` when a commit is expected.
+8. Finish or checkpoint run state with `agent-basics run finish --message "<summary>"` or `agent-basics run checkpoint --message "<summary>"`.
+
+## Commands
+
+```bash
+agent-basics verify
+agent-basics ov ingest-changed
+agent-basics run checkpoint --message "<summary>"
+agent-basics run finish --message "<summary>"
+agent-basics commit "feat(scope): description"
+```
+
+## Output
+
+Report changed files, validation results, memory/ingest status, commit hash when created, and any residual risk.
 EOT
       ;;
     memory-schema)
@@ -970,6 +1115,8 @@ create_memory_layout() {
     "$REPO_OPENVIKING_DIR/locks" \
     "$REPO_BACKUPS_DIR" \
     "$REPO_MERGE_SESSIONS_DIR" \
+    "$REPO_SKILLS_DIR" \
+    "$REPO_RUNS_DIR" \
     "$REPO_MEMORY_ROOT/inbox" \
     "$REPO_MEMORY_ROOT/imports" \
     "$REPO_MEMORY_ROOT/memories/profile" \
@@ -1169,6 +1316,22 @@ prompt_conflict_action() {
   local file_path="$1"
   local choice
 
+  choice="${AGENT_BASICS_CONFLICT_ACTION:-}"
+  case "$choice" in
+    k|K|keep) printf "k\n"; return ;;
+    r|R|replace) printf "r\n"; return ;;
+    a|A|append) printf "a\n"; return ;;
+    m|M|manual) printf "m\n"; return ;;
+    w|W|web|web-merge) printf "w\n"; return ;;
+    s|S|save) printf "s\n"; return ;;
+    "")
+      ;;
+    *)
+      echo "Error: AGENT_BASICS_CONFLICT_ACTION must be one of keep, replace, append, manual, web, or save." >&2
+      exit 2
+      ;;
+  esac
+
   require_interactive "$file_path conflicts with the agent-basics template, and stdin is not interactive."
 
   while true; do
@@ -1228,18 +1391,98 @@ manual_merge_file() {
   done
 }
 
+copy_bundled_merge_ui() {
+  local session_dir="$1"
+  local source_ui="$SCRIPT_DIR/demos/markdown-merge-ui.html"
+  local target_ui="$session_dir/markdown-merge-ui.html"
+
+  if [[ -f "$source_ui" ]]; then
+    cp "$source_ui" "$target_ui"
+  else
+    cat > "$target_ui" <<'EOT'
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>agent-basics markdown merge</title></head>
+<body>
+<h1>agent-basics markdown merge</h1>
+<p>The bundled merge UI was not found. Edit <code>final.md</code> in this session directory, then copy it over the target file when ready.</p>
+</body>
+</html>
+EOT
+  fi
+}
+
+create_web_merge_session() {
+  local source_path="$1"
+  local destination_path="$2"
+  local timestamp
+  local safe_name
+  local session_dir
+
+  timestamp="$(date -u +%s)"
+  safe_name="$(slugify "$(basename "$destination_path")")"
+  session_dir="$REPO_MERGE_SESSIONS_DIR/$timestamp-$safe_name"
+  mkdir -p "$session_dir"
+
+  cp "$destination_path" "$session_dir/existing.md"
+  cp "$source_path" "$session_dir/proposed.md"
+  cp "$source_path" "$session_dir/final.md"
+  copy_bundled_merge_ui "$session_dir"
+
+  python3 - "$session_dir/session.json" "$timestamp" "$destination_path" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+timestamp = int(sys.argv[2])
+destination = sys.argv[3]
+session_dir = path.parent
+payload = {
+    "created": timestamp,
+    "updated": timestamp,
+    "status": "unresolved",
+    "destination_path": destination,
+    "existing_path": str(session_dir / "existing.md"),
+    "proposed_path": str(session_dir / "proposed.md"),
+    "final_path": str(session_dir / "final.md"),
+    "ui_path": str(session_dir / "markdown-merge-ui.html"),
+    "instructions": [
+        "Open markdown-merge-ui.html for visual review or edit final.md directly.",
+        "Apply final.md to destination_path only after reviewing the merge.",
+    ],
+}
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+
+  printf "%s\n" "$session_dir"
+}
+
 web_merge_file() {
   local source_path="$1"
   local destination_path="$2"
   local merge_file
-  local server_script
+  local session_dir
+  local session_ui
+  local server_script=""
   local apply_choice
 
-  require_interactive "$destination_path needs an interactive terminal for the web merge UI."
+  backup_existing_file "$destination_path"
+  session_dir="$(create_web_merge_session "$source_path" "$destination_path")"
+  merge_file="$session_dir/final.md"
+  session_ui="$session_dir/markdown-merge-ui.html"
+  echo "Created web merge session: $session_dir"
+  echo "Bundled merge UI copy: $session_ui"
+  echo "Merge draft: $merge_file"
 
-  merge_file="$REPO_MERGE_SESSIONS_DIR/$(basename "$destination_path").$(date +%s).web.md"
+  if [[ "${AGENT_BASICS_OPEN_MERGE_UI:-1}" != "1" || ! -t 0 ]]; then
+    echo "Web merge UI was not launched. Open the UI file above or edit final.md directly, then apply it manually when ready."
+    return
+  fi
+
   server_script="$(mktemp "${TMPDIR:-/tmp}/agent-basics-web-merge.XXXXXX.py")"
-  mkdir -p "$(dirname "$merge_file")"
 
   cat > "$server_script" <<'PY'
 from __future__ import annotations
@@ -1771,6 +2014,8 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write('command = "agent-basics"\n')
     handle.write('args = ["mcp"]\n')
     handle.write(f"cwd = {quote(target_dir)}\n")
+    handle.write("\n[run]\n")
+    handle.write("stale_after_seconds = 86400\n")
 PY
   echo "Created: .agents/config.toml"
 }
@@ -2661,6 +2906,10 @@ trap cleanup_setup EXIT
 copy_or_merge_markdown_file "$agents_template" "Agents.md"
 seed_agent_basics_from_legacy_instructions
 copy_or_merge_markdown_file "$agent_basics_template" ".agents/AGENT-BASICS.md"
+copy_memory_template_if_missing "skills-index" "Skills.md"
+copy_memory_template_if_missing "skill-prework" ".agents/skills/prework.md"
+copy_memory_template_if_missing "skill-memory-update" ".agents/skills/memory-update.md"
+copy_memory_template_if_missing "skill-finish-work" ".agents/skills/finish-work.md"
 create_empty_file_if_missing ".agents/TODO.md"
 
 copy_memory_template_if_missing "memory-schema" ".agents/memory/SCHEMA.md"
@@ -2726,6 +2975,7 @@ append_gitignore_entry_if_missing ".agents/TODO.md"
 append_gitignore_entry_if_missing ".agents/backups/"
 append_gitignore_entry_if_missing ".agents/merge-sessions/"
 append_gitignore_entry_if_missing ".agents/openviking/locks/"
+append_gitignore_entry_if_missing ".agents/runs/"
 
 if compat_memory_enabled; then
   configure_embedding
@@ -2769,6 +3019,11 @@ OpenViking repo metadata:
 
 OpenViking repo config:
   .agents/config.toml
+
+Skills and run state:
+  Skills.md
+  .agents/skills/
+  .agents/runs/
 
 MCP config snippets:
   .agents/openviking/codex-mcp.json

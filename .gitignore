@@ -1,6 +1,7 @@
 .agents/TODO.md
 .agents/backups/
 .agents/merge-sessions/
+.agents/runs/
 .agents/memory/backups/
 .agents/memory/merge-sessions/
 .agents/memory/rag/write.lock/

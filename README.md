@@ -51,6 +51,7 @@ Target responsibilities:
 - OpenViking owns durable memory, documentation resources, semantic summaries, embedding indexes, vector search, and context organization.
 - Root `Agents.md` remains the agent entrypoint.
 - `.agents/AGENT-BASICS.md` remains the agent-basics operating manual.
+- `Skills.md` and `.agents/skills/` provide repeatable agent workflows that point to stable command prefixes.
 - `ROADMAP.md` records long-horizon project direction.
 - `.agents/TODO.md` records current cross-session work state.
 
@@ -184,7 +185,9 @@ The target setup flow should:
 14. Ingest initial project instructions and selected documentation into OpenViking.
 15. Report final paths, health, and next agent actions.
 
-The current setup script already handles markdown conflicts safely. When an existing markdown file differs from the agent-basics template, it prompts per file to keep, replace with backup, append with backup, manually merge in `$EDITOR`, use a local web merge UI, or save the incoming template beside the existing file as `*.agent-basics.new`.
+The current setup script handles markdown conflicts safely. When an existing markdown file differs from the agent-basics template, it prompts per file to keep, replace with backup, append with backup, manually merge in `$EDITOR`, use a local web merge UI, or save the incoming template beside the existing file as `*.agent-basics.new`. The web merge path creates an unresolved session under `.agents/merge-sessions/<unix-timestamp>-<file>/` with `existing.md`, `proposed.md`, `final.md`, `session.json`, and a copy of the bundled merge UI. If browser launch is disabled or unavailable, setup prints the exact session paths and leaves the existing file unchanged.
+
+Fresh setup also writes `Skills.md`, `.agents/skills/prework.md`, `.agents/skills/memory-update.md`, `.agents/skills/finish-work.md`, and `.agents/runs/`. Run instances are local state and ignored by git; `.agents/TODO.md` remains the human-readable cross-session checklist.
 
 If legacy `.agents/DOCUMENTATIONS.md`, `.agents/MEMORY.md`, or older agent-basics memory trees exist, setup should preserve the original material before adapting it. Agents should follow `.agents/memory/ADAPTATION.md`: inventory, copy, classify as memory/resource/skill/ignore, split mixed records, preserve `source_paths`, mark uncertain records for human review, ingest through OpenViking, then verify retrieval.
 
@@ -245,6 +248,7 @@ This builds and installs one binary:
 - `agent-basics ov write-default-config`: write the default LM Studio-backed OpenViking config.
 - `agent-basics ov import-repo-memory`: import the repo-owned OpenViking source store into the user-level OpenViking database. OV-native memory files are written directly under `viking://user/default/memories/<category>/projects/<repo>/`; they are not routed back through `ov add-memory`. If OpenViking reports the memory tree is busy, the command retries memory writes before failing.
 - `agent-basics ov search|read|record|add-resource|add-skill|ingest-changed|install-hooks|status`: repo-aware OpenViking operations scoped to the current repository by default.
+- `agent-basics ov install-hooks`: installs managed hooks that refresh OpenViking source-store changes and block pre-commit when `.agents/runs/current` is corrupt, complete, or stale. Configure the stale threshold with `[run].stale_after_seconds` in `.agents/config.toml`; use `AGENT_BASICS_RUN_HOOK_SKIP=1` only for emergency bypasses.
 - `agent-basics lmstudio status|hardware|plan|configure|load|unload|route-test`: inspect and manage LM Studio through persisted model defaults plus REST/OpenAI-compatible HTTP only.
 - `agent-basics migrate memory-to-openviking`: inventory legacy `.agents/memory/` records into OV-native categories.
 - `agent-basics run start|status|checkpoint|handoff|finish`: create and maintain repo-local long-horizon run state under `.agents/runs/`.

@@ -148,6 +148,7 @@ class AgentBasicsDispatcherTest(unittest.TestCase):
             self.assertEqual(state["status"], "complete")
             self.assertIsInstance(state["completed_at"], int)
             self.assertIn("Run finished: done", checkpoint_path.read_text(encoding="utf-8"))
+            self.assertFalse(current.exists())
 
     def test_run_status_fails_without_current_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

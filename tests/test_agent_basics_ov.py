@@ -21,6 +21,33 @@ spec.loader.exec_module(agent_basics_ov)
 
 
 class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
+    def write_run_state(
+        self,
+        repo: Path,
+        *,
+        run_id: str = "1777900000-test-run",
+        status: str = "active",
+        updated_at: int = 1777900000,
+    ) -> Path:
+        run_dir = repo / ".agents" / "runs" / run_id
+        run_dir.mkdir(parents=True)
+        (repo / ".agents" / "runs" / "current").write_text(run_id + "\n", encoding="utf-8")
+        (run_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "id": run_id,
+                    "task": "test run",
+                    "status": status,
+                    "created_at": updated_at,
+                    "updated_at": updated_at,
+                    "completed_at": updated_at if status == "complete" else None,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return run_dir
+
     def test_preingest_splits_and_hints_ownership_statements(self) -> None:
         candidates = agent_basics_ov.preingest_candidates(
             "harness_direction",
@@ -350,6 +377,109 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(payload["action"], "locked")
         self.assertEqual(len(commands), 1)
         self.assertIn(".agents/openviking/locks/ingest.lock", payload["lock"]["lock_path"])
+
+    def test_run_state_check_allows_missing_current_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = agent_basics_ov.agent_basics_run_state_check(Path(tmp), event="pre-commit", now=1777900100)
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["action"], "none")
+
+    def test_run_state_check_blocks_stale_active_run_on_pre_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".agents").mkdir()
+            (repo / ".agents" / "config.toml").write_text("[run]\nstale_after_seconds = 10\n", encoding="utf-8")
+            self.write_run_state(repo, updated_at=1777900000)
+
+            payload = agent_basics_ov.agent_basics_run_state_check(repo, event="pre-commit", now=1777900020)
+
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["blocking"])
+        self.assertEqual(payload["action"], "stale-active")
+
+    def test_run_state_check_warns_for_stale_active_run_on_post_merge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".agents").mkdir()
+            (repo / ".agents" / "config.toml").write_text("[run]\nstale_after_seconds = 10\n", encoding="utf-8")
+            self.write_run_state(repo, updated_at=1777900000)
+
+            payload = agent_basics_ov.agent_basics_run_state_check(repo, event="post-merge", now=1777900020)
+
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["blocking"])
+        self.assertEqual(payload["action"], "stale-active")
+
+    def test_run_state_check_blocks_corrupt_current_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            runs = repo / ".agents" / "runs"
+            runs.mkdir(parents=True)
+            (runs / "current").write_text("../bad\n", encoding="utf-8")
+
+            payload = agent_basics_ov.agent_basics_run_state_check(repo, event="post-merge", now=1777900000)
+
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["blocking"])
+        self.assertEqual(payload["action"], "invalid")
+
+    def test_run_state_check_blocks_complete_current_on_pre_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self.write_run_state(repo, status="complete", updated_at=1777900000)
+
+            payload = agent_basics_ov.agent_basics_run_state_check(repo, event="pre-commit", now=1777900001)
+
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["blocking"])
+        self.assertEqual(payload["action"], "complete-current")
+
+    def test_run_state_hook_bypass_allows_emergency_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self.write_run_state(repo, status="complete", updated_at=1777900000)
+            previous = os.environ.get("AGENT_BASICS_RUN_HOOK_SKIP")
+            os.environ["AGENT_BASICS_RUN_HOOK_SKIP"] = "1"
+            try:
+                payload = agent_basics_ov.agent_basics_run_state_check(repo, event="pre-commit", now=1777900001)
+            finally:
+                if previous is None:
+                    os.environ.pop("AGENT_BASICS_RUN_HOOK_SKIP", None)
+                else:
+                    os.environ["AGENT_BASICS_RUN_HOOK_SKIP"] = previous
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["action"], "skipped")
+
+    def test_ov_hook_blocks_before_ingest_when_run_state_is_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".agents").mkdir()
+            (repo / ".agents" / "config.toml").write_text("[run]\nstale_after_seconds = 1\n", encoding="utf-8")
+            self.write_run_state(repo, updated_at=1)
+            commands: list[list[str]] = []
+
+            def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+                commands.append(command)
+                return {
+                    "ok": True,
+                    "command": command,
+                    "returncode": 0,
+                    "stdout": ".agents/memory/memories/preferences/keep.md",
+                    "stderr": "",
+                }
+
+            original = agent_basics_ov.run_command
+            try:
+                agent_basics_ov.run_command = fake_run
+                payload = agent_basics_ov.ov_hook_run_payload(repo, event="pre-commit", prompt=False)
+            finally:
+                agent_basics_ov.run_command = original
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["action"], "run-state-blocked")
+        self.assertEqual(commands, [])
 
     def test_ov_mkdir_p_builds_valid_viking_uris(self) -> None:
         commands: list[list[str]] = []

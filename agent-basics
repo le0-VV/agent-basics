@@ -487,6 +487,7 @@ def command_finish(args: list[str]) -> int:
     message = parse_message(args, "finish") or "Run finished."
     timestamp = unix_ts()
     run_dir = current_run_dir()
+    current_pointer = runs_root() / "current"
     state_path = run_dir / "state.json"
     state = read_state(state_path)
     state["status"] = "complete"
@@ -495,6 +496,11 @@ def command_finish(args: list[str]) -> int:
     write_state(state_path, state)
     append_entry(run_dir / "CHECKPOINT.md", timestamp, f"Run finished: {message}")
     append_entry(run_dir / "handoff.md", timestamp, f"Run finished: {message}")
+    try:
+        if current_pointer.read_text(encoding="utf-8").strip() == run_dir.name:
+            current_pointer.unlink()
+    except FileNotFoundError:
+        pass
     print(f"Finished run: {state.get('id', run_dir.name)}")
     print(f"Timestamp: {timestamp}")
     return 0

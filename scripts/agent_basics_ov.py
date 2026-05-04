@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import time
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -27,6 +28,7 @@ DEFAULT_OV_BIN = DEFAULT_OV_HOME / "venv" / "bin" / "ov"
 DEFAULT_OV_CONFIG = DEFAULT_OV_HOME / "ov.conf"
 DEFAULT_OV_SERVER = DEFAULT_OV_HOME / "venv" / "bin" / "openviking-server"
 DEFAULT_OV_VLM_TIMEOUT_SECONDS = 86400
+DEFAULT_RUN_STALE_SECONDS = 86400
 DEFAULT_OV_MEMORY_TARGET = "viking://user/default/memories"
 DEFAULT_OV_RESOURCE_TARGET = "viking://resources/projects"
 OV_HOOK_MARKER = "agent-basics-openviking-hook"
@@ -1925,6 +1927,171 @@ def ov_prompt_for_ingest(event: str, relevant_paths: list[str]) -> bool:
     return answer in {"", "y", "yes"}
 
 
+def load_repo_toml_config(repo: Path) -> dict[str, Any]:
+    path = repo / ".agents" / "config.toml"
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except tomllib.TOMLDecodeError as exc:
+        return {"_error": str(exc)}
+
+
+def configured_run_stale_seconds(repo: Path) -> int:
+    raw_env = os.environ.get("AGENT_BASICS_RUN_STALE_SECONDS", "").strip()
+    if raw_env:
+        try:
+            return max(0, int(raw_env))
+        except ValueError:
+            return DEFAULT_RUN_STALE_SECONDS
+    config = load_repo_toml_config(repo)
+    run_config = config.get("run") if isinstance(config, dict) else None
+    if isinstance(run_config, dict):
+        value = run_config.get("stale_after_seconds")
+        if isinstance(value, int) and not isinstance(value, bool):
+            return max(0, value)
+    return DEFAULT_RUN_STALE_SECONDS
+
+
+def run_state_result(
+    *,
+    ok: bool,
+    action: str,
+    event: str,
+    blocking: bool = False,
+    reason: str = "",
+    **extra: Any,
+) -> dict[str, Any]:
+    payload = {"ok": ok, "event": event, "action": action, "blocking": blocking}
+    if reason:
+        payload["reason"] = reason
+    payload.update(extra)
+    return payload
+
+
+def agent_basics_run_state_check(repo: Path, *, event: str, now: int | None = None) -> dict[str, Any]:
+    if truthy_env("AGENT_BASICS_RUN_HOOK_SKIP"):
+        return run_state_result(
+            ok=True,
+            action="skipped",
+            event=event,
+            reason="AGENT_BASICS_RUN_HOOK_SKIP is set",
+        )
+    current = repo / ".agents" / "runs" / "current"
+    if not current.exists():
+        return run_state_result(ok=True, action="none", event=event, reason="no current run pointer")
+    if not current.is_file():
+        return run_state_result(
+            ok=False,
+            action="invalid",
+            event=event,
+            blocking=True,
+            reason=".agents/runs/current is not a file",
+            current_path=str(current),
+        )
+    run_id = current.read_text(encoding="utf-8", errors="replace").strip()
+    if not run_id or "/" in run_id or "\\" in run_id:
+        return run_state_result(
+            ok=False,
+            action="invalid",
+            event=event,
+            blocking=True,
+            reason=".agents/runs/current does not contain a valid run id",
+            current_path=str(current),
+            run_id=run_id,
+        )
+    run_dir = current.parent / run_id
+    state_path = run_dir / "state.json"
+    if not run_dir.is_dir():
+        return run_state_result(
+            ok=False,
+            action="missing-run-dir",
+            event=event,
+            blocking=True,
+            reason="current run directory is missing",
+            run_id=run_id,
+            run_dir=str(run_dir),
+        )
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return run_state_result(
+            ok=False,
+            action="missing-state",
+            event=event,
+            blocking=True,
+            reason="current run state.json is missing",
+            run_id=run_id,
+            state_path=str(state_path),
+        )
+    except json.JSONDecodeError as exc:
+        return run_state_result(
+            ok=False,
+            action="invalid-state",
+            event=event,
+            blocking=True,
+            reason=f"current run state.json is invalid: {exc}",
+            run_id=run_id,
+            state_path=str(state_path),
+        )
+    if not isinstance(state, dict):
+        return run_state_result(
+            ok=False,
+            action="invalid-state",
+            event=event,
+            blocking=True,
+            reason="current run state.json must contain an object",
+            run_id=run_id,
+            state_path=str(state_path),
+        )
+
+    status = str(state.get("status", "") or "")
+    timestamp_now = int(time.time()) if now is None else int(now)
+    stale_after = configured_run_stale_seconds(repo)
+    updated_at = state.get("updated_at", state.get("created_at"))
+    age_seconds = None
+    if isinstance(updated_at, int) and not isinstance(updated_at, bool):
+        age_seconds = max(0, timestamp_now - updated_at)
+
+    base = {
+        "run_id": run_id,
+        "status": status,
+        "state_path": str(state_path),
+        "stale_after_seconds": stale_after,
+        "age_seconds": age_seconds,
+    }
+    if status == "complete":
+        blocking = event == "pre-commit"
+        return run_state_result(
+            ok=not blocking,
+            action="complete-current",
+            event=event,
+            blocking=blocking,
+            reason="current run is already complete; remove .agents/runs/current or start a new run",
+            **base,
+        )
+    if status != "active":
+        return run_state_result(
+            ok=False,
+            action="invalid-status",
+            event=event,
+            blocking=True,
+            reason="current run status must be active or complete",
+            **base,
+        )
+    if stale_after > 0 and age_seconds is not None and age_seconds > stale_after:
+        blocking = event == "pre-commit"
+        return run_state_result(
+            ok=not blocking,
+            action="stale-active",
+            event=event,
+            blocking=blocking,
+            reason="current active run is stale; checkpoint, finish, or set AGENT_BASICS_RUN_HOOK_SKIP=1 for an emergency bypass",
+            **base,
+        )
+    return run_state_result(ok=True, action="active", event=event, **base)
+
+
 def ov_hook_run_payload(
     repo: Path,
     *,
@@ -1942,12 +2109,24 @@ def ov_hook_run_payload(
             "action": "skipped",
             "reason": "AGENT_BASICS_OV_HOOK_SKIP is set",
         }
+    run_state = agent_basics_run_state_check(repo, event=event)
+    if not run_state.get("ok") and run_state.get("blocking"):
+        return {
+            "ok": False,
+            "changed": False,
+            "repo": str(repo),
+            "event": event,
+            "action": "run-state-blocked",
+            "error": run_state.get("reason", "run state check failed"),
+            "run_state": run_state,
+        }
     changes = ov_hook_changed_paths(repo, event)
     payload: dict[str, Any] = {
         "ok": bool(changes.get("ok")),
         "changed": False,
         "repo": str(repo),
         "event": event,
+        "run_state": run_state,
         "source_store": changes,
     }
     if not changes.get("ok"):

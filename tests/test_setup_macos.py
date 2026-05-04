@@ -123,6 +123,11 @@ class SetupMacosTest(unittest.TestCase):
             self.assertTrue((repo / ".agents" / "openviking" / "repo.json").is_file())
             self.assertTrue((repo / ".agents" / "backups").is_dir())
             self.assertTrue((repo / ".agents" / "merge-sessions").is_dir())
+            self.assertTrue((repo / ".agents" / "runs").is_dir())
+            self.assertTrue((repo / "Skills.md").is_file())
+            self.assertTrue((repo / ".agents" / "skills" / "prework.md").is_file())
+            self.assertTrue((repo / ".agents" / "skills" / "memory-update.md").is_file())
+            self.assertTrue((repo / ".agents" / "skills" / "finish-work.md").is_file())
 
             self.assertFalse((memory_root / "memory").exists())
             self.assertFalse((memory_root / "documentations").exists())
@@ -145,6 +150,7 @@ class SetupMacosTest(unittest.TestCase):
                     },
                 },
             )
+            self.assertEqual(config["run"]["stale_after_seconds"], 86400)
 
             snippet = json.loads((repo / ".agents" / "openviking" / "codex-mcp.json").read_text(encoding="utf-8"))
             self.assertEqual(
@@ -248,6 +254,73 @@ class SetupMacosTest(unittest.TestCase):
 
             self.assertIn("Skipped user-level OpenViking verification", result.stdout)
             self.assertTrue((repo / ".agents" / "config.toml").is_file())
+
+    def test_setup_web_merge_conflict_creates_unresolved_session_without_gui(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "Agents.md").write_text("# Existing Agents\n\nKeep this custom rule.\n", encoding="utf-8")
+
+            result = self.run_setup(repo, {"AGENT_BASICS_CONFLICT_ACTION": "web"})
+
+            self.assertIn("Created web merge session:", result.stdout)
+            self.assertIn("Web merge UI was not launched", result.stdout)
+            self.assertEqual((repo / "Agents.md").read_text(encoding="utf-8").rstrip() + "\n", "# Existing Agents\n\nKeep this custom rule.\n")
+            sessions = sorted((repo / ".agents" / "merge-sessions").iterdir())
+            self.assertEqual(len(sessions), 1)
+            session = sessions[0]
+            self.assertTrue((session / "existing.md").is_file())
+            self.assertTrue((session / "proposed.md").is_file())
+            self.assertTrue((session / "final.md").is_file())
+            self.assertTrue((session / "markdown-merge-ui.html").is_file())
+            metadata = json.loads((session / "session.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["status"], "unresolved")
+            self.assertEqual(metadata["destination_path"], "Agents.md")
+            self.assertIsInstance(metadata["created"], int)
+            backups = list((repo / ".agents" / "backups").iterdir())
+            self.assertEqual(len(backups), 1)
+
+    def test_upgrade_keeps_existing_user_owned_skills_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "Skills.md").write_text("# Custom Skills\n\n- Custom workflow.\n", encoding="utf-8")
+            skill = repo / ".agents" / "skills" / "prework.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("# Custom Prework\n\nDo this first.\n", encoding="utf-8")
+
+            result = self.run_setup(repo, {"AGENT_BASICS_CONFLICT_ACTION": "keep"})
+
+            self.assertIn("Kept existing file: Skills.md", result.stdout)
+            self.assertIn("Kept existing file: .agents/skills/prework.md", result.stdout)
+            self.assertEqual((repo / "Skills.md").read_text(encoding="utf-8").rstrip() + "\n", "# Custom Skills\n\n- Custom workflow.\n")
+            self.assertEqual(skill.read_text(encoding="utf-8").rstrip() + "\n", "# Custom Prework\n\nDo this first.\n")
+            self.assertTrue((repo / ".agents" / "skills" / "memory-update.md").is_file())
+            self.assertTrue((repo / ".agents" / "skills" / "finish-work.md").is_file())
+
+    def test_dogfood_existing_repo_upgrade_preserves_legacy_agent_instructions_and_snapshots_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            legacy_instructions = repo / ".agents" / "INSTRUCTIONS.md"
+            legacy_instructions.parent.mkdir(parents=True)
+            legacy_instructions.write_text("# Legacy Instructions\n\nKeep existing operating rules.\n", encoding="utf-8")
+            legacy_memory = repo / ".agents" / "memory" / "memory" / "facts" / "legacy.md"
+            legacy_memory.parent.mkdir(parents=True)
+            legacy_memory.write_text("# Legacy Fact\n", encoding="utf-8")
+
+            result = self.run_setup(repo, {"AGENT_BASICS_CONFLICT_ACTION": "keep"})
+
+            self.assertIn("Git repository already initialized", result.stdout)
+            self.assertTrue((repo / "Agents.md").is_file())
+            self.assertEqual(
+                (repo / ".agents" / "AGENT-BASICS.md").read_text(encoding="utf-8").rstrip() + "\n",
+                "# Legacy Instructions\n\nKeep existing operating rules.\n",
+            )
+            snapshots = sorted((repo / ".agents" / "openviking" / "legacy-memory").iterdir())
+            self.assertEqual(len(snapshots), 1)
+            self.assertTrue((snapshots[0] / "memory" / "facts" / "legacy.md").is_file())
+            self.assertTrue((repo / ".agents" / "config.toml").is_file())
+            self.assertTrue((repo / ".agents" / "openviking" / "codex-mcp.json").is_file())
+            self.assertFalse((repo / ".agents" / "memory" / "rag").exists())
 
 
 if __name__ == "__main__":

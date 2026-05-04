@@ -35,11 +35,14 @@ Implemented and verified in this repository:
 - `agent-basics ov search`, `read`, `record`, `add-resource`, `add-skill`, `ingest-changed`, and `status` are implemented as repo-aware OpenViking wrappers.
 - `agent-basics mcp` is implemented as a repo-aware OpenViking-backed stdio MCP server.
 - LM Studio setup helpers avoid the `lms` CLI and clear stale persisted routing prompt/schema defaults by default.
+- Setup/upgrade creates the modern source-store structure, verifies or installs user-level OpenViking, writes `.agents/config.toml`, generates a Codex-style MCP snippet, creates `Skills.md` plus `.agents/skills/`, creates `.agents/runs/`, and creates first-class markdown merge sessions for conflicts.
+- Managed OpenViking hooks refresh source-store changes and check `.agents/runs/current` before commits.
+- Fast dogfood coverage exercises fresh setup and existing-repo upgrade with fake user-level OpenViking.
 
 Still transitional or incomplete:
 
 - The custom `.agents/memory/rag/` mini-RAG still exists as fallback compatibility.
-- Setup/upgrade can create the source-store structure, verify or install user-level OpenViking, write `.agents/config.toml`, and generate a Codex-style MCP snippet. The full merge UI flow is still incomplete.
+- Broader live dogfood against real OpenViking/LM Studio should continue, especially for large ingests and model/provider edge cases.
 
 ## What agent-basics Is
 
@@ -315,8 +318,8 @@ Core commands:
 
 | Command | Status | Notes |
 | --- | --- | --- |
-| `agent-basics setup [directory]` | Partial | Creates the modern source-store shape, verifies or installs user-level OV, writes repo config, and emits MCP snippets; merge UI polish remains. |
-| `agent-basics upgrade [directory]` | Partial | Uses the setup path for existing repos; OpenViking checks/config run, but conflict UX still needs the bundled merge UI. |
+| `agent-basics setup [directory]` | Implemented | Creates the modern source-store shape, verifies or installs user-level OV, writes repo config, emits MCP snippets, creates skills/run directories, and opens or records merge UI sessions for markdown conflicts. |
+| `agent-basics upgrade [directory]` | Implemented | Uses the setup path for existing repos; existing user files stay user-owned unless a safe merge/replace/append/save path is selected. |
 | `agent-basics doctor [--online]` | Partial | Needs stronger OV/provider/repo-state checks. |
 | `agent-basics mcp` | Implemented | Repo-aware OpenViking-backed MCP server with search, read, record, add-resource, add-skill, ingest, status, and doctor tools. |
 | `agent-basics ov <command>` | Implemented | Repo-aware setup/import/search/read/record/resource/skill/status wrappers exist; polish remains for setup integration. |
@@ -341,7 +344,7 @@ OpenViking wrapper commands:
 | `agent-basics ov add-resource <path-or-url>` | Implemented | Repo-aware resource ingestion wrapper. |
 | `agent-basics ov add-skill <path>` | Implemented | Registers skills through OpenViking; OpenViking currently does not expose a target URI for skills. |
 | `agent-basics ov ingest-changed` | Implemented | Incremental import/ingest after source-store changes. |
-| `agent-basics ov install-hooks` | Implemented | Installs managed `pre-commit` and `post-merge` hooks that run repo-scoped OpenViking ingest for source-store changes. |
+| `agent-basics ov install-hooks` | Implemented | Installs managed `pre-commit` and `post-merge` hooks that run repo-scoped OpenViking ingest for source-store changes and check run-state consistency. |
 | `agent-basics ov status` | Implemented | Repo-scoped import, source-store, namespace, and OpenViking status. |
 
 LM Studio commands:
@@ -360,8 +363,8 @@ LM Studio commands:
 
 Migration commands:
 
-- `agent-basics setup --dry-run <directory>`
-- `agent-basics setup --merge-ui <directory>`
+- `agent-basics setup <directory>`
+- `agent-basics upgrade <directory>`
 - `agent-basics migrate memory-to-openviking`
 
 Compatibility commands:
@@ -398,13 +401,13 @@ Gemma 4 E2B should be used with shallow structured-output schemas for routing an
 
 ## Immediate Next Work
 
-The next unlock is dogfooding and cleanup around the OpenViking-backed harness:
+The next unlock is hardening the now-usable OpenViking-backed harness:
 
-1. Dogfood fresh setup and upgrade on sample repositories with real user-level OpenViking.
-2. Wire the markdown merge UI into setup conflict prompts as a first-class path.
-3. Add hook checks for unfinished or stale `.agents/runs/` state.
-4. Add `Skills.md` or `.agents/skills/` workflows for prework, memory update, verification, and finish-work.
-5. Decide when `.agents/memory/rag/` can be removed from new installs and retained only as legacy fallback.
+1. Run longer live dogfood passes against real OpenViking/LM Studio on messy existing repositories.
+2. Decide when the checked-in compatibility `.agents/memory/rag/` source files can move to a legacy package, while keeping old-repo fallback support available.
+3. Add CI examples that run `agent-basics verify` plus `agent-basics ov status --offline`.
+4. Measure whether `Skills.md` plus stable command prefixes actually reduce approval prompts in sample project work.
+5. Defer a full agent runner until hooks, MCP, skills, and command workflows show a concrete gap.
 
 ## Milestones
 
@@ -420,7 +423,7 @@ Status: complete.
 
 Milestone 2: OpenViking setup proof.
 
-Status: complete for this repository, with setup flow polish still planned.
+Status: complete for this repository.
 
 - Install and configure OpenViking through `agent-basics`.
 - Create repo-local OpenViking metadata under `.agents/openviking/`.
@@ -454,7 +457,7 @@ Acceptance criteria:
 
 Milestone 4: long-horizon workflow.
 
-Status: initial implementation complete.
+Status: implemented.
 
 - Implement `agent-basics run start/status/checkpoint/finish/handoff`.
 - Add `.agents/runs/` state.
@@ -469,7 +472,7 @@ Acceptance criteria:
 
 Milestone 5: skills and command approval reduction.
 
-Status: planned.
+Status: implemented, with measurement still planned.
 
 - Add `Skills.md` or `.agents/skills/`.
 - Create prework, memory-update, and finish-work skills.
@@ -483,11 +486,11 @@ Acceptance criteria:
 
 Milestone 6: migration UI.
 
-Status: planned.
+Status: implemented for markdown instruction conflicts; broader memory adaptation UI remains planned.
 
 - Wire the markdown merge prototype into setup.
 - Support safe review of `Agents.md` and `.agents/AGENT-BASICS.md`.
-- Support migration of legacy agent-basics markdown into `.agents/memory/` OV-native source files and then into OpenViking.
+- Support migration of legacy agent-basics markdown into `.agents/memory/` OV-native source files and then into OpenViking in a later expansion.
 - Preserve backups and unresolved merge sessions.
 
 Acceptance criteria:
