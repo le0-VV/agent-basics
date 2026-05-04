@@ -18,6 +18,29 @@ The project should not grow into a second memory engine. OpenViking should own m
 - `Skills.md` or `.agents/skills/` should describe repeated workflows, but executable work should be routed through stable `agent-basics` commands.
 - Setup and upgrade must treat existing user instructions as valuable project data and provide safe merge/review paths.
 
+## Current State
+
+This section separates shipped behavior from target architecture.
+
+Implemented and verified in this repository:
+
+- User-level OpenViking is installed under `~/.openviking`.
+- OpenViking is configured for the local LM Studio chat/VLM and embedding endpoints.
+- `.agents/memory/` is preserved as the repo-owned OpenViking source store.
+- `.agents/openviking/migration-manifest.json` records migration/adaptation state.
+- `.agents/openviking/import-state.json` records import hashes, targets, and status.
+- `agent-basics ov import-repo-memory --write` writes reviewed OV-native memory files directly into OpenViking memory categories.
+- `agent-basics ov import-repo-memory --write` ingests reviewed source-store resources through OpenViking resource ingestion.
+- Direct `ov read` and semantic `ov find` were verified against imported repo memory.
+- LM Studio setup helpers avoid the `lms` CLI and clear stale persisted routing prompt/schema defaults by default.
+
+Still transitional or incomplete:
+
+- `agent-basics mcp` is still compatibility memory-backed; it is not yet the OpenViking gateway.
+- `agent-basics ov search`, `record`, `read`, `add-resource`, `add-skill`, `ingest-changed`, and repo-aware `status` are target commands, not complete wrappers yet.
+- The custom `.agents/memory/rag/` mini-RAG still exists as fallback compatibility.
+- Setup/upgrade can create the source-store structure, but the full polished OpenViking setup, MCP configuration, and merge UI flow are not complete.
+
 ## What agent-basics Is
 
 `agent-basics` is the harness layer around a repository.
@@ -58,6 +81,15 @@ Agent client
 ```
 
 `agent-basics` should provide a repo-aware gateway instead of asking every agent to call OpenViking directly.
+
+One OpenViking server should handle many repositories. Repository isolation should come from repo-scoped URI namespaces and repo metadata, not from one OpenViking installation per repo:
+
+```text
+viking://user/default/memories/<category>/projects/<repo-slug>/<file>.md
+viking://resources/projects/<repo-slug>/...
+```
+
+The gateway should infer the repository from `cwd` by default, allow an explicit `repo_path` for MCP clients that cannot set `cwd`, and scope search/write operations to the current repository unless the caller explicitly requests wider search.
 
 Responsibilities:
 
@@ -132,6 +164,12 @@ Target layout:
 `.agents/memory/` remains important permanently as the repo-owned OpenViking source store. The roadmap target is to adapt old custom mini-RAG memory into OV-native `memories/`, `resources/`, and `skills/` files, preserve legacy snapshots under `.agents/openviking/legacy-memory/`, and demote custom RAG code to fallback support until the OpenViking-backed gateway replaces it.
 
 Fresh setup should create only the OpenViking source-store shape under `.agents/memory/`. Existing legacy mini-RAG trees should be copied to `.agents/openviking/legacy-memory/<unix-timestamp>/` as migration input, not reinstalled into new projects unless the user explicitly enables compatibility fallback.
+
+Current `.agents/memory/` status:
+
+- Canonical OV source store: `.agents/memory/memories/`, `.agents/memory/resources/`, `.agents/memory/skills/`, `.agents/memory/imports/`, `SCHEMA.md`, `INDEX.md`, and `ADAPTATION.md`.
+- Legacy/transitional compatibility: `.agents/memory/memory/`, `.agents/memory/documentations/`, `.agents/memory/templates/`, and `.agents/memory/rag/`.
+- `agent-basics ov import-repo-memory` currently imports the canonical OV source-store files and ignores legacy/transitional files unless they have been adapted into the canonical layout.
 
 ## Enforcement Model
 
@@ -267,36 +305,55 @@ The UI should let users:
 
 ## CLI Modes
 
+Status legend:
+
+- Implemented: callable and covered by basic tests or manual verification.
+- Partial: callable, but behavior is compatibility-backed or lacks the final OpenViking/repo-aware contract.
+- Planned: target interface only.
+
 Core commands:
 
-- `agent-basics setup [directory]`
-- `agent-basics upgrade [directory]`
-- `agent-basics doctor [--online]`
-- `agent-basics mcp`
-- `agent-basics ov <command>`
-- `agent-basics run <command>`
-- `agent-basics verify`
-- `agent-basics commit`
+| Command | Status | Notes |
+| --- | --- | --- |
+| `agent-basics setup [directory]` | Partial | Creates the modern source-store shape, but full OV setup, MCP configuration, and merge UI polish are incomplete. |
+| `agent-basics upgrade [directory]` | Partial | Uses the setup path for existing repos; conflict UX still needs the bundled merge UI. |
+| `agent-basics doctor [--online]` | Partial | Needs stronger OV/provider/repo-state checks. |
+| `agent-basics mcp` | Partial | Currently compatibility memory-backed; next milestone is OpenViking-backed MCP. |
+| `agent-basics ov <command>` | Partial | Some OV setup/import commands exist; search/record/read/status wrappers are still planned. |
+| `agent-basics lmstudio <command>` | Implemented | REST/OpenAI-compatible management and route tests exist; LM Studio API coverage still limits some load/inference settings. |
+| `agent-basics migrate memory-to-openviking` | Implemented | Inventories/adapts legacy memory into OV-native categories and manifest state. |
+| `agent-basics memory <command>` | Implemented | Transitional mini-RAG compatibility only. |
+| `agent-basics run <command>` | Planned | Long-horizon run state. |
+| `agent-basics verify` | Planned | Unified validation entrypoint. |
+| `agent-basics commit` | Planned | Supervised-author commit helper and hook integration. |
 
 OpenViking wrapper commands:
 
-- `agent-basics ov doctor`
-- `agent-basics ov install-system`
-- `agent-basics ov write-default-config`
-- `agent-basics ov import-repo-memory`
-- `agent-basics ov search <query>`
-- `agent-basics ov record`
-- `agent-basics ov add-resource <path-or-url>`
-- `agent-basics ov add-skill <path>`
-- `agent-basics ov ingest-changed`
-- `agent-basics ov status`
-- `agent-basics lmstudio status`
-- `agent-basics lmstudio hardware`
-- `agent-basics lmstudio plan`
-- `agent-basics lmstudio configure`
-- `agent-basics lmstudio load`
-- `agent-basics lmstudio unload`
-- `agent-basics lmstudio route-test`
+| Command | Status | Notes |
+| --- | --- | --- |
+| `agent-basics ov doctor` | Partial | Should become the full OV install/config/provider/repo-state doctor. |
+| `agent-basics ov install-system` | Implemented | Installs OpenViking under user-level home. |
+| `agent-basics ov write-default-config` | Implemented | Writes LM Studio-backed `ov.conf` with positive VLM timeout. |
+| `agent-basics ov import-repo-memory` | Implemented | Writes OV-native memories directly and ingests source-store resources/skills. |
+| `agent-basics ov search <query>` | Planned | Repo-scoped semantic search wrapper. |
+| `agent-basics ov read <uri>` | Planned | Exact read wrapper for URIs returned by search. |
+| `agent-basics ov record` | Planned | Durable memory writer with category validation. |
+| `agent-basics ov add-resource <path-or-url>` | Planned | Repo-aware resource ingestion wrapper. |
+| `agent-basics ov add-skill <path>` | Planned | Repo-aware skill ingestion wrapper. |
+| `agent-basics ov ingest-changed` | Planned | Incremental import/ingest after source-store changes. |
+| `agent-basics ov status` | Planned | Repo-scoped import, queue, lock, and provider status. |
+
+LM Studio commands:
+
+| Command | Status | Notes |
+| --- | --- | --- |
+| `agent-basics lmstudio status` | Implemented | Checks local REST/OpenAI-compatible model state. |
+| `agent-basics lmstudio hardware` | Implemented | Assesses host hardware for load planning. |
+| `agent-basics lmstudio plan` | Implemented | Produces deterministic local model plan. |
+| `agent-basics lmstudio configure` | Implemented | Writes backed-up persisted defaults and clears stale routing defaults by default. |
+| `agent-basics lmstudio load` | Implemented | Uses REST only; avoids `lms` CLI. |
+| `agent-basics lmstudio unload` | Implemented | Uses REST only; avoids `lms` CLI. |
+| `agent-basics lmstudio route-test` | Implemented | Sends request-scoped routing prompt/schema. |
 
 `agent-basics ov import-repo-memory` should write OV-native memory source files directly into `viking://user/default/memories/<category>/projects/<repo>/` and use OpenViking resource/skill ingestion only for resources and skills. Repo source memory should not depend on `ov add-memory` extraction to rediscover already-structured records. Memory writes should retry when OpenViking reports a busy memory tree because previous extraction or indexing jobs may still hold locks.
 
@@ -338,9 +395,21 @@ Gemma 4 E2B should be used with shallow structured-output schemas for routing an
 
 `agent-basics lmstudio configure` should own the persistent LM Studio defaults that are not exposed through the current REST load endpoint, including CPU thread pool size, concurrent sessions, context length, GPU offload ratio, KV cache quantization, and temperature. It should clear stale persisted routing system-prompt and structured-output defaults by default because OpenViking sends its own request-time grammar. REST/OpenAI-compatible routing tests should still send request-time settings explicitly.
 
+## Immediate Next Work
+
+The next unlock is an OpenViking-backed repo-aware gateway:
+
+1. Implement `agent-basics ov search` and `agent-basics ov read` as thin, repo-scoped wrappers around OpenViking search/read.
+2. Replace the current compatibility-backed `agent-basics mcp` with OpenViking-backed tools for `search`, `read`, `record`, `add_resource`, `add_skill`, `ingest_changed`, `status`, and `doctor`.
+3. Add repo isolation tests so two repos can share one OpenViking server without accidental cross-project writes.
+4. Teach setup/upgrade to write repo-local OV metadata and generate the correct MCP configuration instructions.
+5. Decide when `.agents/memory/rag/` can be removed from new installs and retained only as legacy fallback.
+
 ## Milestones
 
 Milestone 1: roadmap and architecture reset.
+
+Status: complete.
 
 - Treat OpenViking as the target memory backend.
 - Mark custom mini-RAG as transitional.
@@ -350,41 +419,85 @@ Milestone 1: roadmap and architecture reset.
 
 Milestone 2: OpenViking setup proof.
 
+Status: mostly complete, with repo-aware search/record wrappers still outstanding.
+
 - Install and configure OpenViking through `agent-basics`.
 - Create repo-local OpenViking metadata under `.agents/openviking/`.
 - Verify LM Studio chat/VLM and embedding providers.
 - Ingest this repo's current agent instructions and documentation.
 - Prove search/record through a repo-aware wrapper.
 
+Acceptance criteria:
+
+- A fresh repo can install or verify user-level OpenViking without placing the OpenViking package/workspace in the repo.
+- `agent-basics ov import-repo-memory --write` imports reviewed OV-native memory/resources/skills and records import state.
+- `agent-basics ov search` and `agent-basics ov read` can retrieve imported repo context without raw `ov` calls.
+
 Milestone 3: MCP gateway.
+
+Status: next primary milestone.
 
 - Implement `agent-basics mcp` as the repo-aware OpenViking gateway.
 - Require `repo_path` or current working directory resolution per tool call.
 - Expose search, record, add-resource, add-skill, ingest, and doctor tools.
 - Add tests for path safety and repo isolation.
 
+Acceptance criteria:
+
+- A Codex custom MCP config can use `command: agent-basics`, `args: ["mcp"]`, and repo-root `cwd`.
+- Every MCP tool resolves a repository root before touching OpenViking.
+- Search defaults to the current repo namespace and can optionally include wider context.
+- Record writes to the correct `viking://user/default/memories/<category>/projects/<repo-slug>/` namespace.
+- Add-resource and add-skill write to the correct `viking://resources/projects/<repo-slug>/` or skill namespace.
+- Tests cover at least two repositories sharing one OpenViking server.
+
 Milestone 4: long-horizon workflow.
+
+Status: planned.
 
 - Implement `agent-basics run start/status/checkpoint/finish/handoff`.
 - Add `.agents/runs/` state.
 - Update agent instructions to require run state for non-trivial work.
 - Add git hook checks for incomplete or stale run state.
 
+Acceptance criteria:
+
+- A run can be started, checkpointed, handed off, and finished across sessions.
+- Run state links to OpenViking records created during the run.
+- Git hooks can detect unfinished run state before commit when configured.
+
 Milestone 5: skills and command approval reduction.
+
+Status: planned.
 
 - Add `Skills.md` or `.agents/skills/`.
 - Create prework, memory-update, and finish-work skills.
 - Route each skill to stable `agent-basics` commands.
 - Dogfood in sample repos and measure approval prompt reduction.
 
+Acceptance criteria:
+
+- Repeated workflows are documented as skills and backed by stable command prefixes.
+- Sample repo runs need fewer one-off approvals than the current ad hoc command flow.
+
 Milestone 6: migration UI.
+
+Status: planned.
 
 - Wire the markdown merge prototype into setup.
 - Support safe review of `Agents.md` and `.agents/AGENT-BASICS.md`.
 - Support migration of legacy agent-basics markdown into `.agents/memory/` OV-native source files and then into OpenViking.
 - Preserve backups and unresolved merge sessions.
 
+Acceptance criteria:
+
+- Setup conflict prompts can launch the markdown merge UI.
+- Users can select, reorder, preview, and save merged instruction files.
+- Backups and unresolved sessions are written under `.agents/`.
+
 Milestone 7: optional runner.
+
+Status: deferred.
 
 - Evaluate whether a full `agent-basics run "<task>"` agent runner is worth building.
 - Only proceed if plugins, hooks, MCP, and git boundaries are not enough.
