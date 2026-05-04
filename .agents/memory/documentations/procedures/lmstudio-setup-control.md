@@ -20,10 +20,10 @@ Use this procedure when setting up or repairing the LM Studio runtime for agent-
 1. Make sure the user has started LM Studio and its local server.
 2. Run `agent-basics lmstudio status` and confirm `google/gemma-4-e2b` and `text-embedding-embeddinggemma-300m-qat` are present.
 3. Run `agent-basics lmstudio configure` to dry-run persisted default changes.
-4. Run `agent-basics lmstudio configure --write` to write backed-up defaults under `~/.lmstudio/.internal/user-concrete-model-default-config/`.
+4. Run `agent-basics lmstudio configure --write` to write backed-up defaults under `~/.lmstudio/.internal/user-concrete-model-default-config/` and clear stale persisted routing system-prompt or structured-output defaults.
 5. Run `agent-basics lmstudio load` to load Gemma 4 E2B through REST. Do not use the `lms` CLI from Codex.
 6. Run `agent-basics lmstudio configure` again and confirm no mismatches remain.
-7. Run `agent-basics lmstudio route-test` to verify the OV-native routing prompt and schema.
+7. Run `agent-basics lmstudio route-test` to verify the OV-native routing prompt and schema through request-time `response_format`.
 
 ## Verification
 

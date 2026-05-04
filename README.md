@@ -20,6 +20,7 @@ agent-basics mcp
 agent-basics ov doctor
 agent-basics ov install-system
 agent-basics ov write-default-config --force
+agent-basics ov import-repo-memory --write
 agent-basics ov search "what did we decide about memory?"
 agent-basics ov record
 agent-basics ov add-resource ./docs/api.md
@@ -130,6 +131,7 @@ The planned gateway keeps OpenViking executable details out of normal agent work
 - `agent-basics ov doctor`: verify the user-level OpenViking installation, repo config, provider health, and ingest state.
 - `agent-basics ov install-system`: install OpenViking under `~/.openviking` when it is missing.
 - `agent-basics ov write-default-config`: write a default `~/.openviking/ov.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
+- `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
 - `agent-basics ov search <query>`: search memory, docs, resources, and skills.
 - `agent-basics ov record`: record durable context into the right OpenViking category.
 - `agent-basics ov add-resource <path-or-url>`: ingest project documentation or external sources.
@@ -240,6 +242,7 @@ This builds and installs one binary:
 - `agent-basics ov doctor`: inspect the user-level OpenViking installation and config.
 - `agent-basics ov install-system`: install OpenViking under `~/.openviking`.
 - `agent-basics ov write-default-config`: write the default LM Studio-backed OpenViking config.
+- `agent-basics ov import-repo-memory`: import the repo-owned OpenViking source store into the user-level OpenViking database. OV-native memory files are written directly under `viking://user/default/memories/<category>/projects/<repo>/`; they are not routed back through `ov add-memory`. If OpenViking reports the memory tree is busy, the command retries memory writes before failing.
 - `agent-basics lmstudio status|hardware|plan|configure|load|unload|route-test`: inspect and manage LM Studio through persisted model defaults plus REST/OpenAI-compatible HTTP only.
 - `agent-basics migrate memory-to-openviking`: inventory legacy `.agents/memory/` records into OV-native categories.
 - `agent-basics memory ...`: run compatibility memory/RAG operations for the current working repository.
@@ -277,4 +280,4 @@ On macOS, `agent-basics` should not use the `lms` CLI from Codex or other sandbo
 
 The default local model plan is Gemma 4 E2B with max context, max GPU offload, concurrency 1, KV cache quantization `q4_0`, flash attention enabled, and temperature 0 for routing tests.
 
-`agent-basics lmstudio configure` is dry-run by default. With `--write`, it updates LM Studio's observed persisted defaults under `~/.lmstudio/.internal/user-concrete-model-default-config/`, preserving unrelated fields and backing up changed files beside the originals. The command writes the OV routing system prompt and structured-output schema as inference defaults, but routing requests still send `response_format` explicitly because those settings are request-time behavior in OpenAI-compatible APIs.
+`agent-basics lmstudio configure` is dry-run by default. With `--write`, it updates LM Studio's observed persisted defaults under `~/.lmstudio/.internal/user-concrete-model-default-config/`, preserving unrelated fields and backing up changed files beside the originals. It clears stale persisted routing system-prompt and structured-output defaults because they can conflict with OpenViking's own request-time grammar. Routing tests still send the system prompt and `response_format` explicitly per request.

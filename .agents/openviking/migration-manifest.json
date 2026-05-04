@@ -1,5 +1,5 @@
 {
-  "generated": 1777904014,
+  "generated": 1777913575,
   "legacy_snapshots": "/Users/leonardw/Projects/agent-basics/.agents/openviking/legacy-memory",
   "policy": "OpenViking native categories are canonical; source records are resources, not memory.",
   "records": [
@@ -79,6 +79,28 @@
       "stale_or_transitional": false,
       "status": "migrated",
       "title": "Legacy OpenViking documentation index"
+    },
+    {
+      "legacy_path": ".agents/memory/memories/cases/1777909438-openviking-rejects-zero-vlm-timeout.md",
+      "legacy_type": "unknown",
+      "ov_category": "cases",
+      "reason": "OV-native case memory",
+      "record_kind": "memory",
+      "requires_human_review": false,
+      "stale_or_transitional": false,
+      "status": "active",
+      "title": "OpenViking rejects zero VLM timeout"
+    },
+    {
+      "legacy_path": ".agents/memory/memories/cases/1777910744-lmstudio-routing-defaults-conflict-with-openviking.md",
+      "legacy_type": "unknown",
+      "ov_category": "cases",
+      "reason": "OV-native case memory",
+      "record_kind": "memory",
+      "requires_human_review": false,
+      "stale_or_transitional": false,
+      "status": "active",
+      "title": "Persistent LM Studio routing defaults can conflict with OpenViking"
     },
     {
       "legacy_path": ".agents/memory/memories/events/1777901050-legacy-memory-snapshot-created.md",

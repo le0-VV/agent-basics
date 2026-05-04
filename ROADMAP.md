@@ -283,6 +283,7 @@ OpenViking wrapper commands:
 - `agent-basics ov doctor`
 - `agent-basics ov install-system`
 - `agent-basics ov write-default-config`
+- `agent-basics ov import-repo-memory`
 - `agent-basics ov search <query>`
 - `agent-basics ov record`
 - `agent-basics ov add-resource <path-or-url>`
@@ -296,6 +297,8 @@ OpenViking wrapper commands:
 - `agent-basics lmstudio load`
 - `agent-basics lmstudio unload`
 - `agent-basics lmstudio route-test`
+
+`agent-basics ov import-repo-memory` should write OV-native memory source files directly into `viking://user/default/memories/<category>/projects/<repo>/` and use OpenViking resource/skill ingestion only for resources and skills. Repo source memory should not depend on `ov add-memory` extraction to rediscover already-structured records. Memory writes should retry when OpenViking reports a busy memory tree because previous extraction or indexing jobs may still hold locks.
 
 Migration commands:
 
@@ -333,7 +336,7 @@ Known local setup:
 
 Gemma 4 E2B should be used with shallow structured-output schemas for routing and setup helpers. Deterministic code must validate and apply the result. The default load plan is max context, max GPU offload, concurrency 1, KV cache quantization `q4_0`, flash attention enabled, and temperature 0 for routing tests.
 
-`agent-basics lmstudio configure` should own the persistent LM Studio defaults that are not exposed through the current REST load endpoint, including CPU thread pool size, concurrent sessions, context length, GPU offload ratio, KV cache quantization, routing system prompt, temperature, and structured-output schema. REST/OpenAI-compatible requests should still send request-time settings explicitly.
+`agent-basics lmstudio configure` should own the persistent LM Studio defaults that are not exposed through the current REST load endpoint, including CPU thread pool size, concurrent sessions, context length, GPU offload ratio, KV cache quantization, and temperature. It should clear stale persisted routing system-prompt and structured-output defaults by default because OpenViking sends its own request-time grammar. REST/OpenAI-compatible routing tests should still send request-time settings explicitly.
 
 ## Milestones
 

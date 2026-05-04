@@ -160,6 +160,7 @@ The target agent-facing surfaces are:
 - `agent-basics ov doctor`: check the user-level OpenViking installation, repo config, providers, ingest status, and health.
 - `agent-basics ov install-system`: install OpenViking under `~/.openviking` when it is missing.
 - `agent-basics ov write-default-config`: write a default `~/.openviking/ov.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
+- `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
 - `agent-basics ov search <query>`: retrieve prior context for vague or specific project requests.
 - `agent-basics ov record`: record durable context in the correct OpenViking category.
 - `agent-basics ov add-resource <path-or-url>`: ingest documentation or reference material.
@@ -830,8 +831,9 @@ Use this whenever an agent needs prior project context, durable memory recording
 5. Record durable decisions, facts, preferences, gotchas, events, procedures, and useful findings through the OpenViking-backed MCP record tool or `agent-basics ov record`.
 6. Add important documentation or reference material with `agent-basics ov add-resource <path-or-url>`.
 7. Add reusable workflows with `agent-basics ov add-skill <path>`.
-8. After instruction, documentation, memory, or skill files change, run `agent-basics ov ingest-changed`.
-9. Run `agent-basics ov doctor` before relying on OpenViking if setup, provider configuration, or ingest state is uncertain.
+8. After adapting repo memory, resources, or skills under `.agents/memory/`, run `agent-basics ov import-repo-memory --write`. OV-native memory files are written directly into their OpenViking memory categories; resources and skills use OpenViking ingestion.
+9. After instruction, documentation, memory, or skill files change, run `agent-basics ov ingest-changed` when that command is available.
+10. Run `agent-basics ov doctor` before relying on OpenViking if setup, provider configuration, or ingest state is uncertain.
 
 ## Codex Desktop Configuration
 

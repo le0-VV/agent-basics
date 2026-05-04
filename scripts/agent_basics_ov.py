@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -22,6 +23,8 @@ DEFAULT_OV_HOME = Path.home() / ".openviking"
 DEFAULT_OV_BIN = DEFAULT_OV_HOME / "venv" / "bin" / "ov"
 DEFAULT_OV_CONFIG = DEFAULT_OV_HOME / "ov.conf"
 DEFAULT_OV_SERVER = DEFAULT_OV_HOME / "venv" / "bin" / "openviking-server"
+DEFAULT_OV_VLM_TIMEOUT_SECONDS = 86400
+DEFAULT_OV_MEMORY_TARGET = "viking://user/default/memories"
 DEFAULT_LMSTUDIO_HOME = Path.home() / ".lmstudio"
 LMSTUDIO_DEFAULT_CONFIG_ROOT = Path(".internal") / "user-concrete-model-default-config"
 GEMMA_LLM_KEYS = {"google/gemma-4-e2b", "google/gemma-4-e4b"}
@@ -40,6 +43,10 @@ LMSTUDIO_REPORTED_LOAD_KEYS = (
     "flash_attention",
     "offload_kv_cache_to_gpu",
 )
+LMSTUDIO_ROUTING_DEFAULT_KEYS = {
+    "llm.prediction.structured",
+    "llm.prediction.systemPrompt",
+}
 
 OV_MEMORY_CATEGORIES = [
     "profile",
@@ -186,6 +193,32 @@ def run_command(command: list[str], timeout: float | None = 30) -> dict[str, Any
     }
 
 
+def result_is_busy(result: dict[str, Any]) -> bool:
+    text = f"{result.get('stdout', '')}\n{result.get('stderr', '')}".lower()
+    return "resource is busy" in text or "cannot be written now" in text
+
+
+def run_command_retry_busy(command: list[str], *, retries: int, delay: float) -> dict[str, Any]:
+    result = run_command(command, timeout=None)
+    attempts = 0
+    while not result["ok"] and result_is_busy(result) and attempts < retries:
+        attempts += 1
+        time.sleep(delay)
+        result = run_command(command, timeout=None)
+    if attempts:
+        result["busy_retries"] = attempts
+    return result
+
+
+def sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug or "project"
+
+
 def http_json(
     base_url: str,
     path: str,
@@ -322,17 +355,22 @@ def lmstudio_desired_chat_config(
     kv_cache_quantization: str,
     gpu_offload_ratio: float,
     temperature: float,
+    include_routing_defaults: bool = False,
 ) -> dict[str, Any]:
-    return {
-        "preset": "",
-        "operation": {
-            "fields": [
-                lmstudio_field("llm.prediction.llama.cpuThreads", cpu_threads),
+    operation_fields = [
+        lmstudio_field("llm.prediction.llama.cpuThreads", cpu_threads),
+        lmstudio_field("llm.prediction.temperature", temperature),
+    ]
+    if include_routing_defaults:
+        operation_fields.extend(
+            [
                 lmstudio_field("llm.prediction.structured", lmstudio_structured_value()),
                 lmstudio_field("llm.prediction.systemPrompt", ROUTER_SYSTEM_PROMPT),
-                lmstudio_field("llm.prediction.temperature", temperature),
             ]
-        },
+        )
+    return {
+        "preset": "",
+        "operation": {"fields": operation_fields},
         "load": {
             "fields": [
                 lmstudio_field("llm.load.llama.acceleration.offloadRatio", gpu_offload_ratio),
@@ -375,7 +413,13 @@ def lmstudio_config_section(config: dict[str, Any], section: str) -> list[dict[s
     return [field for field in fields if isinstance(field, dict) and isinstance(field.get("key"), str)]
 
 
-def merge_lmstudio_fields(existing: list[dict[str, Any]], desired: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def merge_lmstudio_fields(
+    existing: list[dict[str, Any]],
+    desired: list[dict[str, Any]],
+    *,
+    remove_keys: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    remove_keys = remove_keys or set()
     desired_by_key = {field["key"]: field for field in desired}
     merged = []
     used = set()
@@ -384,6 +428,8 @@ def merge_lmstudio_fields(existing: list[dict[str, Any]], desired: list[dict[str
         if key in desired_by_key:
             merged.append(desired_by_key[key])
             used.add(key)
+        elif key in remove_keys:
+            continue
         else:
             merged.append(field)
     for field in desired:
@@ -392,7 +438,12 @@ def merge_lmstudio_fields(existing: list[dict[str, Any]], desired: list[dict[str
     return merged
 
 
-def merge_lmstudio_config(existing: dict[str, Any] | None, desired: dict[str, Any]) -> dict[str, Any]:
+def merge_lmstudio_config(
+    existing: dict[str, Any] | None,
+    desired: dict[str, Any],
+    *,
+    remove_operation_keys: set[str] | None = None,
+) -> dict[str, Any]:
     base = existing if isinstance(existing, dict) and "_error" not in existing else {}
     merged = {
         "preset": base.get("preset", desired.get("preset", "")),
@@ -400,6 +451,7 @@ def merge_lmstudio_config(existing: dict[str, Any] | None, desired: dict[str, An
             "fields": merge_lmstudio_fields(
                 lmstudio_config_section(base, "operation"),
                 lmstudio_config_section(desired, "operation"),
+                remove_keys=remove_operation_keys,
             )
         },
         "load": {
@@ -422,10 +474,28 @@ def summarize_lmstudio_config_value(value: Any) -> Any:
     return value
 
 
-def lmstudio_config_mismatches_by_key(actual: dict[str, Any] | None, desired: dict[str, Any]) -> list[dict[str, Any]]:
+def lmstudio_config_mismatches_by_key(
+    actual: dict[str, Any] | None,
+    desired: dict[str, Any],
+    *,
+    remove_operation_keys: set[str] | None = None,
+) -> list[dict[str, Any]]:
     if not actual or "_error" in actual:
         return [{"key": "*", "actual": None if not actual else actual, "desired": "valid JSON config"}]
     mismatches = []
+    remove_operation_keys = remove_operation_keys or set()
+    desired_operation_keys = {field["key"] for field in lmstudio_config_section(desired, "operation")}
+    for field in lmstudio_config_section(actual, "operation"):
+        key = field["key"]
+        if key in remove_operation_keys and key not in desired_operation_keys:
+            mismatches.append(
+                {
+                    "section": "operation",
+                    "key": key,
+                    "actual": summarize_lmstudio_config_value(field.get("value")),
+                    "desired": "<removed>",
+                }
+            )
     for section in ["operation", "load"]:
         actual_by_key = {field["key"]: field.get("value") for field in lmstudio_config_section(actual, section)}
         for desired_field in lmstudio_config_section(desired, section):
@@ -551,7 +621,7 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
             "api_key": "lm-studio",
             "api_base": f"{args.lmstudio_base.rstrip('/')}/v1",
             "max_concurrent": 1,
-            "timeout": 0,
+            "timeout": args.vlm_timeout,
         },
         "server": {"host": "127.0.0.1", "port": 1933},
     }
@@ -559,6 +629,317 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print_json({"ok": True, "path": str(path), "config": payload})
     return 0
+
+
+def ov_native_import_files(repo: Path) -> dict[str, list[Path]]:
+    memory_root = repo / ".agents" / "memory"
+
+    def markdown_files(root: Path) -> list[Path]:
+        if not root.exists():
+            return []
+        return sorted(path for path in root.rglob("*.md") if path.is_file() and path.name != ".gitkeep")
+
+    resource_files: list[Path] = []
+    for name in ["SCHEMA.md", "INDEX.md", "ADAPTATION.md"]:
+        path = memory_root / name
+        if path.is_file():
+            resource_files.append(path)
+    resource_files.extend(markdown_files(memory_root / "resources"))
+
+    return {
+        "memories": markdown_files(memory_root / "memories"),
+        "resources": sorted(dict.fromkeys(resource_files)),
+        "skills": markdown_files(memory_root / "skills"),
+    }
+
+
+def ov_import_state_path(repo: Path) -> Path:
+    return repo / ".agents" / "openviking" / "import-state.json"
+
+
+def load_ov_import_state(repo: Path) -> dict[str, Any]:
+    path = ov_import_state_path(repo)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"version": 1, "imports": {}}
+    except json.JSONDecodeError:
+        return {"version": 1, "imports": {}, "previous_state_error": f"{path} is not valid JSON"}
+
+
+def write_ov_import_state(repo: Path, payload: dict[str, Any]) -> None:
+    path = ov_import_state_path(repo)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload["updated"] = int(time.time())
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def ov_memory_content(repo: Path, path: Path) -> str:
+    text = path.read_text(encoding="utf-8")
+    meta, body = parse_front_matter(text)
+    rel = path.relative_to(repo).as_posix()
+    return "\n".join(
+        [
+            f"Project: {repo.name}",
+            f"Source path: {rel}",
+            f"Record kind: {meta.get('record_kind', 'memory')}",
+            f"OpenViking category hint: {meta.get('ov_category', '')}",
+            f"Title: {meta.get('title', path.stem)}",
+            f"Status: {meta.get('status', '')}",
+            f"Summary: {meta.get('summary', '')}",
+            f"Tags: {meta.get('tags', '')}",
+            "",
+            body.strip(),
+            "",
+        ]
+    )
+
+
+def ov_target_uri(base_uri: str, repo: Path, path: Path, namespace: str) -> str:
+    rel = path.relative_to(repo).as_posix()
+    return f"{base_uri.rstrip('/')}/{namespace}/{rel}"
+
+
+def ov_parent_uri(uri: str) -> str:
+    return uri.rstrip("/").rsplit("/", 1)[0]
+
+
+def ov_memory_category(meta: dict[str, str], path: Path) -> str:
+    category = meta.get("ov_category", "").strip()
+    if category in OV_MEMORY_CATEGORIES:
+        return category
+    parts = path.parts
+    if "memories" in parts:
+        index = parts.index("memories")
+        if index + 1 < len(parts) and parts[index + 1] in OV_MEMORY_CATEGORIES:
+            return parts[index + 1]
+    return "entities"
+
+
+def ov_memory_target_uri(base_uri: str, repo: Path, path: Path, category: str) -> str:
+    return f"{base_uri.rstrip('/')}/{category}/projects/{slugify(repo.name)}/{path.name}"
+
+
+def ov_mkdir_p(ov_bin: Path, uri: str) -> list[dict[str, Any]]:
+    if not uri.startswith("viking://"):
+        return []
+    suffix = uri[len("viking://") :].strip("/")
+    if not suffix:
+        return []
+    pieces = suffix.split("/")
+    commands = []
+    current = "viking://"
+    for piece in pieces:
+        current = f"viking://{piece}" if current == "viking://" else f"{current.rstrip('/')}/{piece}"
+        result = run_command([str(ov_bin), "mkdir", current, "-o", "json"], timeout=None)
+        if not result["ok"] and "already" not in result.get("stderr", "").lower() and "exist" not in result.get("stderr", "").lower():
+            commands.append(result)
+            break
+        commands.append(result)
+    return commands
+
+
+def ov_existing_content_result(ov_bin: Path, target: str, expected: str) -> dict[str, Any] | None:
+    read_result = run_command([str(ov_bin), "read", target, "-o", "json"], timeout=None)
+    if read_result["ok"] and read_result.get("stdout", "").strip() == expected.strip():
+        return {
+            "ok": True,
+            "command": read_result.get("command"),
+            "returncode": read_result.get("returncode"),
+            "stdout": "existing target content matches source",
+            "stderr": read_result.get("stderr", ""),
+            "verified_existing": True,
+        }
+    return None
+
+
+def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
+    repo = repo_root_from_args(args)
+    ov_bin = find_ov_bin()
+    if not ov_bin:
+        print_json({"ok": False, "error": "OpenViking CLI not found; run `agent-basics ov install-system` first"})
+        return 1
+
+    files = ov_native_import_files(repo)
+    state = load_ov_import_state(repo)
+    imports = state.setdefault("imports", {})
+    base_uri = (args.target or f"viking://resources/projects/{slugify(repo.name)}").rstrip("/")
+    memory_base_uri = args.memory_target.rstrip("/")
+    parent_results = [] if args.dry_run else ov_mkdir_p(ov_bin, base_uri)
+
+    health = run_command([str(ov_bin), "health", "-o", "json"], timeout=10)
+    if not health["ok"] and not args.dry_run:
+        print_json(
+            {
+                "ok": False,
+                "repo": str(repo),
+                "openviking": {"bin": str(ov_bin), "health": health},
+                "recommendation": "Start the OpenViking server, then rerun `agent-basics ov import-repo-memory --write`.",
+            }
+        )
+        return 1
+
+    results: list[dict[str, Any]] = []
+
+    def should_skip(path: Path, digest: str, method: str) -> bool:
+        if args.force:
+            return False
+        previous = imports.get(path.relative_to(repo).as_posix())
+        return (
+            isinstance(previous, dict)
+            and previous.get("sha256") == digest
+            and previous.get("ok") is True
+            and previous.get("method") == method
+        )
+
+    def record_result(
+        kind: str,
+        path: Path,
+        digest: str,
+        command_result: dict[str, Any] | None,
+        *,
+        skipped: bool = False,
+        method: str,
+        target: str | None = None,
+    ) -> None:
+        rel = path.relative_to(repo).as_posix()
+        ok = skipped or bool(command_result and command_result.get("ok"))
+        entry = {
+            "kind": kind,
+            "method": method,
+            "path": rel,
+            "target": target,
+            "sha256": digest,
+            "ok": ok,
+            "skipped": skipped,
+            "imported_at": int(time.time()) if ok and not skipped else imports.get(rel, {}).get("imported_at"),
+        }
+        if command_result is not None:
+            entry["command"] = command_result.get("command")
+            entry["returncode"] = command_result.get("returncode")
+            entry["stdout"] = command_result.get("stdout")
+            entry["stderr"] = command_result.get("stderr")
+            for key in ["busy_retries", "verified_existing", "already_exists", "previous_error"]:
+                if key in command_result:
+                    entry[key] = command_result[key]
+        imports[rel] = entry
+        results.append(entry)
+
+    for path in files["memories"]:
+        text = path.read_text(encoding="utf-8")
+        meta, _ = parse_front_matter(text)
+        digest = sha256_text(text)
+        if str(meta.get("requires_human_review", "")).lower() == "true" and not args.include_review:
+            record_result("memory", path, digest, None, skipped=True, method="write")
+            results[-1]["reason"] = "requires_human_review"
+            continue
+        category = ov_memory_category(meta, path)
+        target = ov_memory_target_uri(memory_base_uri, repo, path, category)
+        if should_skip(path, digest, "write"):
+            record_result("memory", path, digest, None, skipped=True, method="write", target=target)
+            continue
+        if not args.dry_run and not args.force:
+            existing_result = ov_existing_content_result(ov_bin, target, text)
+            if existing_result:
+                record_result("memory", path, digest, existing_result, method="write", target=target)
+                continue
+        if not args.dry_run:
+            parent_results.extend(ov_mkdir_p(ov_bin, ov_parent_uri(target)))
+        stat_result = {"ok": False} if args.dry_run else run_command([str(ov_bin), "stat", target, "-o", "json"], timeout=None)
+        mode = "replace" if stat_result["ok"] else "create"
+        command = [str(ov_bin), "write", target, "--from-file", str(path), "--mode", mode, "-o", "json"]
+        if args.wait_memory:
+            command.extend(["--wait", "--timeout", str(args.timeout)])
+        result = (
+            {"ok": True, "command": command, "stdout": "dry-run", "stderr": "", "returncode": 0}
+            if args.dry_run
+            else run_command_retry_busy(command, retries=args.busy_retries, delay=args.busy_delay)
+        )
+        if not result["ok"] and mode == "create" and "already" in result.get("stderr", "").lower():
+            command = [str(ov_bin), "write", target, "--from-file", str(path), "--mode", "replace", "-o", "json"]
+            if args.wait_memory:
+                command.extend(["--wait", "--timeout", str(args.timeout)])
+            result = run_command_retry_busy(command, retries=args.busy_retries, delay=args.busy_delay)
+        if not result["ok"] and not args.dry_run:
+            existing_result = ov_existing_content_result(ov_bin, target, text)
+            if existing_result:
+                existing_result["previous_error"] = result.get("stderr") or result.get("error")
+                result = existing_result
+        record_result("memory", path, digest, result, method="write", target=target)
+
+    for path in files["resources"]:
+        digest = sha256_text(path.read_text(encoding="utf-8"))
+        target = ov_target_uri(base_uri, repo, path, "resources")
+        if should_skip(path, digest, "add-resource"):
+            record_result("resource", path, digest, None, skipped=True, method="add-resource", target=target)
+            continue
+        command = [
+            str(ov_bin),
+            "add-resource",
+            str(path),
+            "--to",
+            target,
+            "--reason",
+            "agent-basics repo OpenViking source import",
+            "-o",
+            "json",
+        ]
+        if args.wait_resources:
+            command.extend(["--wait", "--timeout", str(args.timeout)])
+        result = {"ok": True, "command": command, "stdout": "dry-run", "stderr": "", "returncode": 0} if args.dry_run else run_command(command, timeout=None)
+        if not result["ok"] and "already" in result.get("stderr", "").lower() and "exist" in result.get("stderr", "").lower():
+            stat_result = run_command([str(ov_bin), "stat", target, "-o", "json"], timeout=None)
+            if stat_result["ok"]:
+                result = {
+                    **result,
+                    "ok": True,
+                    "already_exists": True,
+                    "stat": stat_result,
+                }
+        record_result("resource", path, digest, result, method="add-resource", target=target)
+
+    for path in files["skills"]:
+        digest = sha256_text(path.read_text(encoding="utf-8"))
+        if should_skip(path, digest, "add-skill"):
+            record_result("skill", path, digest, None, skipped=True, method="add-skill")
+            continue
+        command = [str(ov_bin), "add-skill", str(path), "--wait", "--timeout", str(args.timeout), "-o", "json"]
+        result = {"ok": True, "command": command, "stdout": "dry-run", "stderr": "", "returncode": 0} if args.dry_run else run_command(command, timeout=None)
+        record_result("skill", path, digest, result, method="add-skill")
+
+    wait_result = None
+    if args.wait and not args.dry_run:
+        wait_result = run_command([str(ov_bin), "wait"], timeout=None)
+
+    state.update(
+        {
+            "version": 1,
+            "repo": str(repo),
+            "target": base_uri,
+            "memory_target": memory_base_uri,
+            "last_import": int(time.time()),
+        }
+    )
+    if args.write and not args.dry_run:
+        write_ov_import_state(repo, state)
+
+    ok = all(item.get("ok") for item in results)
+    payload = {
+        "ok": ok,
+        "repo": str(repo),
+        "target": base_uri,
+        "memory_target": memory_base_uri,
+        "dry_run": args.dry_run,
+        "write_state": args.write,
+        "counts": {key: len(value) for key, value in files.items()},
+        "parents": parent_results,
+        "health": health,
+        "results": results,
+        "wait": wait_result,
+        "state_path": str(ov_import_state_path(repo)),
+    }
+    print_json(payload)
+    return 0 if ok else 1
 
 
 def lmstudio_status_payload(base_url: str, timeout: float | None = 5) -> dict[str, Any]:
@@ -710,6 +1091,7 @@ def lmstudio_plan_payload(args: argparse.Namespace) -> dict[str, Any]:
                 kv_cache_quantization="q4_0",
                 gpu_offload_ratio=1.0,
                 temperature=0,
+                include_routing_defaults=False,
                 write=False,
                 backup=True,
                 include_embedding=True,
@@ -735,10 +1117,11 @@ def lmstudio_configure_target_payload(
     write: bool,
     backup: bool,
     emit_full_config: bool,
+    remove_operation_keys: set[str] | None = None,
 ) -> dict[str, Any]:
     existing = load_json_file(path)
-    merged = merge_lmstudio_config(existing, desired)
-    mismatches = lmstudio_config_mismatches_by_key(existing, desired)
+    merged = merge_lmstudio_config(existing, desired, remove_operation_keys=remove_operation_keys)
+    mismatches = lmstudio_config_mismatches_by_key(existing, desired, remove_operation_keys=remove_operation_keys)
     changed = existing != merged
     payload: dict[str, Any] = {
         "path": str(path),
@@ -782,7 +1165,9 @@ def lmstudio_configure_payload(
         kv_cache_quantization=args.kv_cache_quantization,
         gpu_offload_ratio=args.gpu_offload_ratio,
         temperature=args.temperature,
+        include_routing_defaults=args.include_routing_defaults,
     )
+    remove_operation_keys = set() if args.include_routing_defaults else LMSTUDIO_ROUTING_DEFAULT_KEYS
     targets = [
         lmstudio_configure_target_payload(
             path=path,
@@ -790,6 +1175,7 @@ def lmstudio_configure_payload(
             write=args.write,
             backup=args.backup,
             emit_full_config=emit_full_configs,
+            remove_operation_keys=remove_operation_keys,
         )
         for path in lmstudio_default_config_paths(home, args.model)
     ]
@@ -827,7 +1213,8 @@ def lmstudio_configure_payload(
             "kv_cache_quantization": args.kv_cache_quantization,
             "gpu_offload_ratio": args.gpu_offload_ratio,
             "temperature": args.temperature,
-            "structured_output": "openviking_memory_routing",
+            "routing_defaults": "persisted" if args.include_routing_defaults else "request_time_only",
+            "cleared_persistent_fields": sorted(remove_operation_keys),
         },
         "targets": targets,
         "embedding_targets": embedding_targets,
@@ -839,7 +1226,8 @@ def lmstudio_configure_payload(
         "notes": [
             "This writes LM Studio persisted model defaults observed under ~/.lmstudio/.internal/user-concrete-model-default-config.",
             "LM Studio REST model loading still receives per-load context/eval/flash/offload flags from agent-basics.",
-            "OpenAI-compatible chat requests still include the system prompt and json_schema response_format explicitly for deterministic routing.",
+            "OpenAI-compatible chat requests include the system prompt and json_schema response_format explicitly for deterministic routing.",
+            "Persistent structured-output and system-prompt defaults are cleared by default because they can conflict with OpenViking's own request-time grammar.",
             "If the model is already loaded, unload and load it again before expecting persisted load defaults to apply.",
         ],
     }
@@ -1365,8 +1753,24 @@ def build_parser() -> argparse.ArgumentParser:
     config.add_argument("--chat-model", default=DEFAULT_CHAT_MODEL)
     config.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
     config.add_argument("--embedding-dimension", type=int, default=768)
+    config.add_argument("--vlm-timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
     config.add_argument("--force", action="store_true")
     config.set_defaults(func=command_ov_write_default_config)
+
+    import_memory = ov_sub.add_parser("import-repo-memory")
+    import_memory.add_argument("--target", default=None)
+    import_memory.add_argument("--memory-target", default=DEFAULT_OV_MEMORY_TARGET)
+    import_memory.add_argument("--timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+    import_memory.add_argument("--include-review", action="store_true")
+    import_memory.add_argument("--force", action="store_true")
+    import_memory.add_argument("--dry-run", action="store_true")
+    import_memory.add_argument("--wait", action="store_true")
+    import_memory.add_argument("--wait-memory", action="store_true")
+    import_memory.add_argument("--wait-resources", action="store_true")
+    import_memory.add_argument("--busy-retries", type=int, default=120)
+    import_memory.add_argument("--busy-delay", type=float, default=5)
+    import_memory.add_argument("--write", action="store_true")
+    import_memory.set_defaults(func=command_ov_import_repo_memory)
 
     lm = subparsers.add_parser("lmstudio")
     lm_sub = lm.add_subparsers(dest="lmstudio_command", required=True)
@@ -1402,6 +1806,7 @@ def build_parser() -> argparse.ArgumentParser:
     configure.add_argument("--write", action="store_true")
     configure.add_argument("--backup", action=argparse.BooleanOptionalAction, default=True)
     configure.add_argument("--include-embedding", action=argparse.BooleanOptionalAction, default=True)
+    configure.add_argument("--include-routing-defaults", action="store_true")
     configure.add_argument("--verbose-config", action="store_true")
     configure.set_defaults(func=command_lmstudio_configure)
 
