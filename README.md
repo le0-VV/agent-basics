@@ -28,6 +28,7 @@ agent-basics ov ingest-changed
 agent-basics lmstudio status
 agent-basics lmstudio hardware
 agent-basics lmstudio plan
+agent-basics lmstudio configure --write
 agent-basics lmstudio load --dry-run
 agent-basics lmstudio route-test
 agent-basics migrate memory-to-openviking --write
@@ -230,7 +231,7 @@ This builds and installs one binary:
 - `agent-basics ov doctor`: inspect the user-level OpenViking installation and config.
 - `agent-basics ov install-system`: install OpenViking under `~/.openviking`.
 - `agent-basics ov write-default-config`: write the default LM Studio-backed OpenViking config.
-- `agent-basics lmstudio status|hardware|plan|load|unload|route-test`: inspect and manage LM Studio through REST/OpenAI-compatible HTTP only.
+- `agent-basics lmstudio status|hardware|plan|configure|load|unload|route-test`: inspect and manage LM Studio through persisted model defaults plus REST/OpenAI-compatible HTTP only.
 - `agent-basics migrate memory-to-openviking`: inventory legacy `.agents/memory/` records into OV-native categories.
 - `agent-basics memory ...`: run compatibility memory/RAG operations for the current working repository.
 - `agent-basics mcp`: run the stdio MCP server for the current working repository. This is currently compatibility memory-backed and should become OpenViking-backed.
@@ -261,6 +262,9 @@ On macOS, `agent-basics` should not use the `lms` CLI from Codex or other sandbo
 1. The user starts LM Studio and its local server.
 2. Agents call `agent-basics lmstudio status` to verify HTTP reachability.
 3. Agents call `agent-basics lmstudio plan` to inspect the proposed E2B load settings.
-4. Agents call `agent-basics lmstudio load` only when model loading through REST is desired.
+4. Agents call `agent-basics lmstudio configure --write` to write backed-up LM Studio defaults for Gemma 4 E2B and EmbeddingGemma.
+5. Agents call `agent-basics lmstudio load` only when model loading through REST is desired.
 
 The default local model plan is Gemma 4 E2B with max context, max GPU offload, concurrency 1, KV cache quantization `q4_0`, flash attention enabled, and temperature 0 for routing tests.
+
+`agent-basics lmstudio configure` is dry-run by default. With `--write`, it updates LM Studio's observed persisted defaults under `~/.lmstudio/.internal/user-concrete-model-default-config/`, preserving unrelated fields and backing up changed files beside the originals. The command writes the OV routing system prompt and structured-output schema as inference defaults, but routing requests still send `response_format` explicitly because those settings are request-time behavior in OpenAI-compatible APIs.

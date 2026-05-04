@@ -75,7 +75,7 @@ Usage:
   agent-basics [--repo DIR] memory <validate|rebuild|search|record|doctor|install-hooks> [...]
   agent-basics [--repo DIR] mcp
   agent-basics [--repo DIR] ov <doctor|install-system|write-default-config> [...]
-  agent-basics [--repo DIR] lmstudio <status|hardware|plan|load|unload|route-test> [...]
+  agent-basics [--repo DIR] lmstudio <status|hardware|plan|configure|load|unload|route-test> [...]
   agent-basics [--repo DIR] migrate memory-to-openviking [--write]
   agent-basics [--repo DIR] doctor [--online]
   agent-basics [--repo DIR] validate|rebuild|search|record|install-hooks [...]

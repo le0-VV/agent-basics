@@ -280,6 +280,7 @@ OpenViking wrapper commands:
 - `agent-basics lmstudio status`
 - `agent-basics lmstudio hardware`
 - `agent-basics lmstudio plan`
+- `agent-basics lmstudio configure`
 - `agent-basics lmstudio load`
 - `agent-basics lmstudio unload`
 - `agent-basics lmstudio route-test`
@@ -302,6 +303,8 @@ The local runtime target is LM Studio first, with other OpenAI-compatible provid
 `agent-basics` should be able to:
 
 - Detect available LM Studio models.
+- Detect LM Studio installation and user config locations.
+- Write backed-up LM Studio persisted model defaults for known local models.
 - Load and unload models through LM Studio's native REST API when the user allows it.
 - Avoid the `lms` CLI from Codex on macOS because it can launch the LM Studio Electron app and crash during AppKit registration.
 - Verify OpenAI-compatible chat and embedding endpoints.
@@ -317,6 +320,8 @@ Known local setup:
 - LM Studio base URL: `http://127.0.0.1:1234`
 
 Gemma 4 E2B should be used with shallow structured-output schemas for routing and setup helpers. Deterministic code must validate and apply the result. The default load plan is max context, max GPU offload, concurrency 1, KV cache quantization `q4_0`, flash attention enabled, and temperature 0 for routing tests.
+
+`agent-basics lmstudio configure` should own the persistent LM Studio defaults that are not exposed through the current REST load endpoint, including CPU thread pool size, concurrent sessions, context length, GPU offload ratio, KV cache quantization, routing system prompt, temperature, and structured-output schema. REST/OpenAI-compatible requests should still send request-time settings explicitly.
 
 ## Milestones
 

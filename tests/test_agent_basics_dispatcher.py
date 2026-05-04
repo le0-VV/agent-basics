@@ -37,6 +37,7 @@ class AgentBasicsDispatcherTest(unittest.TestCase):
         self.assertIn(completed.returncode, {0, 1})
         self.assertIn("google/gemma-4-e2b", completed.stdout)
         self.assertIn("load_request", completed.stdout)
+        self.assertIn("persistent_default_config", completed.stdout)
 
 
 if __name__ == "__main__":

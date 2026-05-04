@@ -50,6 +50,56 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
 
         self.assertEqual(mismatches, [{"key": "eval_batch_size", "actual": 256, "desired": 512}])
 
+    def test_lmstudio_default_config_uses_ov_router_schema(self) -> None:
+        config = agent_basics_ov.lmstudio_desired_chat_config(
+            cpu_threads=8,
+            parallel=1,
+            context_length=131072,
+            kv_cache_quantization="q4_0",
+            gpu_offload_ratio=1.0,
+            temperature=0,
+        )
+
+        operation = {field["key"]: field["value"] for field in config["operation"]["fields"]}
+        load = {field["key"]: field["value"] for field in config["load"]["fields"]}
+
+        self.assertIn("OpenViking memory routing assistant", operation["llm.prediction.systemPrompt"])
+        self.assertEqual(operation["llm.prediction.temperature"], 0)
+        self.assertEqual(
+            operation["llm.prediction.structured"]["jsonSchema"],
+            agent_basics_ov.ROUTER_OUTPUT_SCHEMA,
+        )
+        self.assertEqual(load["llm.load.numParallelSessions"], 1)
+        self.assertEqual(load["llm.load.contextLength"], 131072)
+        self.assertEqual(load["llm.load.llama.kCacheQuantizationType"], {"checked": True, "value": "q4_0"})
+        self.assertEqual(load["llm.load.llama.vCacheQuantizationType"], {"checked": True, "value": "q4_0"})
+
+    def test_lmstudio_config_merge_preserves_unrelated_fields(self) -> None:
+        existing = {
+            "preset": "",
+            "operation": {"fields": [{"key": "custom.operation", "value": True}]},
+            "load": {
+                "fields": [
+                    {"key": "llm.load.numParallelSessions", "value": 4},
+                    {"key": "custom.load", "value": "preserve"},
+                ]
+            },
+        }
+        desired = {
+            "preset": "",
+            "operation": {"fields": [{"key": "llm.prediction.temperature", "value": 0}]},
+            "load": {"fields": [{"key": "llm.load.numParallelSessions", "value": 1}]},
+        }
+
+        merged = agent_basics_ov.merge_lmstudio_config(existing, desired)
+        operation = {field["key"]: field["value"] for field in merged["operation"]["fields"]}
+        load = {field["key"]: field["value"] for field in merged["load"]["fields"]}
+
+        self.assertEqual(operation["custom.operation"], True)
+        self.assertEqual(operation["llm.prediction.temperature"], 0)
+        self.assertEqual(load["llm.load.numParallelSessions"], 1)
+        self.assertEqual(load["custom.load"], "preserve")
+
 
 if __name__ == "__main__":
     unittest.main()

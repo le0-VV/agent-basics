@@ -33,6 +33,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 - [Dogfood sample subagent run](memory/events/1777766400-dogfood-sample-subagent-run.md)
 - [Gemma 4 categorization test](memory/events/1777766400-gemma-4-categorization-test.md)
 - [Gemma 4 E2B OV routing test](memory/events/1777892177-gemma-4-e2b-ov-routing-test.md)
+- [Managed LM Studio defaults for E2B](memory/events/1777895373-managed-lm-studio-defaults.md)
 
 ## Documentation Sources
 
@@ -45,6 +46,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 - [Use the compatibility agent-basics memory MCP server](documentations/procedures/agent-memory-mcp.md)
 - [Use the compatibility agent-basics memory CLI](documentations/procedures/agent-memory-cli.md)
 - [Run the compatibility repo-local HuggingFace embedding API](documentations/procedures/local-huggingface-embedding-api.md)
+- [Manage LM Studio setup for agent-basics](documentations/procedures/lmstudio-setup-control.md)
 
 ## References
 

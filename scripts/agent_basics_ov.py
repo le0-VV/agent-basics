@@ -22,7 +22,18 @@ DEFAULT_OV_HOME = Path.home() / ".openviking"
 DEFAULT_OV_BIN = DEFAULT_OV_HOME / "venv" / "bin" / "ov"
 DEFAULT_OV_CONFIG = DEFAULT_OV_HOME / "ov.conf"
 DEFAULT_OV_SERVER = DEFAULT_OV_HOME / "venv" / "bin" / "openviking-server"
+DEFAULT_LMSTUDIO_HOME = Path.home() / ".lmstudio"
+LMSTUDIO_DEFAULT_CONFIG_ROOT = Path(".internal") / "user-concrete-model-default-config"
 GEMMA_LLM_KEYS = {"google/gemma-4-e2b", "google/gemma-4-e4b"}
+LMSTUDIO_KNOWN_CONFIG_PATHS = {
+    DEFAULT_CHAT_MODEL: [
+        Path("google") / "gemma-4-e2b.json",
+        Path("lmstudio-community") / "gemma-4-E2B-it-GGUF" / "gemma-4-E2B-it-Q4_K_M.gguf.json",
+    ],
+    DEFAULT_EMBEDDING_MODEL: [
+        Path("lmstudio-community") / "embeddinggemma-300m-qat-GGUF" / "embeddinggemma-300m-qat-Q4_0.gguf.json",
+    ],
+}
 LMSTUDIO_REPORTED_LOAD_KEYS = (
     "context_length",
     "eval_batch_size",
@@ -265,6 +276,182 @@ def load_json_file(path: Path) -> dict[str, Any] | None:
         return None
     except json.JSONDecodeError as exc:
         return {"_error": str(exc)}
+
+
+def default_lmstudio_config_root(home: Path) -> Path:
+    return home.expanduser() / LMSTUDIO_DEFAULT_CONFIG_ROOT
+
+
+def lmstudio_alias_config_path(config_root: Path, model: str) -> Path:
+    parts = model.split("/")
+    if len(parts) == 1:
+        return config_root / f"{model}.json"
+    return config_root.joinpath(*parts[:-1]) / f"{parts[-1]}.json"
+
+
+def unique_paths(paths: list[Path]) -> list[Path]:
+    seen: set[Path] = set()
+    result = []
+    for path in paths:
+        if path not in seen:
+            seen.add(path)
+            result.append(path)
+    return result
+
+
+def lmstudio_default_config_paths(home: Path, model: str) -> list[Path]:
+    config_root = default_lmstudio_config_root(home)
+    paths = [lmstudio_alias_config_path(config_root, model)]
+    paths.extend(config_root / relative for relative in LMSTUDIO_KNOWN_CONFIG_PATHS.get(model, []))
+    return unique_paths(paths)
+
+
+def lmstudio_field(key: str, value: Any) -> dict[str, Any]:
+    return {"key": key, "value": value}
+
+
+def lmstudio_structured_value() -> dict[str, Any]:
+    return {"type": "json", "jsonSchema": ROUTER_OUTPUT_SCHEMA}
+
+
+def lmstudio_desired_chat_config(
+    *,
+    cpu_threads: int,
+    parallel: int,
+    context_length: int,
+    kv_cache_quantization: str,
+    gpu_offload_ratio: float,
+    temperature: float,
+) -> dict[str, Any]:
+    return {
+        "preset": "",
+        "operation": {
+            "fields": [
+                lmstudio_field("llm.prediction.llama.cpuThreads", cpu_threads),
+                lmstudio_field("llm.prediction.structured", lmstudio_structured_value()),
+                lmstudio_field("llm.prediction.systemPrompt", ROUTER_SYSTEM_PROMPT),
+                lmstudio_field("llm.prediction.temperature", temperature),
+            ]
+        },
+        "load": {
+            "fields": [
+                lmstudio_field("llm.load.llama.acceleration.offloadRatio", gpu_offload_ratio),
+                lmstudio_field("llm.load.llama.cpuThreadPoolSize", cpu_threads),
+                lmstudio_field("llm.load.numParallelSessions", parallel),
+                lmstudio_field(
+                    "llm.load.llama.kCacheQuantizationType",
+                    {"checked": True, "value": kv_cache_quantization},
+                ),
+                lmstudio_field(
+                    "llm.load.llama.vCacheQuantizationType",
+                    {"checked": True, "value": kv_cache_quantization},
+                ),
+                lmstudio_field("llm.load.contextLength", context_length),
+            ]
+        },
+    }
+
+
+def lmstudio_desired_embedding_config(*, parallel: int, context_length: int) -> dict[str, Any]:
+    return {
+        "preset": "",
+        "operation": {"fields": []},
+        "load": {
+            "fields": [
+                lmstudio_field("llm.load.numParallelSessions", parallel),
+                lmstudio_field("llm.load.contextLength", context_length),
+            ]
+        },
+    }
+
+
+def lmstudio_config_section(config: dict[str, Any], section: str) -> list[dict[str, Any]]:
+    raw_section = config.get(section)
+    if not isinstance(raw_section, dict):
+        return []
+    fields = raw_section.get("fields")
+    if not isinstance(fields, list):
+        return []
+    return [field for field in fields if isinstance(field, dict) and isinstance(field.get("key"), str)]
+
+
+def merge_lmstudio_fields(existing: list[dict[str, Any]], desired: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    desired_by_key = {field["key"]: field for field in desired}
+    merged = []
+    used = set()
+    for field in existing:
+        key = field["key"]
+        if key in desired_by_key:
+            merged.append(desired_by_key[key])
+            used.add(key)
+        else:
+            merged.append(field)
+    for field in desired:
+        if field["key"] not in used and field["key"] not in {item["key"] for item in existing}:
+            merged.append(field)
+    return merged
+
+
+def merge_lmstudio_config(existing: dict[str, Any] | None, desired: dict[str, Any]) -> dict[str, Any]:
+    base = existing if isinstance(existing, dict) and "_error" not in existing else {}
+    merged = {
+        "preset": base.get("preset", desired.get("preset", "")),
+        "operation": {
+            "fields": merge_lmstudio_fields(
+                lmstudio_config_section(base, "operation"),
+                lmstudio_config_section(desired, "operation"),
+            )
+        },
+        "load": {
+            "fields": merge_lmstudio_fields(
+                lmstudio_config_section(base, "load"),
+                lmstudio_config_section(desired, "load"),
+            )
+        },
+    }
+    return merged
+
+
+def summarize_lmstudio_config_value(value: Any) -> Any:
+    if isinstance(value, str) and len(value) > 160:
+        return f"{value[:157]}..."
+    if isinstance(value, dict):
+        if set(value) == {"checked", "value"}:
+            return value
+        return {"summary": f"object with keys: {', '.join(sorted(value))}"}
+    return value
+
+
+def lmstudio_config_mismatches_by_key(actual: dict[str, Any] | None, desired: dict[str, Any]) -> list[dict[str, Any]]:
+    if not actual or "_error" in actual:
+        return [{"key": "*", "actual": None if not actual else actual, "desired": "valid JSON config"}]
+    mismatches = []
+    for section in ["operation", "load"]:
+        actual_by_key = {field["key"]: field.get("value") for field in lmstudio_config_section(actual, section)}
+        for desired_field in lmstudio_config_section(desired, section):
+            key = desired_field["key"]
+            actual_value = actual_by_key.get(key, "<missing>")
+            desired_value = desired_field.get("value")
+            if actual_value != desired_value:
+                mismatches.append(
+                    {
+                        "section": section,
+                        "key": key,
+                        "actual": summarize_lmstudio_config_value(actual_value),
+                        "desired": summarize_lmstudio_config_value(desired_value),
+                    }
+                )
+    return mismatches
+
+
+def write_json_with_backup(path: Path, payload: dict[str, Any], *, backup: bool) -> str | None:
+    backup_path = None
+    if backup and path.exists():
+        backup_path = path.with_name(f"{path.name}.bak.{int(time.time())}")
+        backup_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    return str(backup_path) if backup_path else None
 
 
 def command_ov_doctor(args: argparse.Namespace) -> int:
@@ -511,12 +698,157 @@ def lmstudio_plan_payload(args: argparse.Namespace) -> dict[str, Any]:
         },
         "hardware": hardware,
         "status": status,
+        "persistent_default_config": lmstudio_configure_payload(
+            argparse.Namespace(
+                lmstudio_home=str(DEFAULT_LMSTUDIO_HOME),
+                model=args.model,
+                embedding_model=args.embedding_model,
+                cpu_threads=hardware["recommendation"]["cpu_threads"],
+                parallel=1,
+                context_length=max_context,
+                embedding_context_length=2048,
+                kv_cache_quantization="q4_0",
+                gpu_offload_ratio=1.0,
+                temperature=0,
+                write=False,
+                backup=True,
+                include_embedding=True,
+                timeout=args.timeout,
+                base_url=args.base_url,
+            ),
+            status=status,
+            hardware=hardware,
+            emit_full_configs=False,
+        ),
     }
 
 
 def command_lmstudio_plan(args: argparse.Namespace) -> int:
     print_json(lmstudio_plan_payload(args))
     return 0
+
+
+def lmstudio_configure_target_payload(
+    *,
+    path: Path,
+    desired: dict[str, Any],
+    write: bool,
+    backup: bool,
+    emit_full_config: bool,
+) -> dict[str, Any]:
+    existing = load_json_file(path)
+    merged = merge_lmstudio_config(existing, desired)
+    mismatches = lmstudio_config_mismatches_by_key(existing, desired)
+    changed = existing != merged
+    payload: dict[str, Any] = {
+        "path": str(path),
+        "exists": path.exists(),
+        "changed": changed,
+        "mismatches": mismatches,
+    }
+    if emit_full_config:
+        payload["desired"] = desired
+        payload["merged"] = merged
+    if write and changed:
+        payload["backup_path"] = write_json_with_backup(path, merged, backup=backup)
+        payload["written"] = True
+    elif write:
+        payload["written"] = False
+    return payload
+
+
+def lmstudio_configure_payload(
+    args: argparse.Namespace,
+    *,
+    status: dict[str, Any] | None = None,
+    hardware: dict[str, Any] | None = None,
+    emit_full_configs: bool = True,
+) -> dict[str, Any]:
+    home = Path(args.lmstudio_home).expanduser()
+    hardware = hardware or hardware_payload()
+    status = status or lmstudio_status_payload(args.base_url, timeout=args.timeout)
+    cpu_threads = args.cpu_threads or hardware["recommendation"]["cpu_threads"]
+    context_length = args.context_length
+    if context_length <= 0 and status.get("ok"):
+        model_info = find_model({"models": status.get("models", [])}, args.model)
+        context_length = int(model_info.get("max_context_length") or 131072) if model_info else 131072
+    if context_length <= 0:
+        context_length = 131072
+
+    chat_desired = lmstudio_desired_chat_config(
+        cpu_threads=cpu_threads,
+        parallel=args.parallel,
+        context_length=context_length,
+        kv_cache_quantization=args.kv_cache_quantization,
+        gpu_offload_ratio=args.gpu_offload_ratio,
+        temperature=args.temperature,
+    )
+    targets = [
+        lmstudio_configure_target_payload(
+            path=path,
+            desired=chat_desired,
+            write=args.write,
+            backup=args.backup,
+            emit_full_config=emit_full_configs,
+        )
+        for path in lmstudio_default_config_paths(home, args.model)
+    ]
+
+    embedding_targets = []
+    if args.include_embedding:
+        embedding_desired = lmstudio_desired_embedding_config(
+            parallel=1,
+            context_length=args.embedding_context_length,
+        )
+        embedding_targets = [
+            lmstudio_configure_target_payload(
+                path=path,
+                desired=embedding_desired,
+                write=args.write,
+                backup=args.backup,
+                emit_full_config=emit_full_configs,
+            )
+            for path in lmstudio_default_config_paths(home, args.embedding_model)
+        ]
+
+    loaded_gemma = status.get("loaded_gemma_llms", []) if status.get("ok") else []
+    conflicting_loaded = [item for item in loaded_gemma if item.get("key") != args.model]
+    return {
+        "ok": not conflicting_loaded,
+        "write": args.write,
+        "lmstudio_home": str(home),
+        "model": args.model,
+        "embedding_model": args.embedding_model if args.include_embedding else None,
+        "settings": {
+            "cpu_threads": cpu_threads,
+            "parallel": args.parallel,
+            "context_length": context_length,
+            "embedding_context_length": args.embedding_context_length if args.include_embedding else None,
+            "kv_cache_quantization": args.kv_cache_quantization,
+            "gpu_offload_ratio": args.gpu_offload_ratio,
+            "temperature": args.temperature,
+            "structured_output": "openviking_memory_routing",
+        },
+        "targets": targets,
+        "embedding_targets": embedding_targets,
+        "status": {
+            "server_reachable": bool(status.get("ok")),
+            "loaded_gemma_llms": loaded_gemma,
+            "conflicting_loaded": conflicting_loaded,
+        },
+        "notes": [
+            "This writes LM Studio persisted model defaults observed under ~/.lmstudio/.internal/user-concrete-model-default-config.",
+            "LM Studio REST model loading still receives per-load context/eval/flash/offload flags from agent-basics.",
+            "OpenAI-compatible chat requests still include the system prompt and json_schema response_format explicitly for deterministic routing.",
+            "If the model is already loaded, unload and load it again before expecting persisted load defaults to apply.",
+        ],
+    }
+
+
+def command_lmstudio_configure(args: argparse.Namespace) -> int:
+    payload = lmstudio_configure_payload(args, emit_full_configs=args.verbose_config)
+    print_json(payload)
+    return 0 if payload["ok"] else 1
 
 
 def lmstudio_config_mismatches(actual: dict[str, Any], desired: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1024,6 +1356,25 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--max-tokens", type=int, default=2200)
     plan.add_argument("--timeout", type=float, default=5)
     plan.set_defaults(func=command_lmstudio_plan)
+
+    configure = lm_sub.add_parser("configure")
+    configure.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
+    configure.add_argument("--lmstudio-home", default=str(DEFAULT_LMSTUDIO_HOME))
+    configure.add_argument("--model", default=DEFAULT_CHAT_MODEL)
+    configure.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    configure.add_argument("--cpu-threads", type=int, default=0)
+    configure.add_argument("--parallel", type=int, default=1)
+    configure.add_argument("--context-length", type=int, default=0)
+    configure.add_argument("--embedding-context-length", type=int, default=2048)
+    configure.add_argument("--kv-cache-quantization", default="q4_0")
+    configure.add_argument("--gpu-offload-ratio", type=float, default=1.0)
+    configure.add_argument("--temperature", type=float, default=0)
+    configure.add_argument("--timeout", type=float, default=5)
+    configure.add_argument("--write", action="store_true")
+    configure.add_argument("--backup", action=argparse.BooleanOptionalAction, default=True)
+    configure.add_argument("--include-embedding", action=argparse.BooleanOptionalAction, default=True)
+    configure.add_argument("--verbose-config", action="store_true")
+    configure.set_defaults(func=command_lmstudio_configure)
 
     load = lm_sub.add_parser("load")
     load.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
