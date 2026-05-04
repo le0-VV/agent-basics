@@ -20,12 +20,16 @@
 - Before answering a request that may depend on prior project context, search OpenViking through the agent-basics MCP tool or `agent-basics ov search "<query>"`.
 - Anything the user asks you to remember must be recorded in OpenViking through the agent-basics MCP tool or `agent-basics ov record`.
 - Add external documentation sources, reusable procedures, and agent skills to OpenViking through the agent-basics gateway when they matter for future work.
-- The current `.agents/memory/` mini-RAG is transitional compatibility until the OpenViking gateway is implemented and the repository is migrated. Use it only when OpenViking tooling is unavailable and work must continue.
-- If you must use the compatibility memory layer, use MCP `memory_search` and `memory_record` first. Fall back to `agent-basics memory ...` or `.agents/memory/rag/agent-memory.py ...` only when MCP is unavailable.
+- Use `Skills.md` and `.agents/skills/` for repeatable workflows before inventing new process.
+- The `.agents/memory/` mini-RAG is legacy fallback compatibility only. Use it only when OpenViking tooling is unavailable and work must continue.
+- If you must use the compatibility memory layer, prefer the compatibility MCP tools `memory_search` and `memory_record` when that server is configured. Otherwise fall back to `agent-basics memory ...` or `.agents/memory/rag/agent-memory.py ...`.
 - Do not edit `.agents/memory/**` while `.agents/memory/rag/write.lock/` exists.
 
 ## Work Rules
 
+- When delegation is available and useful, prefer subagents working in their own branch or worktree with clear ownership.
+- Subagents must not spawn their own subagents unless the user explicitly asks for nested delegation.
+- The main agent owns supervision: review, integrate, resolve conflicts, and merge subagent work after they finish.
 - Before making codebase changes, write the concrete plan in `.agents/TODO.md` and follow it.
 - For non-trivial or long-running work, preserve direction in `ROADMAP.md` and current state in `.agents/TODO.md`.
 - Read a file fully before editing it.
@@ -35,7 +39,7 @@
 - Prefer fail-fast behavior over silent fallback logic.
 - Add tests for new behavior unless the change is strictly docs/metadata cleanup.
 - Tick off every completed item in `.agents/TODO.md`.
-- After ticking off an item, commit the changes made for that item.
+- Commit each completed logical unit when the repo is verified and the staged changes are coherent.
 - Only stop working when everything in `.agents/TODO.md` is complete or you are blocked by something that requires user intervention.
 - If everything is ticked off in `.agents/TODO.md` and a new work round is needed, clear it and write the new plan.
 
