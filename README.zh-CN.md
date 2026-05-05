@@ -23,7 +23,7 @@ coding agent 新手村套装。
 ## 安装
 
 ```bash
-brew tap le0-VV/agent-basics
+brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 

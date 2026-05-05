@@ -23,7 +23,7 @@ It uses OpenViking as the memory and retrieval backend. `agent-basics` handles t
 ## Install
 
 ```bash
-brew tap le0-VV/agent-basics
+brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 

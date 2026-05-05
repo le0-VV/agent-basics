@@ -1,5 +1,5 @@
 class AgentBasics < Formula
-  desc "1 command to setup a directory for reliable agent operations"
+  desc "Baby's first coding agent harness"
   homepage "https://github.com/le0-VV/agent-basics"
   head "https://github.com/le0-VV/agent-basics.git", branch: "main"
   depends_on "rust" => :build
