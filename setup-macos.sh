@@ -24,6 +24,53 @@ REPO_SKILLS_DIR="$REPO_AGENTS_DIR/skills"
 REPO_RUNS_DIR="$REPO_AGENTS_DIR/runs"
 RAG_DIR="$REPO_MEMORY_ROOT/rag"
 EMBEDDING_API_DIR="$RAG_DIR/embedding-api"
+RAW_AGENT_BASICS_LANGUAGE="${AGENT_BASICS_LANGUAGE:-}"
+AGENT_BASICS_LANGUAGE_EXPLICIT="${AGENT_BASICS_LANGUAGE_EXPLICIT:-0}"
+
+if [[ -n "$RAW_AGENT_BASICS_LANGUAGE" && "$AGENT_BASICS_LANGUAGE_EXPLICIT" == "0" ]]; then
+  AGENT_BASICS_LANGUAGE_EXPLICIT=1
+fi
+
+detect_agent_basics_language() {
+  case "${LANG:-}${LC_ALL:-}${LC_MESSAGES:-}" in
+    zh*|*zh_CN*|*zh-CN*|*zh_Hans*|*Chinese*)
+      printf "zh-CN\n"
+      ;;
+    *)
+      printf "en\n"
+      ;;
+  esac
+}
+
+normalize_agent_basics_language() {
+  local value="$1"
+  local lowered
+
+  lowered="$(printf "%s" "$value" | tr '[:upper:]' '[:lower:]' | tr '_' '-')"
+  case "$lowered" in
+    ""|en|en-us|en-gb)
+      printf "en\n"
+      ;;
+    auto)
+      detect_agent_basics_language
+      ;;
+    zh|zh-cn|zh-hans|cn|chinese|simplified-chinese)
+      printf "zh-CN\n"
+      ;;
+    *)
+      echo "Error: unsupported agent-basics language: $value" >&2
+      echo "Supported values: en, zh-CN, auto" >&2
+      exit 2
+      ;;
+  esac
+}
+
+AGENT_BASICS_LANGUAGE="$(normalize_agent_basics_language "${RAW_AGENT_BASICS_LANGUAGE:-en}")"
+export AGENT_BASICS_LANGUAGE
+
+agent_basics_language_is_zh() {
+  [[ "$AGENT_BASICS_LANGUAGE" == "zh-CN" ]]
+}
 
 require_interactive() {
   local reason="$1"
@@ -135,10 +182,12 @@ create_template_file() {
 
 Follow in this order:
 
-1. Use the language of the user's message.
-2. Search OpenViking or the compatibility memory layer before relying on assumptions about prior work.
-3. Combine project context and clear reasoning to answer with concrete details.
-4. Keep answers direct and actionable.
+1. Use the language of the user's message when it is clear.
+2. If the user's language is ambiguous, use the configured repo language in `.agents/config.toml` under `[agent_basics].language`.
+3. If `[agent_basics].language` is `zh-CN`, use Simplified Chinese for user-facing explanations unless the user asks otherwise.
+4. Search OpenViking or the compatibility memory layer before relying on assumptions about prior work.
+5. Combine project context and clear reasoning to answer with concrete details.
+6. Keep answers direct and actionable.
 EOT
       ;;
     agent-basics)
@@ -1992,20 +2041,23 @@ write_repo_config_if_missing() {
 
   if [[ -f "$repo_config" ]]; then
     echo "Exists: .agents/config.toml"
+    if [[ "$AGENT_BASICS_LANGUAGE_EXPLICIT" == "1" ]]; then
+      update_repo_config_language "$repo_config"
+    fi
     return
   fi
 
   timestamp="$(date -u +%s)"
   repo_slug="$(slugify "$PROJECT_NAME")"
   mkdir -p "$REPO_AGENTS_DIR"
-  python3 - "$repo_config" "$timestamp" "$repo_slug" "$TARGET_DIR" <<'PY'
+  python3 - "$repo_config" "$timestamp" "$repo_slug" "$TARGET_DIR" "$AGENT_BASICS_LANGUAGE" <<'PY'
 from __future__ import annotations
 
 import json
 import sys
 
 
-path, timestamp, repo_slug, target_dir = sys.argv[1:]
+path, timestamp, repo_slug, target_dir, language = sys.argv[1:]
 
 
 def quote(value: str) -> str:
@@ -2016,6 +2068,8 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write("version = 1\n")
     handle.write(f"generated_at = {int(timestamp)}\n")
     handle.write(f"repo_slug = {quote(repo_slug)}\n\n")
+    handle.write("[agent_basics]\n")
+    handle.write(f"language = {quote(language)}\n\n")
     handle.write("[openviking]\n")
     handle.write("enabled = true\n")
     handle.write("required = true\n")
@@ -2028,6 +2082,43 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write("stale_after_seconds = 86400\n")
 PY
   echo "Created: .agents/config.toml"
+}
+
+update_repo_config_language() {
+  local repo_config="$1"
+
+  python3 - "$repo_config" "$AGENT_BASICS_LANGUAGE" <<'PY'
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+
+path = Path(sys.argv[1])
+language = sys.argv[2]
+text = path.read_text(encoding="utf-8")
+line = f'language = "{language}"'
+section_re = re.compile(r"(?ms)^\[agent_basics\]\n(?P<body>.*?)(?=^\[|\Z)")
+match = section_re.search(text)
+
+if match:
+    body = match.group("body")
+    if re.search(r"(?m)^language\s*=", body):
+        body = re.sub(r"(?m)^language\s*=.*$", line, body)
+    else:
+        if body and not body.endswith("\n"):
+            body += "\n"
+        body += line + "\n"
+    text = text[: match.start("body")] + body + text[match.end("body") :]
+else:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += f"\n[agent_basics]\n{line}\n"
+
+path.write_text(text, encoding="utf-8")
+PY
+  echo "Updated: .agents/config.toml language = $AGENT_BASICS_LANGUAGE"
 }
 
 write_repo_mcp_config_snippets() {
@@ -3101,6 +3192,48 @@ if compat_memory_enabled; then
   ".agents/memory/rag/agent-memory.py" rebuild
 fi
 
+if agent_basics_language_is_zh; then
+cat <<EOT
+agent-basics 设置完成。
+
+OpenViking source store:
+  .agents/memory/
+
+OpenViking 仓库 metadata:
+  .agents/openviking/
+
+OpenViking 仓库配置:
+  .agents/config.toml
+
+项目语言:
+  $AGENT_BASICS_LANGUAGE
+
+Skills 和 run state:
+  Skills.md
+  .agents/skills/
+  .agents/runs/
+
+MCP 配置片段:
+  .agents/openviking/codex-mcp.json
+
+Legacy memory snapshots:
+  .agents/openviking/legacy-memory/
+
+冲突备份和 merge sessions:
+  .agents/backups/
+  .agents/merge-sessions/
+
+Codex Desktop custom MCP 字段:
+  Name: agent-basics
+  Transport: STDIO
+  Command to launch: agent-basics
+  Arguments: mcp
+  Working directory: $TARGET_DIR
+
+如果 legacy material 被 snapshot，按这个文件适配:
+  .agents/memory/ADAPTATION.md
+EOT
+else
 cat <<EOT
 agent-basics setup complete.
 
@@ -3112,6 +3245,9 @@ OpenViking repo metadata:
 
 OpenViking repo config:
   .agents/config.toml
+
+Project language:
+  $AGENT_BASICS_LANGUAGE
 
 Skills and run state:
   Skills.md
@@ -3135,9 +3271,7 @@ Codex Desktop custom MCP fields for the target gateway:
   Arguments: mcp
   Working directory: $TARGET_DIR
 
-Compatibility mini-RAG:
-  Not installed by default. Re-run with AGENT_BASICS_INSTALL_COMPAT_MEMORY=1 only if you need the old fallback memory CLI/MCP when OpenViking is unavailable.
-
 If legacy material was snapshotted, adapt it with:
   .agents/memory/ADAPTATION.md
 EOT
+fi

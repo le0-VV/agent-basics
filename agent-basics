@@ -72,8 +72,8 @@ find_ov_helper() {
 usage() {
   cat <<'EOT'
 Usage:
-  agent-basics [--repo DIR] setup [options] [DIR]
-  agent-basics [--repo DIR] upgrade [options] [DIR]
+  agent-basics [--repo DIR] [--language en|zh-CN|auto] setup [options] [DIR]
+  agent-basics [--repo DIR] [--language en|zh-CN|auto] upgrade [options] [DIR]
   agent-basics [--repo DIR] memory <validate|rebuild|search|record|doctor|install-hooks> [...]
   agent-basics [--repo DIR] mcp
   agent-basics [--repo DIR] ov <doctor|status|search|read|record|add-resource|add-skill|ingest-changed|install-hooks|install-system|write-default-config|server|import-repo-memory> [...]
@@ -99,17 +99,12 @@ Setup options:
   --embedding-batch-size N
   --embedding-min-dimensions N
   --project-name NAME
-
-Compatibility embedding setup values are validated only when
-AGENT_BASICS_INSTALL_COMPAT_MEMORY=1 and written to:
-  .agents/memory/rag/config.json
+  --language en|zh-CN|auto
 
 OpenViking is the target required backend for memory, resources, skills, and
 retrieval. `agent-basics ov` uses a user-level OpenViking installation, normally
 under ~/.openviking, instead of installing OpenViking into each repository.
-Fresh setup creates `.agents/memory/` as the OpenViking source store and does
-not install the legacy mini-RAG unless AGENT_BASICS_INSTALL_COMPAT_MEMORY=1 is
-set.
+Fresh setup creates `.agents/memory/` as the OpenViking source store.
 Use `agent-basics ov import-repo-memory --write` to write repo OV-native memory
 files into OpenViking memory categories and ingest resources/skills.
 Use `agent-basics ov server` to start the configured user-level OpenViking HTTP
@@ -132,6 +127,7 @@ EOT
 }
 
 repo_dir=""
+language=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -C|--repo|--cwd)
@@ -140,6 +136,14 @@ while [[ $# -gt 0 ]]; do
         exit 2
       fi
       repo_dir="$2"
+      shift 2
+      ;;
+    --language|--lang)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: $1 requires a language." >&2
+        exit 2
+      fi
+      language="$2"
       shift 2
       ;;
     -h|--help)
@@ -176,6 +180,7 @@ run_setup() {
   local embedding_batch_size=""
   local embedding_min_dimensions=""
   local project_name=""
+  local setup_language="$language"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -228,6 +233,11 @@ run_setup() {
         project_name="$2"
         shift 2
         ;;
+      --language|--lang)
+        [[ $# -ge 2 ]] || { echo "Error: --language requires a value." >&2; exit 2; }
+        setup_language="$2"
+        shift 2
+        ;;
       --)
         shift
         break
@@ -270,6 +280,10 @@ run_setup() {
   if [[ -n "$embedding_batch_size" ]]; then export AGENT_BASICS_EMBEDDING_BATCH_SIZE="$embedding_batch_size"; fi
   if [[ -n "$embedding_min_dimensions" ]]; then export AGENT_BASICS_EMBEDDING_MIN_DIMENSIONS="$embedding_min_dimensions"; fi
   if [[ -n "$project_name" ]]; then export AGENT_BASICS_PROJECT_NAME="$project_name"; fi
+  if [[ -n "$setup_language" ]]; then
+    export AGENT_BASICS_LANGUAGE="$setup_language"
+    export AGENT_BASICS_LANGUAGE_EXPLICIT=1
+  fi
   exec "$(find_setup_script)" "$target_dir"
 }
 

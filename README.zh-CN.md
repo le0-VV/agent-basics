@@ -42,6 +42,12 @@ agent-basics doctor --online
 agent-basics setup /path/to/project
 ```
 
+使用中文输出和仓库默认语言：
+
+```bash
+agent-basics setup --language zh-CN /path/to/project
+```
+
 重新运行 setup 就是 upgrade 路径：
 
 ```bash

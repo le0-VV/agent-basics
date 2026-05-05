@@ -16,7 +16,7 @@ SETUP = ROOT / "setup-macos.sh"
 class SetupMacosTest(unittest.TestCase):
     def write_fake_openviking(self, repo: Path) -> Path:
         fake_bin = repo / ".test-openviking" / "ov"
-        fake_bin.parent.mkdir(parents=True)
+        fake_bin.parent.mkdir(parents=True, exist_ok=True)
         fake_bin.write_text(
             "#!/usr/bin/env sh\n"
             "case \"$1\" in\n"
@@ -32,7 +32,7 @@ class SetupMacosTest(unittest.TestCase):
     def write_fake_openviking_installer(self, repo: Path) -> tuple[Path, Path]:
         fake_dispatcher = repo / ".test-openviking" / "agent-basics"
         log_path = repo / ".test-openviking" / "install.log"
-        fake_dispatcher.parent.mkdir(parents=True)
+        fake_dispatcher.parent.mkdir(parents=True, exist_ok=True)
         fake_dispatcher.write_text(
             "#!/usr/bin/env sh\n"
             "set -eu\n"
@@ -158,6 +158,7 @@ class SetupMacosTest(unittest.TestCase):
             config = tomllib.loads((repo / ".agents" / "config.toml").read_text(encoding="utf-8"))
             self.assertEqual(config["repo_slug"], "setup-test")
             self.assertIsInstance(config["generated_at"], int)
+            self.assertEqual(config["agent_basics"], {"language": "en"})
             self.assertEqual(
                 config["openviking"],
                 {
@@ -264,6 +265,31 @@ class SetupMacosTest(unittest.TestCase):
             self.assertEqual(config["openviking"]["mcp"]["cwd"], str(repo))
             snippet = json.loads((repo / ".agents" / "openviking" / "codex-mcp.json").read_text(encoding="utf-8"))
             self.assertEqual(snippet["mcpServers"]["agent-basics"]["cwd"], str(repo))
+
+    def test_setup_persists_chinese_language_and_prints_chinese_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            result = self.run_setup(repo, {"AGENT_BASICS_LANGUAGE": "zh-CN"})
+
+            config = tomllib.loads((repo / ".agents" / "config.toml").read_text(encoding="utf-8"))
+            agents_text = (repo / "Agents.md").read_text(encoding="utf-8")
+
+            self.assertEqual(config["agent_basics"]["language"], "zh-CN")
+            self.assertIn("agent-basics 设置完成。", result.stdout)
+            self.assertIn("项目语言:", result.stdout)
+            self.assertIn("[agent_basics].language", agents_text)
+
+    def test_setup_language_option_updates_existing_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            result = self.run_setup(repo, {"AGENT_BASICS_LANGUAGE": "zh-CN"})
+            self.assertIn("agent-basics 设置完成。", result.stdout)
+
+            result = self.run_setup(repo, {"AGENT_BASICS_LANGUAGE": "en"})
+            config = tomllib.loads((repo / ".agents" / "config.toml").read_text(encoding="utf-8"))
+
+            self.assertEqual(config["agent_basics"]["language"], "en")
+            self.assertIn("Updated: .agents/config.toml language = en", result.stdout)
 
     def test_setup_can_skip_openviking_check_with_test_only_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

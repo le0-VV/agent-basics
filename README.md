@@ -42,6 +42,12 @@ For a new or existing project:
 agent-basics setup /path/to/project
 ```
 
+Use Chinese output and repo defaults:
+
+```bash
+agent-basics setup --language zh-CN /path/to/project
+```
+
 Re-running setup is the upgrade path:
 
 ```bash
