@@ -10,6 +10,18 @@ coding agent 新手村套装。
 
 > 这会增加一些 prompt 和流程开销。换来的是更好的连续性，以及更少丢失的决策。
 
+## 问题是什么
+
+Coding agents 很有用，但它们不擅长把项目上下文稳定带过长会话、新聊天、分支切换和多个 agents 的交接。重要决策很容易散落在聊天记录、TODO、临时笔记和半记得的 instructions 里。每个新 agent 又得重新搞清楚项目怎么工作、哪些文件重要、用户偏好是什么、什么方案已经踩过坑。
+
+大多数仓库也没有给 agents 一个稳定的操作界面。Instructions 可能缺失、重复、过期，或者藏在 agent 不一定会读的文件里。就算有 memory system，也常常和 git 分离，导致项目知识和对应代码慢慢漂开。
+
+## 核心想法
+
+`agent-basics` 是一个轻量 repo harness：安装一个共享的 memory backend，把稳定的 agent-facing 文件放在可预测的位置，再教 agents 几个固定流程。
+
+仓库把可人工 review 的 source files 放在 `.agents/memory/`；OpenViking 负责存储、搜索和检索；MCP 给 agents 一个一致的方式来读取上下文和记录新上下文。Setup 和 upgrade 负责安全地处理已有项目，git hooks 则在提交知识文件变化时刷新 memory backend。
+
 ## 它提供什么
 
 - 一个 agents 能可靠发现的根目录 `Agents.md`。

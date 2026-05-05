@@ -10,6 +10,18 @@ It uses OpenViking as the memory and retrieval backend. `agent-basics` handles t
 
 > This adds some prompt and workflow overhead. The tradeoff is better continuity and fewer lost decisions.
 
+## Problem Statement
+
+Coding agents are useful, but they are bad at carrying project context across long sessions, new chats, branch switches, and handoffs between agents. Important decisions end up scattered through chat history, TODO files, local notes, and half-remembered instructions. Each new agent then has to rediscover how the project works, which files matter, what the user prefers, and what already failed.
+
+Most repos also do not give agents a predictable operating surface. Instructions may be missing, duplicated, stale, or buried in files the agent may not read. Memory systems, when present, are often separate from git, so project knowledge can drift away from the code it describes.
+
+## The Idea
+
+`agent-basics` is a small repo harness: install one shared memory backend, put stable agent-facing files in predictable places, and teach agents a few repeatable routines.
+
+The repo keeps human-reviewable source files under `.agents/memory/`; OpenViking handles storage, search, and retrieval; MCP gives agents a consistent way to ask for context and record new context. Setup and upgrade keep the structure safe for existing projects, while git hooks keep the memory backend current when committed knowledge changes.
+
 ## What It Gives You
 
 - A root `Agents.md` that agents can reliably discover.
