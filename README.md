@@ -62,14 +62,6 @@ For a new or existing project:
 agent-basics setup /path/to/project
 ```
 
-Set the installation-wide language to Simplified Chinese:
-
-```bash
-agent-basics setup --language zh-CN /path/to/project
-```
-
-The language preference is stored under `~/.agent-basics/config.toml`, not in each repo.
-
 Re-running setup is the upgrade path:
 
 ```bash

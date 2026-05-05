@@ -45,7 +45,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。在合适的 Apple Silicon 机器上，它也会 best-effort 设置 LM Studio：安装 `lm-studio` cask、安装用户级 LM Studio server LaunchAgent、写入模型默认配置、下载配置好的 chat/embedding 模型，并让模型以 JIT 方式按需加载。
+Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。在合适的 Apple Silicon 设备上，它也会尝试设置 LM Studio：安装 `lm-studio` Homebrew cask、安装用户级 LM Studio server LaunchAgent、写入模型默认配置、下载配置好的 chat/embedding 模型，并让模型以 JIT 方式按需加载。
 
 验证命令：
 
@@ -68,15 +68,13 @@ agent-basics setup /path/to/project
 agent-basics setup --language zh-CN /path/to/project
 ```
 
-语言偏好保存在 `~/.agent-basics/config.toml`，不写进每个仓库。
-
 重新运行 setup 就是 upgrade 路径：
 
 ```bash
 agent-basics upgrade /path/to/project
 ```
 
-如果 setup 发现已有 markdown 文件，例如 `Agents.md`，它会询问是保留、替换、追加、手动合并、使用本地 web merge UI，还是把新文件保存到原文件旁边。
+如果 setup 发现已有 markdown 文件，例如 `Agents.md`，它会询问是保留、替换、追加、手动合并、使用本地 web merge UI，还是把新文件保存到原文件旁。
 
 ## OpenViking
 
