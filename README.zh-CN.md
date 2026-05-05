@@ -27,7 +27,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。
+Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。在合适的 Apple Silicon 机器上，它也会 best-effort 设置 LM Studio：安装 `lm-studio` cask、安装用户级 LM Studio server LaunchAgent、写入模型默认配置、下载配置好的 chat/embedding 模型，并让模型以 JIT 方式按需加载。
 
 验证命令：
 
@@ -62,10 +62,11 @@ agent-basics upgrade /path/to/project
 
 ## OpenViking
 
-OpenViking 是必需的，并且会在 Homebrew 安装时自动 bootstrap。需要修复或重新运行这一步时：
+OpenViking 是必需的，并且会在 Homebrew 安装时自动 bootstrap。需要修复或重新运行完整本地 runtime setup 时：
 
 ```bash
 agent-basics ov bootstrap-system
+agent-basics lmstudio bootstrap
 agent-basics ov doctor
 ```
 
@@ -158,9 +159,11 @@ setup 之后，一个项目通常会有：
 
 ## LM Studio
 
-默认本地设置期望 LM Studio 暴露 OpenAI-compatible API，供 chat/VLM model 和 embedding model 使用。在 macOS 上，agents 应该通过 `agent-basics lmstudio` 的 HTTP 命令操作，而不是使用 `lms` CLI。
+默认本地设置期望 LM Studio 暴露 OpenAI-compatible API，供 chat/VLM model 和 embedding model 使用。agents 应该通过 `agent-basics lmstudio` 的 HTTP 命令管理模型；bootstrap 可以安装一个在 agent 进程之外运行 `lms server start` 的 LaunchAgent。
 
 ```bash
+agent-basics lmstudio bootstrap --dry-run
+agent-basics lmstudio service status
 agent-basics lmstudio status
 agent-basics lmstudio hardware
 agent-basics lmstudio plan

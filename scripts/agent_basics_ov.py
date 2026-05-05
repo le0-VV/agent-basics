@@ -37,6 +37,15 @@ DEFAULT_OV_RESOURCE_TARGET = "viking://resources/projects"
 OV_HOOK_MARKER = "agent-basics-openviking-hook"
 LEGACY_MEMORY_HOOK_MARKER = "agent-basics memory hook"
 DEFAULT_LMSTUDIO_HOME = Path.home() / ".lmstudio"
+DEFAULT_LMSTUDIO_APP = Path("/Applications/LM Studio.app")
+DEFAULT_LMS_BIN = DEFAULT_LMSTUDIO_HOME / "bin" / "lms"
+DEFAULT_LMSTUDIO_CASK = "lm-studio"
+DEFAULT_LMSTUDIO_PORT = 1234
+DEFAULT_LMSTUDIO_SERVICE_LABEL = "com.agent-basics.lmstudio"
+DEFAULT_LMSTUDIO_SERVICE_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{DEFAULT_LMSTUDIO_SERVICE_LABEL}.plist"
+DEFAULT_LMSTUDIO_MIN_MEMORY_GB = 16.0
+DEFAULT_LMSTUDIO_CHAT_DOWNLOAD = DEFAULT_CHAT_MODEL
+DEFAULT_LMSTUDIO_EMBEDDING_DOWNLOAD = DEFAULT_EMBEDDING_MODEL
 LMSTUDIO_DEFAULT_CONFIG_ROOT = Path(".internal") / "user-concrete-model-default-config"
 GEMMA_LLM_KEYS = {"google/gemma-4-e2b", "google/gemma-4-e4b"}
 LMSTUDIO_KNOWN_CONFIG_PATHS = {
@@ -810,6 +819,38 @@ def command_payload_from_handler(handler: Any, args: argparse.Namespace) -> dict
     return payload
 
 
+def ov_bootstrap_lmstudio_args(args: argparse.Namespace, *, dry_run: bool) -> argparse.Namespace:
+    lmstudio_mode = getattr(args, "lmstudio", "auto")
+    return argparse.Namespace(
+        base_url=getattr(args, "lmstudio_base", DEFAULT_LM_STUDIO_BASE),
+        lmstudio_home=str(DEFAULT_LMSTUDIO_HOME),
+        model=getattr(args, "chat_model", DEFAULT_CHAT_MODEL),
+        embedding_model=getattr(args, "embedding_model", DEFAULT_EMBEDDING_MODEL),
+        download_model=[],
+        min_memory_gb=getattr(args, "lmstudio_min_memory_gb", DEFAULT_LMSTUDIO_MIN_MEMORY_GB),
+        allow_non_macos=False,
+        force_hardware=lmstudio_mode == "always",
+        install="always" if lmstudio_mode == "always" else "auto",
+        service="always" if lmstudio_mode == "always" else "auto",
+        configure="always" if lmstudio_mode == "always" else "auto",
+        download="always" if lmstudio_mode == "always" else "auto",
+        cask=getattr(args, "lmstudio_cask", DEFAULT_LMSTUDIO_CASK),
+        app_path=getattr(args, "lmstudio_app_path", str(DEFAULT_LMSTUDIO_APP)),
+        lms_bin=getattr(args, "lmstudio_lms_bin", None),
+        port=DEFAULT_LMSTUDIO_PORT,
+        label=DEFAULT_LMSTUDIO_SERVICE_LABEL,
+        plist=None,
+        timeout=5,
+        service_timeout=getattr(args, "service_timeout", DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS),
+        wait_server_seconds=getattr(args, "lmstudio_wait_server_seconds", 30),
+        force_install=False,
+        force_service=False,
+        no_load=getattr(args, "no_load", False),
+        best_effort=getattr(args, "lmstudio_best_effort", False),
+        dry_run=dry_run,
+    )
+
+
 def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
     home = Path(args.home).expanduser()
     config = Path(args.config).expanduser() if args.config else home / "ov.conf"
@@ -820,6 +861,12 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
     )
 
     if args.dry_run:
+        lmstudio_mode = getattr(args, "lmstudio", "never")
+        lmstudio_plan = (
+            command_payload_from_handler(command_lmstudio_bootstrap, ov_bootstrap_lmstudio_args(args, dry_run=True))
+            if lmstudio_mode != "never"
+            else {"ok": True, "changed": False, "skipped": True, "mode": "never"}
+        )
         print_json(
             {
                 "ok": True,
@@ -840,6 +887,7 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
                     "best_effort": args.service_best_effort,
                     "skipped_reason": service_skipped_reason,
                 },
+                "lmstudio": lmstudio_plan,
             }
         )
         return 0
@@ -911,6 +959,21 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
                     "skipped": True,
                     "reason": service_skipped_reason,
                 },
+            }
+        )
+
+    lmstudio_mode = getattr(args, "lmstudio", "never")
+    if lmstudio_mode != "never":
+        lmstudio_payload = command_payload_from_handler(command_lmstudio_bootstrap, ov_bootstrap_lmstudio_args(args, dry_run=False))
+        steps.append({"name": "lmstudio bootstrap", "payload": lmstudio_payload})
+        if not lmstudio_payload.get("ok"):
+            ok = bool(getattr(args, "lmstudio_best_effort", False))
+            steps[-1]["best_effort_ignored_failure"] = bool(getattr(args, "lmstudio_best_effort", False))
+    else:
+        steps.append(
+            {
+                "name": "lmstudio bootstrap",
+                "payload": {"ok": True, "changed": False, "skipped": True, "mode": "never"},
             }
         )
 
@@ -2633,6 +2696,7 @@ def hardware_payload() -> dict[str, Any]:
         memory_gb = float(match.group(1))
     return {
         "ok": profiler["ok"],
+        "system": platform.system(),
         "platform": platform.platform(),
         "machine": platform.machine(),
         "python_cpu_count": cpu_count,
@@ -2659,6 +2723,516 @@ def hardware_payload() -> dict[str, Any]:
 def command_lmstudio_hardware(args: argparse.Namespace) -> int:
     print_json(hardware_payload())
     return 0
+
+
+def lmstudio_hardware_gate_payload(
+    hardware: dict[str, Any],
+    *,
+    min_memory_gb: float,
+    require_macos: bool = True,
+) -> dict[str, Any]:
+    reasons = []
+    memory_gb = hardware.get("recommendation", {}).get("memory_gb")
+    system = hardware.get("system") or platform.system()
+    machine = hardware.get("machine") or platform.machine()
+    if require_macos and system != "Darwin":
+        reasons.append(f"requires macOS/Darwin; detected {system or 'unknown'}")
+    if machine not in {"arm64", "aarch64"}:
+        reasons.append(f"Apple Silicon is recommended; detected {machine or 'unknown'}")
+    if memory_gb is None:
+        reasons.append("could not determine unified memory")
+    elif float(memory_gb) < min_memory_gb:
+        reasons.append(f"requires at least {min_memory_gb:g} GB unified memory; detected {memory_gb:g} GB")
+    return {
+        "ok": not reasons,
+        "min_memory_gb": min_memory_gb,
+        "memory_gb": memory_gb,
+        "system": system,
+        "machine": machine,
+        "reasons": reasons,
+    }
+
+
+def find_brew() -> str | None:
+    discovered = shutil_which("brew")
+    if discovered:
+        return discovered
+    for candidate in [Path("/opt/homebrew/bin/brew"), Path("/usr/local/bin/brew")]:
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
+def find_lms_bin(override: str | None = None) -> Path:
+    if override:
+        return Path(override).expanduser()
+    discovered = shutil_which("lms")
+    if discovered:
+        return Path(discovered)
+    return DEFAULT_LMS_BIN
+
+
+def lmstudio_install_payload(
+    *,
+    app_path: Path,
+    cask: str,
+    dry_run: bool,
+    force: bool,
+) -> dict[str, Any]:
+    installed = app_path.exists()
+    needed = force or not installed
+    brew = find_brew()
+    command = [brew or "brew", "install", "--cask", cask]
+    payload: dict[str, Any] = {
+        "ok": True,
+        "app_path": str(app_path),
+        "installed": installed,
+        "needed": needed,
+        "cask": cask,
+        "command": command,
+    }
+    if not needed:
+        payload["changed"] = False
+        payload["message"] = "LM Studio app is already installed"
+        return payload
+    if dry_run:
+        payload["changed"] = True
+        payload["dry_run"] = True
+        return payload
+    if platform.system() != "Darwin":
+        payload.update({"ok": False, "changed": False, "error": "LM Studio Homebrew cask install requires macOS"})
+        return payload
+    if not brew:
+        payload.update({"ok": False, "changed": False, "error": "brew is required to install LM Studio"})
+        return payload
+    result = run_command(command, timeout=None)
+    payload["result"] = result
+    payload["changed"] = bool(result.get("ok"))
+    payload["ok"] = bool(result.get("ok"))
+    payload["installed_after"] = app_path.exists()
+    return payload
+
+
+def lmstudio_service_plist_path(label: str) -> Path:
+    if label == DEFAULT_LMSTUDIO_SERVICE_LABEL:
+        return DEFAULT_LMSTUDIO_SERVICE_PLIST
+    return Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
+
+
+def lmstudio_service_plist_payload(
+    *,
+    label: str,
+    home: Path,
+    lms_bin: Path,
+    port: int,
+    no_proxy: str,
+) -> dict[str, Any]:
+    logs = home / "logs"
+    return {
+        "Label": label,
+        "ProgramArguments": [str(lms_bin), "server", "start", "--port", str(port)],
+        "WorkingDirectory": str(home),
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "ProcessType": "Background",
+        "StandardOutPath": str(logs / "lmstudio-server.out.log"),
+        "StandardErrorPath": str(logs / "lmstudio-server.err.log"),
+        "EnvironmentVariables": {
+            "NO_PROXY": no_proxy,
+            "no_proxy": no_proxy,
+        },
+    }
+
+
+def lmstudio_service_payload(args: argparse.Namespace) -> dict[str, Any]:
+    action = getattr(args, "service_action", "install")
+    home = Path(getattr(args, "lmstudio_home", DEFAULT_LMSTUDIO_HOME)).expanduser()
+    label = getattr(args, "label", DEFAULT_LMSTUDIO_SERVICE_LABEL) or DEFAULT_LMSTUDIO_SERVICE_LABEL
+    lms_bin = find_lms_bin(getattr(args, "lms_bin", None))
+    port = int(getattr(args, "port", DEFAULT_LMSTUDIO_PORT))
+    plist_path = Path(getattr(args, "plist", None)).expanduser() if getattr(args, "plist", None) else lmstudio_service_plist_path(label)
+    no_proxy = merge_no_proxy(os.environ.get("NO_PROXY") or os.environ.get("no_proxy", ""))
+    plist_payload = lmstudio_service_plist_payload(
+        label=label,
+        home=home,
+        lms_bin=lms_bin,
+        port=port,
+        no_proxy=no_proxy,
+    )
+    plist_text = ov_service_plist_text(plist_payload)
+    changed = ov_service_changed(plist_path, plist_text)
+    domain = ov_service_domain()
+    target = ov_service_target(label)
+    timeout = getattr(args, "timeout", DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
+    install_commands = [
+        ["launchctl", "bootstrap", domain, str(plist_path)],
+        ["launchctl", "enable", target],
+        ["launchctl", "kickstart", "-k", target],
+    ]
+    payload: dict[str, Any] = {
+        "ok": True,
+        "action": action,
+        "lmstudio_home": str(home),
+        "label": label,
+        "target": target,
+        "plist": str(plist_path),
+        "lms_bin": str(lms_bin),
+        "port": port,
+        "plist_payload": plist_payload,
+        "would_change_plist": changed,
+    }
+
+    if action == "status":
+        command = ["launchctl", "print", target]
+        payload["commands"] = [command]
+        if getattr(args, "dry_run", False):
+            payload["dry_run"] = True
+            return payload
+        result = run_command(command, timeout=timeout)
+        payload["steps"] = [result]
+        payload["ok"] = bool(result.get("ok"))
+        return payload
+
+    if action == "start":
+        command = ["launchctl", "kickstart", "-k", target]
+        payload["commands"] = [command]
+        if getattr(args, "dry_run", False):
+            payload["dry_run"] = True
+            return payload
+        result = run_command(command, timeout=timeout)
+        payload["steps"] = [result]
+        payload["ok"] = bool(result.get("ok"))
+        return payload
+
+    if action == "stop":
+        command = ["launchctl", "bootout", target]
+        payload["commands"] = [command]
+        if getattr(args, "dry_run", False):
+            payload["dry_run"] = True
+            return payload
+        result = run_command(command, timeout=timeout)
+        payload["steps"] = [result]
+        payload["ok"] = bool(result.get("ok"))
+        return payload
+
+    if action == "uninstall":
+        payload["commands"] = [["launchctl", "bootout", target]]
+        if getattr(args, "dry_run", False):
+            payload["dry_run"] = True
+            return payload
+        steps = [run_command(["launchctl", "bootout", target], timeout=timeout)]
+        if plist_path.exists():
+            plist_path.unlink()
+            payload["removed_plist"] = True
+        payload["steps"] = steps
+        payload["ok"] = True
+        return payload
+
+    if action not in {"install", "restart"}:
+        return {"ok": False, "error": f"unsupported LM Studio service action: {action}"}
+
+    payload["commands"] = install_commands if action == "restart" else [["launchctl", "print", target], *install_commands]
+    if getattr(args, "dry_run", False):
+        payload["dry_run"] = True
+        return payload
+    if platform.system() != "Darwin":
+        payload.update({"ok": False, "error": "LM Studio service management requires macOS launchctl"})
+        return payload
+    if not lms_bin.exists() or not os.access(lms_bin, os.X_OK):
+        payload.update({"ok": False, "error": "LM Studio lms CLI is not executable"})
+        return payload
+
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "logs").mkdir(parents=True, exist_ok=True)
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    backup = None
+    if changed:
+        if plist_path.exists():
+            backup = plist_path.with_name(f"{plist_path.name}.bak.{int(time.time())}")
+            backup.write_text(plist_path.read_text(encoding="utf-8"), encoding="utf-8")
+        plist_path.write_text(plist_text, encoding="utf-8")
+
+    if getattr(args, "no_load", False):
+        payload.update({"changed": changed, "backup": str(backup) if backup else None, "loaded": False, "no_load": True})
+        return payload
+
+    steps = []
+    if action == "restart":
+        bootout = run_command(["launchctl", "bootout", target], timeout=timeout)
+        bootout["optional"] = True
+        steps.append(bootout)
+        steps.extend(run_command(command, timeout=timeout) for command in install_commands)
+    else:
+        status = run_command(["launchctl", "print", target], timeout=timeout)
+        status["optional"] = True
+        steps.append(status)
+        if status["ok"] and not changed and not getattr(args, "force", False):
+            steps.append(run_command(["launchctl", "kickstart", "-k", target], timeout=timeout))
+        else:
+            if status["ok"]:
+                bootout = run_command(["launchctl", "bootout", target], timeout=timeout)
+                bootout["optional"] = True
+                steps.append(bootout)
+            steps.extend(run_command(command, timeout=timeout) for command in install_commands)
+
+    required_steps = [step for step in steps if not step.get("optional")]
+    payload.update(
+        {
+            "changed": changed,
+            "backup": str(backup) if backup else None,
+            "loaded": bool(required_steps and all(step["ok"] for step in required_steps)),
+            "steps": steps,
+            "ok": all(step["ok"] for step in required_steps),
+        }
+    )
+    return payload
+
+
+def command_lmstudio_service(args: argparse.Namespace) -> int:
+    payload = lmstudio_service_payload(args)
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def lmstudio_download_models_from_args(args: argparse.Namespace) -> list[str]:
+    values = list(getattr(args, "download_model", None) or [])
+    if values:
+        return values
+    return [getattr(args, "model", DEFAULT_CHAT_MODEL), getattr(args, "embedding_model", DEFAULT_EMBEDDING_MODEL)]
+
+
+def lmstudio_openai_model_ids(status: dict[str, Any]) -> set[str]:
+    ids = set()
+    for item in status.get("openai_models", []) or []:
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            ids.add(item["id"])
+    return ids
+
+
+def lmstudio_wait_server_payload(base_url: str, *, timeout: float, wait_seconds: float) -> dict[str, Any]:
+    deadline = time.time() + max(wait_seconds, 0)
+    attempts = []
+    while True:
+        status = lmstudio_status_payload(base_url, timeout=timeout)
+        attempts.append({"ok": status.get("ok"), **({"error": status.get("error")} if status.get("error") else {})})
+        if status.get("ok") or time.time() >= deadline:
+            return {"ok": bool(status.get("ok")), "attempts": attempts, "status": status, "wait_seconds": wait_seconds}
+        time.sleep(min(1.0, max(0.1, deadline - time.time())))
+
+
+def lmstudio_download_models_payload(args: argparse.Namespace, *, status: dict[str, Any] | None = None) -> dict[str, Any]:
+    models = lmstudio_download_models_from_args(args)
+    dry_run = bool(getattr(args, "dry_run", False))
+    base_url = getattr(args, "base_url", DEFAULT_LM_STUDIO_BASE)
+    timeout = getattr(args, "timeout", 5)
+    if status is None and not dry_run:
+        status = lmstudio_status_payload(base_url, timeout=timeout)
+    downloaded = lmstudio_openai_model_ids(status or {})
+    results = []
+    ok = True
+    for model in models:
+        if model in downloaded:
+            results.append({"model": model, "ok": True, "changed": False, "message": "model is already available"})
+            continue
+        request = {"model": model}
+        if dry_run:
+            results.append(
+                {
+                    "model": model,
+                    "ok": True,
+                    "changed": True,
+                    "dry_run": True,
+                    "endpoint": "/api/v1/models/download",
+                    "request": request,
+                }
+            )
+            continue
+        if not status or not status.get("ok"):
+            results.append({"model": model, "ok": False, "changed": False, "error": "LM Studio server is not reachable"})
+            ok = False
+            continue
+        try:
+            result = http_json(base_url, "/api/v1/models/download", request, timeout=None)
+        except Exception as exc:
+            results.append({"model": model, "ok": False, "changed": False, "error": str(exc), "request": request})
+            ok = False
+        else:
+            results.append({"model": model, "ok": True, "changed": True, "request": request, "result": result})
+    return {
+        "ok": ok,
+        "changed": any(bool(item.get("changed")) for item in results),
+        "base_url": base_url,
+        "models": models,
+        "results": results,
+    }
+
+
+def lmstudio_jit_payload(args: argparse.Namespace, *, status: dict[str, Any] | None = None) -> dict[str, Any]:
+    models = lmstudio_download_models_from_args(args)
+    if status is None:
+        status = lmstudio_status_payload(getattr(args, "base_url", DEFAULT_LM_STUDIO_BASE), timeout=getattr(args, "timeout", 5))
+    downloaded = lmstudio_openai_model_ids(status)
+    missing = [model for model in models if model not in downloaded]
+    return {
+        "ok": bool(status.get("ok")) and not missing,
+        "base_url": getattr(args, "base_url", DEFAULT_LM_STUDIO_BASE),
+        "jit_loading": True,
+        "definition": "downloaded models are exposed through /v1/models and are loaded on first inference request",
+        "models": models,
+        "available_models": sorted(downloaded),
+        "missing_models": missing,
+        "loaded_instances": status.get("loaded", []) if status.get("ok") else [],
+        "server_reachable": bool(status.get("ok")),
+    }
+
+
+def mode_is_enabled(mode: str, *, needed: bool = True) -> bool:
+    return mode == "always" or (mode == "auto" and needed)
+
+
+def command_lmstudio_bootstrap(args: argparse.Namespace) -> int:
+    hardware = hardware_payload()
+    gate = lmstudio_hardware_gate_payload(
+        hardware,
+        min_memory_gb=float(getattr(args, "min_memory_gb", DEFAULT_LMSTUDIO_MIN_MEMORY_GB)),
+        require_macos=not getattr(args, "allow_non_macos", False),
+    )
+    force_hardware = bool(getattr(args, "force_hardware", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    best_effort = bool(getattr(args, "best_effort", False))
+    if not gate["ok"] and not force_hardware:
+        print_json(
+            {
+                "ok": True,
+                "changed": False,
+                "skipped": True,
+                "reason": "host hardware is below the LM Studio local-runtime threshold",
+                "hardware_gate": gate,
+                "hardware": hardware,
+            }
+        )
+        return 0
+
+    app_path = Path(getattr(args, "app_path", DEFAULT_LMSTUDIO_APP)).expanduser()
+    install_mode = getattr(args, "install", "auto")
+    service_mode = getattr(args, "service", "auto")
+    configure_mode = getattr(args, "configure", "auto")
+    download_mode = getattr(args, "download", "auto")
+    install_needed = bool(getattr(args, "force_install", False) or not app_path.exists())
+    steps: list[dict[str, Any]] = []
+    ok = True
+
+    def add_step(name: str, payload: dict[str, Any]) -> None:
+        nonlocal ok
+        item = {"name": name, "payload": payload}
+        if not payload.get("ok"):
+            item["best_effort_ignored_failure"] = best_effort
+            ok = ok and best_effort
+        else:
+            ok = ok and True
+        steps.append(item)
+
+    if mode_is_enabled(install_mode, needed=install_needed):
+        add_step(
+            "install",
+            lmstudio_install_payload(
+                app_path=app_path,
+                cask=getattr(args, "cask", DEFAULT_LMSTUDIO_CASK),
+                dry_run=dry_run,
+                force=bool(getattr(args, "force_install", False)),
+            ),
+        )
+    else:
+        steps.append({"name": "install", "payload": {"ok": True, "changed": False, "skipped": True, "mode": install_mode}})
+
+    if mode_is_enabled(service_mode, needed=True):
+        add_step(
+            "service install",
+            lmstudio_service_payload(
+                argparse.Namespace(
+                    service_action="install",
+                    lmstudio_home=getattr(args, "lmstudio_home", str(DEFAULT_LMSTUDIO_HOME)),
+                    lms_bin=getattr(args, "lms_bin", None),
+                    port=getattr(args, "port", DEFAULT_LMSTUDIO_PORT),
+                    label=getattr(args, "label", DEFAULT_LMSTUDIO_SERVICE_LABEL),
+                    plist=getattr(args, "plist", None),
+                    timeout=getattr(args, "service_timeout", DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS),
+                    dry_run=dry_run,
+                    force=getattr(args, "force_service", False),
+                    no_load=getattr(args, "no_load", False),
+                )
+            ),
+        )
+    else:
+        steps.append({"name": "service install", "payload": {"ok": True, "changed": False, "skipped": True, "mode": service_mode}})
+
+    if mode_is_enabled(configure_mode, needed=True):
+        add_step(
+            "configure models",
+            command_payload_from_handler(
+                command_lmstudio_configure,
+                argparse.Namespace(
+                    base_url=getattr(args, "base_url", DEFAULT_LM_STUDIO_BASE),
+                    lmstudio_home=getattr(args, "lmstudio_home", str(DEFAULT_LMSTUDIO_HOME)),
+                    model=getattr(args, "model", DEFAULT_CHAT_MODEL),
+                    embedding_model=getattr(args, "embedding_model", DEFAULT_EMBEDDING_MODEL),
+                    cpu_threads=0,
+                    parallel=1,
+                    context_length=0,
+                    embedding_context_length=2048,
+                    kv_cache_quantization="q4_0",
+                    gpu_offload_ratio=1.0,
+                    temperature=0,
+                    timeout=getattr(args, "timeout", 5),
+                    write=not dry_run,
+                    backup=True,
+                    include_embedding=True,
+                    include_routing_defaults=False,
+                    verbose_config=False,
+                ),
+            ),
+        )
+    else:
+        steps.append({"name": "configure models", "payload": {"ok": True, "changed": False, "skipped": True, "mode": configure_mode}})
+
+    if mode_is_enabled(download_mode, needed=True):
+        wait_payload = {"ok": True, "skipped": True, "dry_run": True} if dry_run else lmstudio_wait_server_payload(
+            getattr(args, "base_url", DEFAULT_LM_STUDIO_BASE),
+            timeout=getattr(args, "timeout", 5),
+            wait_seconds=getattr(args, "wait_server_seconds", 30),
+        )
+        add_step("wait server", wait_payload)
+        download_status = wait_payload.get("status") if wait_payload.get("ok") else None
+        add_step("download models", lmstudio_download_models_payload(args, status=download_status))
+        if dry_run:
+            jit_payload = {
+                "ok": True,
+                "dry_run": True,
+                "jit_loading": True,
+                "models": lmstudio_download_models_from_args(args),
+            }
+        else:
+            jit_status = lmstudio_status_payload(
+                getattr(args, "base_url", DEFAULT_LM_STUDIO_BASE),
+                timeout=getattr(args, "timeout", 5),
+            )
+            jit_payload = lmstudio_jit_payload(args, status=jit_status)
+        add_step("ensure jit loading", jit_payload)
+    else:
+        steps.append({"name": "download models", "payload": {"ok": True, "changed": False, "skipped": True, "mode": download_mode}})
+
+    print_json(
+        {
+            "ok": ok,
+            "changed": any(bool(step["payload"].get("changed")) for step in steps),
+            "dry_run": dry_run,
+            "best_effort": best_effort,
+            "hardware_gate": gate,
+            "hardware": hardware,
+            "steps": steps,
+        }
+    )
+    return 0 if ok else 1
 
 
 def find_model(api_models: dict[str, Any], model_key: str) -> dict[str, Any] | None:
@@ -2834,6 +3408,7 @@ def lmstudio_configure_payload(
     conflicting_loaded = [item for item in loaded_gemma if item.get("key") != args.model]
     return {
         "ok": not conflicting_loaded,
+        "changed": any(bool(item.get("changed")) for item in [*targets, *embedding_targets]),
         "write": args.write,
         "lmstudio_home": str(home),
         "model": args.model,
@@ -3842,6 +4417,13 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--cli-timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
     bootstrap.add_argument("--service", choices=["auto", "always", "never"], default="auto")
     bootstrap.add_argument("--service-best-effort", action="store_true")
+    bootstrap.add_argument("--lmstudio", choices=["auto", "always", "never"], default="auto")
+    bootstrap.add_argument("--lmstudio-best-effort", action="store_true")
+    bootstrap.add_argument("--lmstudio-min-memory-gb", type=float, default=DEFAULT_LMSTUDIO_MIN_MEMORY_GB)
+    bootstrap.add_argument("--lmstudio-cask", default=DEFAULT_LMSTUDIO_CASK)
+    bootstrap.add_argument("--lmstudio-app-path", default=str(DEFAULT_LMSTUDIO_APP))
+    bootstrap.add_argument("--lmstudio-lms-bin")
+    bootstrap.add_argument("--lmstudio-wait-server-seconds", type=float, default=30)
     bootstrap.add_argument("--server-bin")
     bootstrap.add_argument("--label", default=DEFAULT_OV_SERVICE_LABEL)
     bootstrap.add_argument("--plist")
@@ -4008,6 +4590,48 @@ def build_parser() -> argparse.ArgumentParser:
 
     hardware = lm_sub.add_parser("hardware")
     hardware.set_defaults(func=command_lmstudio_hardware)
+
+    bootstrap_lm = lm_sub.add_parser("bootstrap")
+    bootstrap_lm.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
+    bootstrap_lm.add_argument("--lmstudio-home", default=str(DEFAULT_LMSTUDIO_HOME))
+    bootstrap_lm.add_argument("--model", default=DEFAULT_CHAT_MODEL)
+    bootstrap_lm.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    bootstrap_lm.add_argument("--download-model", action="append", default=[])
+    bootstrap_lm.add_argument("--min-memory-gb", type=float, default=DEFAULT_LMSTUDIO_MIN_MEMORY_GB)
+    bootstrap_lm.add_argument("--allow-non-macos", action="store_true")
+    bootstrap_lm.add_argument("--force-hardware", action="store_true")
+    bootstrap_lm.add_argument("--install", choices=["auto", "always", "never"], default="auto")
+    bootstrap_lm.add_argument("--service", choices=["auto", "always", "never"], default="auto")
+    bootstrap_lm.add_argument("--configure", choices=["auto", "always", "never"], default="auto")
+    bootstrap_lm.add_argument("--download", choices=["auto", "always", "never"], default="auto")
+    bootstrap_lm.add_argument("--cask", default=DEFAULT_LMSTUDIO_CASK)
+    bootstrap_lm.add_argument("--app-path", default=str(DEFAULT_LMSTUDIO_APP))
+    bootstrap_lm.add_argument("--lms-bin")
+    bootstrap_lm.add_argument("--port", type=int, default=DEFAULT_LMSTUDIO_PORT)
+    bootstrap_lm.add_argument("--label", default=DEFAULT_LMSTUDIO_SERVICE_LABEL)
+    bootstrap_lm.add_argument("--plist")
+    bootstrap_lm.add_argument("--timeout", type=float, default=5)
+    bootstrap_lm.add_argument("--service-timeout", type=float, default=DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
+    bootstrap_lm.add_argument("--wait-server-seconds", type=float, default=30)
+    bootstrap_lm.add_argument("--force-install", action="store_true")
+    bootstrap_lm.add_argument("--force-service", action="store_true")
+    bootstrap_lm.add_argument("--no-load", action="store_true")
+    bootstrap_lm.add_argument("--best-effort", action="store_true")
+    bootstrap_lm.add_argument("--dry-run", action="store_true")
+    bootstrap_lm.set_defaults(func=command_lmstudio_bootstrap)
+
+    service_lm = lm_sub.add_parser("service")
+    service_lm.add_argument("service_action", choices=["install", "status", "start", "stop", "restart", "uninstall"])
+    service_lm.add_argument("--lmstudio-home", default=str(DEFAULT_LMSTUDIO_HOME))
+    service_lm.add_argument("--lms-bin")
+    service_lm.add_argument("--port", type=int, default=DEFAULT_LMSTUDIO_PORT)
+    service_lm.add_argument("--label", default=DEFAULT_LMSTUDIO_SERVICE_LABEL)
+    service_lm.add_argument("--plist")
+    service_lm.add_argument("--timeout", type=float, default=DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
+    service_lm.add_argument("--dry-run", action="store_true")
+    service_lm.add_argument("--force", action="store_true")
+    service_lm.add_argument("--no-load", action="store_true")
+    service_lm.set_defaults(func=command_lmstudio_service)
 
     plan = lm_sub.add_parser("plan")
     plan.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)

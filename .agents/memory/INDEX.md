@@ -14,6 +14,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 - [Setup keeps .agents/memory as the OV source store](memories/preferences/1777903459-setup-keeps-memory-as-ov-source-store.md)
 - [Installation-wide agent-basics language](memories/preferences/1777944754-installation-wide-agent-basics-language.md)
 - [Homebrew install bootstraps OpenViking](memories/preferences/1777946105-homebrew-install-bootstraps-openviking.md)
+- [LM Studio bootstrap on suitable hardware](memories/preferences/1777947901-lmstudio-bootstrap-on-suitable-hardware.md)
 - [Legacy compatibility memory snapshot created](memories/events/1777901050-legacy-memory-snapshot-created.md)
 - [OpenViking rejects zero VLM timeout](memories/cases/1777909438-openviking-rejects-zero-vlm-timeout.md)
 - [Persistent LM Studio routing defaults can conflict with OpenViking](memories/cases/1777910744-lmstudio-routing-defaults-conflict-with-openviking.md)

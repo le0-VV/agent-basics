@@ -25,7 +25,7 @@ This section separates shipped behavior from target architecture.
 Implemented and verified in this repository:
 
 - User-level OpenViking is installed under `~/.openviking`.
-- Homebrew install runs `agent-basics ov bootstrap-system` to install/configure OpenViking and attempt macOS LaunchAgent setup.
+- Homebrew install runs `agent-basics ov bootstrap-system` to install/configure OpenViking, attempt macOS LaunchAgent setup, and run best-effort LM Studio bootstrap on suitable hardware.
 - OpenViking is configured for the local LM Studio chat/VLM and embedding endpoints.
 - `.agents/memory/` is preserved as the repo-owned OpenViking source store.
 - `.agents/openviking/migration-manifest.json` records migration/adaptation state.
@@ -35,7 +35,7 @@ Implemented and verified in this repository:
 - Direct `ov read` and semantic `ov find` were verified against imported repo memory.
 - `agent-basics ov search`, `read`, `record`, `add-resource`, `add-skill`, `ingest-changed`, `server`, and `status` are implemented as repo-aware OpenViking wrappers.
 - `agent-basics mcp` is implemented as a repo-aware OpenViking-backed stdio MCP server.
-- LM Studio setup helpers avoid the `lms` CLI and clear stale persisted routing prompt/schema defaults by default.
+- LM Studio setup helpers avoid direct interactive `lms` CLI use, clear stale persisted routing prompt/schema defaults by default, and can install a LaunchAgent that runs the LM Studio server outside the agent process.
 - Setup/upgrade creates the modern source-store structure, verifies or installs user-level OpenViking, writes `.agents/config.toml`, generates a Codex-style MCP snippet, creates `Skills.md` plus `.agents/skills/`, and creates first-class markdown merge sessions for conflicts.
 - Managed OpenViking hooks refresh source-store changes before commits.
 - Fast dogfood coverage exercises fresh setup and existing-repo upgrade with fake user-level OpenViking.
@@ -307,7 +307,7 @@ Core commands:
 | `agent-basics doctor [--online]` | Partial | Needs stronger OV/provider/repo-state checks. |
 | `agent-basics mcp` | Implemented | Repo-aware OpenViking-backed MCP server with search, read, record, add-resource, add-skill, ingest, status, and doctor tools. |
 | `agent-basics ov <command>` | Implemented | Repo-aware setup/import/search/read/record/resource/skill/server/status wrappers exist; polish remains for setup integration. |
-| `agent-basics lmstudio <command>` | Implemented | REST/OpenAI-compatible management and route tests exist; LM Studio API coverage still limits some load/inference settings. |
+| `agent-basics lmstudio <command>` | Implemented | Hardware-gated bootstrap, service setup, REST/OpenAI-compatible management, and route tests exist; LM Studio API coverage still limits some load/inference settings. |
 | `agent-basics migrate memory-to-openviking` | Implemented | Inventories/adapts legacy memory into OV-native categories and manifest state. |
 | `agent-basics memory <command>` | Implemented | Transitional mini-RAG compatibility only. |
 | `agent-basics verify` | Implemented | Runs unit tests, Cargo tests, shell syntax, formula syntax, and offline OV status when available. |
@@ -338,6 +338,8 @@ LM Studio commands:
 | --- | --- | --- |
 | `agent-basics lmstudio status` | Implemented | Checks local REST/OpenAI-compatible model state. |
 | `agent-basics lmstudio hardware` | Implemented | Assesses host hardware for load planning. |
+| `agent-basics lmstudio bootstrap` | Implemented | Hardware-gated install/config/service/download/JIT orchestration with dry-run and best-effort modes. |
+| `agent-basics lmstudio service` | Implemented | Installs and manages a user LaunchAgent for `lms server start --port 1234`. |
 | `agent-basics lmstudio plan` | Implemented | Produces deterministic local model plan. |
 | `agent-basics lmstudio configure` | Implemented | Writes backed-up persisted defaults and clears stale routing defaults by default. |
 | `agent-basics lmstudio load` | Implemented | Uses REST only; avoids `lms` CLI. |
@@ -365,6 +367,9 @@ The local runtime target is LM Studio first, with other OpenAI-compatible provid
 
 - Detect available LM Studio models.
 - Detect LM Studio installation and user config locations.
+- Install LM Studio with Homebrew on suitable Apple Silicon hosts.
+- Install a user LaunchAgent for the LM Studio server and avoid direct interactive `lms` calls from Codex.
+- Download configured chat and embedding models and verify that `/v1/models` exposes them for JIT loading.
 - Write backed-up LM Studio persisted model defaults for known local models.
 - Load and unload models through LM Studio's native REST API when the user allows it.
 - Avoid the `lms` CLI from Codex on macOS because it can launch the LM Studio Electron app and crash during AppKit registration.

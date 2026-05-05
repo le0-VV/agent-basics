@@ -290,7 +290,7 @@ class SetupMacosTest(unittest.TestCase):
             self.assertEqual(
                 install_log.read_text(encoding="utf-8").strip().splitlines(),
                 [
-                    f"ov bootstrap-system --home {ov_home} --service-best-effort",
+                    f"ov bootstrap-system --home {ov_home} --service-best-effort --lmstudio-best-effort",
                     f"ov service install --home {ov_home}",
                 ],
             )

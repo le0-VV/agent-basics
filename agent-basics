@@ -77,7 +77,7 @@ Usage:
   agent-basics [--repo DIR] memory <validate|rebuild|search|record|doctor|install-hooks> [...]
   agent-basics [--repo DIR] mcp
   agent-basics [--repo DIR] ov <doctor|status|search|read|record|add-resource|add-skill|ingest-changed|install-hooks|install-system|bootstrap-system|write-default-config|service|server|import-repo-memory> [...]
-  agent-basics [--repo DIR] lmstudio <status|hardware|plan|configure|load|unload|route-test> [...]
+  agent-basics [--repo DIR] lmstudio <status|hardware|bootstrap|service|plan|configure|load|unload|route-test> [...]
   agent-basics [--repo DIR] migrate memory-to-openviking [--write]
   agent-basics [--repo DIR] verify
   agent-basics [--repo DIR] commit <type(scope): description>
@@ -112,8 +112,9 @@ Use `agent-basics ov bootstrap-system` to install or repair the user-level
 OpenViking package, default config, and macOS LaunchAgent. Use
 `agent-basics ov server` for foreground debugging.
 
-LM Studio management uses REST/OpenAI-compatible HTTP endpoints only. Do not use
-the `lms` CLI from Codex on macOS; it can launch the Electron app and crash.
+LM Studio model management uses REST/OpenAI-compatible HTTP endpoints. Do not
+call the interactive `lms` CLI from Codex on macOS; bootstrap may install a
+LaunchAgent that runs `lms server start` outside the agent process.
 
 MCP clients should use:
   command: agent-basics

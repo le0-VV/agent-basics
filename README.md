@@ -27,7 +27,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, writes default config when missing, and attempts to install the macOS LaunchAgent.
+The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, writes default config when missing, and attempts to install the macOS LaunchAgent. On suitable Apple Silicon hosts, it also attempts best-effort LM Studio setup: install the `lm-studio` cask, install a user LaunchAgent for the LM Studio server, write model defaults, download the configured chat/embedding models, and leave models available for JIT loading.
 
 Verify the command:
 
@@ -62,10 +62,11 @@ If setup finds existing markdown files such as `Agents.md`, it asks whether to k
 
 ## OpenViking
 
-OpenViking is required and is bootstrapped during Homebrew install. To repair or rerun that step:
+OpenViking is required and is bootstrapped during Homebrew install. To repair or rerun the full local runtime setup:
 
 ```bash
 agent-basics ov bootstrap-system
+agent-basics lmstudio bootstrap
 agent-basics ov doctor
 ```
 
@@ -158,9 +159,11 @@ Key files:
 
 ## LM Studio
 
-The default local setup expects LM Studio to expose an OpenAI-compatible API for the chat/VLM model and embedding model. Agents should use HTTP commands through `agent-basics lmstudio`, not the `lms` CLI on macOS.
+The default local setup expects LM Studio to expose an OpenAI-compatible API for the chat/VLM model and embedding model. Agents should use HTTP commands through `agent-basics lmstudio` for model management; bootstrap may install a LaunchAgent that runs `lms server start` outside the agent process.
 
 ```bash
+agent-basics lmstudio bootstrap --dry-run
+agent-basics lmstudio service status
 agent-basics lmstudio status
 agent-basics lmstudio hardware
 agent-basics lmstudio plan

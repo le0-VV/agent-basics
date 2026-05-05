@@ -10,13 +10,14 @@ class AgentBasics < Formula
   end
 
   def post_install
-    system bin/"agent-basics", "ov", "bootstrap-system", "--service-best-effort"
+    system bin/"agent-basics", "ov", "bootstrap-system", "--service-best-effort", "--lmstudio", "auto", "--lmstudio-best-effort"
   end
 
   def caveats
     <<~EOS
-      agent-basics bootstraps OpenViking during install. To repair or rerun that
-      step manually:
+      agent-basics bootstraps OpenViking during install. On suitable Apple
+      Silicon hosts it also attempts best-effort LM Studio setup. To repair or
+      rerun that step manually:
         agent-basics ov bootstrap-system
     EOS
   end

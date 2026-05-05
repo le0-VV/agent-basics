@@ -15,6 +15,8 @@ class HomebrewFormulaTest(unittest.TestCase):
         self.assertIn("def post_install", text)
         self.assertIn('"ov", "bootstrap-system"', text)
         self.assertIn('"--service-best-effort"', text)
+        self.assertIn('"--lmstudio", "auto"', text)
+        self.assertIn('"--lmstudio-best-effort"', text)
 
 
 if __name__ == "__main__":

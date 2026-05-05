@@ -20,6 +20,8 @@ The target agent-facing surfaces are:
 - `agent-basics mcp`: repo-aware MCP server for OpenViking-backed tools.
 - `agent-basics ov doctor`: check OpenViking installation, repo config, providers, ingest status, and health.
 - `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, write default config, and install the macOS LaunchAgent when available.
+- `agent-basics lmstudio bootstrap`: when host hardware is suitable, install LM Studio through Homebrew, install its macOS LaunchAgent, configure model defaults, download the configured chat/embedding models, and verify JIT model availability.
+- `agent-basics lmstudio service`: manage the user-level LM Studio server LaunchAgent.
 - `agent-basics ov install-system`: low-level repair command for only the OpenViking package installation.
 - `agent-basics ov write-default-config`: low-level repair command for default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
 - `agent-basics ov service install`: install and load the configured user-level OpenViking HTTP server as a macOS LaunchAgent.
@@ -85,6 +87,7 @@ Compatibility files are not the long-term architecture. Useful compatibility mem
   - LM Studio base URL: `http://127.0.0.1:1234`
   - Chat/VLM model: `google/gemma-4-e2b`
   - Embedding model: `text-embedding-embeddinggemma-300m-qat`
+- LM Studio model management should use REST/OpenAI-compatible HTTP. `agent-basics lmstudio bootstrap` may install a LaunchAgent that runs `lms server start`, but agents should not call interactive `lms` commands directly from Codex.
 
 ## Long-Horizon Work
 

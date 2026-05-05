@@ -128,6 +128,108 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(load["llm.load.numParallelSessions"], 1)
         self.assertEqual(load["custom.load"], "preserve")
 
+    def test_lmstudio_hardware_gate_requires_enough_apple_silicon_memory(self) -> None:
+        hardware = {
+            "system": "Darwin",
+            "machine": "arm64",
+            "recommendation": {"memory_gb": 8.0},
+        }
+
+        payload = agent_basics_ov.lmstudio_hardware_gate_payload(hardware, min_memory_gb=16)
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("requires at least 16 GB", payload["reasons"][0])
+
+    def test_lmstudio_service_plist_starts_lms_server(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "lmstudio"
+            lms_bin = home / "bin" / "lms"
+
+            payload = agent_basics_ov.lmstudio_service_plist_payload(
+                label="com.agent-basics.test.lmstudio",
+                home=home,
+                lms_bin=lms_bin,
+                port=1234,
+                no_proxy="localhost,127.0.0.1,::1",
+            )
+
+        self.assertEqual(payload["ProgramArguments"], [str(lms_bin), "server", "start", "--port", "1234"])
+        self.assertEqual(payload["RunAtLoad"], True)
+        self.assertEqual(payload["KeepAlive"], True)
+
+    def test_lmstudio_bootstrap_dry_run_plans_service_download_and_jit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "lmstudio"
+            app_path = Path(tmp) / "LM Studio.app"
+            lms_bin = home / "bin" / "lms"
+            plist_path = Path(tmp) / "com.agent-basics.test.lmstudio.plist"
+
+            original_hardware_payload = agent_basics_ov.hardware_payload
+            original_lmstudio_status_payload = agent_basics_ov.lmstudio_status_payload
+            try:
+                agent_basics_ov.hardware_payload = lambda: {
+                    "ok": True,
+                    "system": "Darwin",
+                    "machine": "arm64",
+                    "recommendation": {"memory_gb": 32.0, "cpu_threads": 8},
+                }
+                agent_basics_ov.lmstudio_status_payload = lambda base_url, timeout=5: {
+                    "ok": True,
+                    "models": [{"key": agent_basics_ov.DEFAULT_CHAT_MODEL, "max_context_length": 131072}],
+                    "openai_models": [],
+                    "loaded": [],
+                    "loaded_gemma_llms": [],
+                }
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    result = agent_basics_ov.command_lmstudio_bootstrap(
+                        SimpleNamespace(
+                            base_url="http://127.0.0.1:1234",
+                            lmstudio_home=str(home),
+                            model=agent_basics_ov.DEFAULT_CHAT_MODEL,
+                            embedding_model=agent_basics_ov.DEFAULT_EMBEDDING_MODEL,
+                            download_model=[],
+                            min_memory_gb=16,
+                            allow_non_macos=False,
+                            force_hardware=False,
+                            install="auto",
+                            service="auto",
+                            configure="auto",
+                            download="auto",
+                            cask=agent_basics_ov.DEFAULT_LMSTUDIO_CASK,
+                            app_path=str(app_path),
+                            lms_bin=str(lms_bin),
+                            port=1234,
+                            label="com.agent-basics.test.lmstudio",
+                            plist=str(plist_path),
+                            timeout=5,
+                            service_timeout=1,
+                            wait_server_seconds=0,
+                            force_install=False,
+                            force_service=False,
+                            no_load=True,
+                            best_effort=False,
+                            dry_run=True,
+                        )
+                    )
+            finally:
+                agent_basics_ov.hardware_payload = original_hardware_payload
+                agent_basics_ov.lmstudio_status_payload = original_lmstudio_status_payload
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["dry_run"])
+        self.assertEqual(
+            [step["name"] for step in payload["steps"]],
+            ["install", "service install", "configure models", "wait server", "download models", "ensure jit loading"],
+        )
+        service = payload["steps"][1]["payload"]
+        self.assertEqual(service["plist_payload"]["ProgramArguments"], [str(lms_bin), "server", "start", "--port", "1234"])
+        downloads = payload["steps"][4]["payload"]["results"]
+        self.assertEqual([item["model"] for item in downloads], [agent_basics_ov.DEFAULT_CHAT_MODEL, agent_basics_ov.DEFAULT_EMBEDDING_MODEL])
+        self.assertTrue(payload["steps"][5]["payload"]["jit_loading"])
+
     def test_ov_native_import_files_selects_source_store_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
@@ -959,6 +1061,58 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertFalse(payload["service"]["enabled"])
         self.assertEqual(payload["service"]["skipped_reason"], "disabled by --service never")
 
+    def test_ov_bootstrap_dry_run_can_include_lmstudio_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "openviking"
+            original_bootstrap = agent_basics_ov.command_lmstudio_bootstrap
+            try:
+                agent_basics_ov.command_lmstudio_bootstrap = lambda args: (
+                    print(json.dumps({"ok": True, "changed": False, "mode": args.install})),
+                    0,
+                )[1]
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    result = agent_basics_ov.command_ov_bootstrap_system(
+                        SimpleNamespace(
+                            home=str(home),
+                            python="3.12",
+                            package="openviking",
+                            config=None,
+                            cli_config=None,
+                            lmstudio_base="http://127.0.0.1:1234",
+                            chat_model=agent_basics_ov.DEFAULT_CHAT_MODEL,
+                            embedding_model=agent_basics_ov.DEFAULT_EMBEDDING_MODEL,
+                            embedding_dimension=768,
+                            vlm_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                            server_url="http://127.0.0.1:1933",
+                            cli_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                            service="never",
+                            service_best_effort=False,
+                            lmstudio="auto",
+                            lmstudio_best_effort=True,
+                            lmstudio_min_memory_gb=16,
+                            lmstudio_cask=agent_basics_ov.DEFAULT_LMSTUDIO_CASK,
+                            lmstudio_app_path=str(Path(tmp) / "LM Studio.app"),
+                            lmstudio_lms_bin=str(Path(tmp) / "lms"),
+                            lmstudio_wait_server_seconds=0,
+                            server_bin=None,
+                            label=agent_basics_ov.DEFAULT_OV_SERVICE_LABEL,
+                            plist=None,
+                            service_timeout=agent_basics_ov.DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS,
+                            force_install=False,
+                            force_config=False,
+                            force_service=False,
+                            no_load=False,
+                            dry_run=True,
+                        )
+                    )
+            finally:
+                agent_basics_ov.command_lmstudio_bootstrap = original_bootstrap
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertEqual(payload["lmstudio"]["mode"], "auto")
+
     def test_ov_bootstrap_installs_config_and_macos_service(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "openviking"
@@ -1022,7 +1176,11 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["service_enabled"])
-        self.assertEqual([step["name"] for step in payload["steps"]], ["install-system", "write-default-config", "service install"])
+        self.assertEqual(
+            [step["name"] for step in payload["steps"]],
+            ["install-system", "write-default-config", "service install", "lmstudio bootstrap"],
+        )
+        self.assertTrue(payload["steps"][3]["payload"]["skipped"])
         self.assertEqual(commands[0], ["/tmp/uv", "venv", "--python", "3.12", str(home / "venv")])
         self.assertEqual(commands[1][:4], ["/tmp/uv", "pip", "install", "--python"])
         self.assertTrue(config_exists)
