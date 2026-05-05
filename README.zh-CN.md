@@ -63,12 +63,15 @@ OpenViking 是必需的。如果还没安装，用下面的命令安装并配置
 ```bash
 agent-basics ov install-system
 agent-basics ov write-default-config --force
+agent-basics ov service install
 agent-basics ov doctor
 ```
 
-当需要 live search、ingest 或 MCP calls 时，启动 OpenViking server：
+在 macOS 上，setup 会把 OpenViking 装成用户级 LaunchAgent，让 live search、ingest 和 MCP calls 共用同一个常驻 server。Foreground server mode 主要用来 debug：
 
 ```bash
+agent-basics ov service status
+agent-basics ov service restart
 agent-basics ov server
 ```
 

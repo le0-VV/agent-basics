@@ -215,7 +215,8 @@ The target agent-facing surfaces are:
 - `agent-basics ov doctor`: check the user-level OpenViking installation, repo config, providers, ingest status, and health.
 - `agent-basics ov install-system`: install OpenViking under `~/.openviking` when it is missing.
 - `agent-basics ov write-default-config`: write default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
-- `agent-basics ov server`: start the configured user-level OpenViking HTTP server in the foreground.
+- `agent-basics ov service install`: install and load the configured user-level OpenViking HTTP server as a macOS LaunchAgent.
+- `agent-basics ov server`: start the configured user-level OpenViking HTTP server in the foreground for debugging.
 - `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
 - `agent-basics ov search <query>`: retrieve prior context for vague or specific project requests.
 - `agent-basics ov record`: record durable context in the correct OpenViking category.
@@ -342,7 +343,7 @@ Use this before non-trivial repository work.
 
 1. Read `Agents.md`, `.agents/AGENT-BASICS.md`, `ROADMAP.md`, `.agents/TODO.md`, and `Skills.md` when they exist.
 2. Start or inspect run state with `agent-basics run start --task "<task>"` or `agent-basics run status`.
-3. Verify or start the user-level OpenViking server with `agent-basics ov status --offline`, `agent-basics ov doctor`, or `agent-basics ov server` when live retrieval is needed.
+3. Verify or start the user-level OpenViking service with `agent-basics ov status --offline`, `agent-basics ov doctor`, or `agent-basics ov service install` when live retrieval is needed. Use `agent-basics ov server` only for foreground debugging.
 4. Search prior context through the OpenViking MCP server or `agent-basics ov search "<query>"`.
 5. Inspect the git state before editing.
 6. Write or update the concrete checklist in `.agents/TODO.md`.
@@ -1030,7 +1031,7 @@ Use this whenever an agent needs prior project context, durable memory recording
 1. Resolve the repository root before calling the gateway.
 2. Prefer `agent-basics mcp` when the agent client supports MCP.
 3. Configure the MCP server with the repository root as the working directory.
-4. Verify the user-level OpenViking server with `agent-basics ov doctor` or start it in the foreground with `agent-basics ov server` when live retrieval is needed.
+4. Verify the user-level OpenViking service with `agent-basics ov doctor` or install it with `agent-basics ov service install` when live retrieval is needed. Use `agent-basics ov server` only for foreground debugging.
 5. Search prior context through the OpenViking-backed MCP search tool or `agent-basics ov search "<query>"` before answering vague or history-dependent requests.
 6. Record durable decisions, facts, preferences, gotchas, events, procedures, and useful findings through the OpenViking-backed MCP record tool or `agent-basics ov record`.
 7. Add important documentation or reference material with `agent-basics ov add-resource <path-or-url>`.
@@ -2325,6 +2326,42 @@ ensure_user_openviking_config() {
   echo "Verified user-level OpenViking CLI config: $ovcli_config"
 }
 
+ensure_user_openviking_service() {
+  local ov_home
+  local dispatcher
+
+  # Test-only fake CLIs do not imply a real user-level OpenViking server binary.
+  if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" || "${AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK:-0}" == "1" ]]; then
+    return
+  fi
+
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "Warning: OpenViking service setup is only supported on macOS launchctl." >&2
+    return
+  fi
+
+  if [[ -z "${HOME:-}" ]]; then
+    echo "Warning: HOME is required to install the user-level OpenViking service." >&2
+    return
+  fi
+
+  ov_home="$HOME/.openviking"
+
+  if ! dispatcher="$(find_agent_basics_dispatcher)"; then
+    echo "Warning: no executable agent-basics dispatcher found for OpenViking service setup." >&2
+    echo "Re-run manually: agent-basics ov service install --home \"$ov_home\"" >&2
+    return
+  fi
+
+  if "$dispatcher" ov service install --home "$ov_home"; then
+    echo "Verified user-level OpenViking macOS service: com.agent-basics.openviking"
+    return
+  fi
+
+  echo "Warning: OpenViking service setup failed." >&2
+  echo "Re-run manually: $dispatcher ov service install --home \"$ov_home\"" >&2
+}
+
 append_gitignore_entry_if_missing() {
   local entry="$1"
 
@@ -3082,6 +3119,7 @@ start_repo_local_embedding_api_for_setup() {
 
 verify_user_openviking_installation
 ensure_user_openviking_config
+ensure_user_openviking_service
 snapshot_existing_legacy_memory
 create_memory_layout
 

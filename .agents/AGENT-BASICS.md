@@ -21,7 +21,8 @@ The target agent-facing surfaces are:
 - `agent-basics ov doctor`: check OpenViking installation, repo config, providers, ingest status, and health.
 - `agent-basics ov install-system`: install OpenViking under `~/.openviking` when it is missing.
 - `agent-basics ov write-default-config`: write default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
-- `agent-basics ov server`: start the configured user-level OpenViking HTTP server in the foreground.
+- `agent-basics ov service install`: install and load the configured user-level OpenViking HTTP server as a macOS LaunchAgent.
+- `agent-basics ov server`: start the configured user-level OpenViking HTTP server in the foreground for debugging.
 - `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
 - `agent-basics ov search <query>`: retrieve prior context for vague or specific project requests.
 - `agent-basics ov record`: record durable context in the correct OpenViking category.

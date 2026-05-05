@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import io
 import json
 import os
@@ -28,6 +29,9 @@ DEFAULT_OV_BIN = DEFAULT_OV_HOME / "venv" / "bin" / "ov"
 DEFAULT_OV_CONFIG = DEFAULT_OV_HOME / "ov.conf"
 DEFAULT_OV_CLI_CONFIG = DEFAULT_OV_HOME / "ovcli.conf"
 DEFAULT_OV_SERVER = DEFAULT_OV_HOME / "venv" / "bin" / "openviking-server"
+DEFAULT_OV_SERVICE_LABEL = "com.agent-basics.openviking"
+DEFAULT_OV_SERVICE_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{DEFAULT_OV_SERVICE_LABEL}.plist"
+DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS = 120
 DEFAULT_OV_VLM_TIMEOUT_SECONDS = 86400
 DEFAULT_RUN_STALE_SECONDS = 86400
 DEFAULT_OV_MEMORY_TARGET = "viking://user/default/memories"
@@ -802,6 +806,280 @@ def merge_no_proxy(value: str) -> str:
         if item.lower() not in lowered:
             existing.append(item)
     return ",".join(existing)
+
+
+def ov_service_domain() -> str:
+    return f"gui/{os.getuid()}"
+
+
+def ov_service_target(label: str) -> str:
+    return f"{ov_service_domain()}/{label}"
+
+
+def ov_service_plist_path(label: str) -> Path:
+    if label == DEFAULT_OV_SERVICE_LABEL:
+        return DEFAULT_OV_SERVICE_PLIST
+    return Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
+
+
+def ov_service_plist_payload(
+    *,
+    label: str,
+    home: Path,
+    server_bin: Path,
+    config: Path,
+    no_proxy: str,
+) -> dict[str, Any]:
+    logs = home / "logs"
+    return {
+        "Label": label,
+        "ProgramArguments": [str(server_bin), "--config", str(config)],
+        "WorkingDirectory": str(home),
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "ProcessType": "Background",
+        "StandardOutPath": str(logs / "openviking-server.out.log"),
+        "StandardErrorPath": str(logs / "openviking-server.err.log"),
+        "EnvironmentVariables": {
+            "NO_PROXY": no_proxy,
+            "no_proxy": no_proxy,
+        },
+    }
+
+
+def ov_service_plist_text(payload: dict[str, Any]) -> str:
+    def value_xml(value: Any, indent: int) -> str:
+        pad = "  " * indent
+        if isinstance(value, bool):
+            return f"{pad}<{'true' if value else 'false'}/>\n"
+        if isinstance(value, int):
+            return f"{pad}<integer>{value}</integer>\n"
+        if isinstance(value, list):
+            items = "".join(value_xml(item, indent + 1) for item in value)
+            return f"{pad}<array>\n{items}{pad}</array>\n"
+        if isinstance(value, dict):
+            items = []
+            for key in sorted(value):
+                items.append(f"{pad}  <key>{html.escape(str(key), quote=False)}</key>\n")
+                items.append(value_xml(value[key], indent + 1))
+            return f"{pad}<dict>\n{''.join(items)}{pad}</dict>\n"
+        return f"{pad}<string>{html.escape(str(value), quote=False)}</string>\n"
+
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n'
+        f"{value_xml(payload, 1)}"
+        "</plist>\n"
+    )
+
+
+def ov_service_paths(args: argparse.Namespace) -> dict[str, Any]:
+    home = Path(getattr(args, "home", DEFAULT_OV_HOME)).expanduser()
+    label = getattr(args, "label", DEFAULT_OV_SERVICE_LABEL) or DEFAULT_OV_SERVICE_LABEL
+    server_bin = (
+        Path(args.server_bin).expanduser()
+        if getattr(args, "server_bin", None)
+        else home / "venv" / "bin" / "openviking-server"
+    )
+    config = Path(args.config).expanduser() if getattr(args, "config", None) else home / "ov.conf"
+    plist_path = Path(args.plist).expanduser() if getattr(args, "plist", None) else ov_service_plist_path(label)
+    no_proxy = merge_no_proxy(os.environ.get("NO_PROXY") or os.environ.get("no_proxy", ""))
+    plist_payload = ov_service_plist_payload(
+        label=label,
+        home=home,
+        server_bin=server_bin,
+        config=config,
+        no_proxy=no_proxy,
+    )
+    return {
+        "home": home,
+        "label": label,
+        "server_bin": server_bin,
+        "config": config,
+        "plist_path": plist_path,
+        "plist_payload": plist_payload,
+        "plist_text": ov_service_plist_text(plist_payload),
+        "domain": ov_service_domain(),
+        "target": ov_service_target(label),
+    }
+
+
+def ov_service_changed(plist_path: Path, plist_text: str) -> bool:
+    try:
+        return plist_path.read_text(encoding="utf-8") != plist_text
+    except FileNotFoundError:
+        return True
+
+
+def command_ov_service(args: argparse.Namespace) -> int:
+    paths = ov_service_paths(args)
+    action = args.service_action
+    service_timeout = getattr(args, "timeout", DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
+    plist_path = paths["plist_path"]
+    plist_text = paths["plist_text"]
+    changed = ov_service_changed(plist_path, plist_text)
+    install_commands = [
+        ["launchctl", "bootstrap", paths["domain"], str(plist_path)],
+        ["launchctl", "enable", paths["target"]],
+        ["launchctl", "kickstart", "-k", paths["target"]],
+    ]
+    payload: dict[str, Any] = {
+        "ok": True,
+        "action": action,
+        "home": str(paths["home"]),
+        "label": paths["label"],
+        "target": paths["target"],
+        "plist": str(plist_path),
+        "server_bin": str(paths["server_bin"]),
+        "config": str(paths["config"]),
+        "plist_payload": paths["plist_payload"],
+        "timeout": service_timeout,
+        "would_change_plist": changed,
+    }
+
+    if action == "status":
+        command = ["launchctl", "print", paths["target"]]
+        payload["commands"] = [command]
+        if args.dry_run:
+            payload["dry_run"] = True
+            print_json(payload)
+            return 0
+        result = run_command(command, timeout=service_timeout)
+        payload["steps"] = [result]
+        payload["ok"] = bool(result["ok"])
+        print_json(payload)
+        return 0 if payload["ok"] else 1
+
+    if action == "start":
+        command = ["launchctl", "kickstart", "-k", paths["target"]]
+        payload["commands"] = [command]
+        if args.dry_run:
+            payload["dry_run"] = True
+            print_json(payload)
+            return 0
+        result = run_command(command, timeout=service_timeout)
+        payload["steps"] = [result]
+        payload["ok"] = bool(result["ok"])
+        print_json(payload)
+        return 0 if payload["ok"] else 1
+
+    if action == "stop":
+        command = ["launchctl", "bootout", paths["target"]]
+        payload["commands"] = [command]
+        if args.dry_run:
+            payload["dry_run"] = True
+            print_json(payload)
+            return 0
+        result = run_command(command, timeout=service_timeout)
+        payload["steps"] = [result]
+        payload["ok"] = bool(result["ok"])
+        print_json(payload)
+        return 0 if payload["ok"] else 1
+
+    if action == "uninstall":
+        commands = [["launchctl", "bootout", paths["target"]]]
+        payload["commands"] = commands
+        if args.dry_run:
+            payload["dry_run"] = True
+            print_json(payload)
+            return 0
+        steps = [run_command(commands[0], timeout=service_timeout)]
+        removed = False
+        if plist_path.exists():
+            plist_path.unlink()
+            removed = True
+        payload["removed_plist"] = removed
+        payload["steps"] = steps
+        payload["ok"] = True
+        print_json(payload)
+        return 0
+
+    if action not in {"install", "restart"}:
+        print_json({"ok": False, "error": f"unsupported OpenViking service action: {action}"})
+        return 2
+
+    commands = []
+    if action == "restart":
+        commands.append(["launchctl", "bootout", paths["target"]])
+        commands.extend(install_commands)
+    else:
+        commands.append(["launchctl", "print", paths["target"]])
+        if changed or getattr(args, "force", False):
+            commands.append(["launchctl", "bootout", paths["target"]])
+            commands.extend(install_commands)
+        else:
+            commands.append(["launchctl", "kickstart", "-k", paths["target"]])
+    payload["commands"] = commands
+
+    if args.dry_run:
+        payload["dry_run"] = True
+        print_json(payload)
+        return 0
+
+    if platform.system() != "Darwin":
+        payload["ok"] = False
+        payload["error"] = "OpenViking service management requires macOS launchctl"
+        print_json(payload)
+        return 1
+    if not paths["server_bin"].exists() or not os.access(paths["server_bin"], os.X_OK):
+        payload["ok"] = False
+        payload["error"] = "OpenViking server is not executable"
+        print_json(payload)
+        return 1
+    if not paths["config"].exists():
+        payload["ok"] = False
+        payload["error"] = "OpenViking config does not exist"
+        print_json(payload)
+        return 1
+
+    paths["home"].mkdir(parents=True, exist_ok=True)
+    (paths["home"] / "logs").mkdir(parents=True, exist_ok=True)
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    backup = None
+    if changed:
+        if plist_path.exists():
+            backup = plist_path.with_name(f"{plist_path.name}.bak.{int(time.time())}")
+            backup.write_text(plist_path.read_text(encoding="utf-8"), encoding="utf-8")
+        plist_path.write_text(plist_text, encoding="utf-8")
+
+    if getattr(args, "no_load", False):
+        payload["changed"] = changed
+        payload["backup"] = str(backup) if backup else None
+        payload["loaded"] = False
+        payload["no_load"] = True
+        print_json(payload)
+        return 0
+
+    steps: list[dict[str, Any]] = []
+    if action == "install":
+        status = run_command(["launchctl", "print", paths["target"]], timeout=service_timeout)
+        status["optional"] = True
+        steps.append(status)
+        if status["ok"] and not changed and not getattr(args, "force", False):
+            kickstart = run_command(["launchctl", "kickstart", "-k", paths["target"]], timeout=service_timeout)
+            steps.append(kickstart)
+        else:
+            if status["ok"]:
+                bootout = run_command(["launchctl", "bootout", paths["target"]], timeout=service_timeout)
+                bootout["optional"] = True
+                steps.append(bootout)
+            steps.extend(run_command(command, timeout=service_timeout) for command in install_commands)
+    else:
+        bootout = run_command(["launchctl", "bootout", paths["target"]], timeout=service_timeout)
+        bootout["optional"] = True
+        steps.append(bootout)
+        steps.extend(run_command(command, timeout=service_timeout) for command in install_commands)
+
+    required_steps = [step for step in steps if not step.get("optional")]
+    payload["changed"] = changed
+    payload["backup"] = str(backup) if backup else None
+    payload["loaded"] = bool(required_steps and all(step["ok"] for step in required_steps))
+    payload["steps"] = steps
+    payload["ok"] = all(step["ok"] for step in required_steps)
+    print_json(payload)
+    return 0 if payload["ok"] else 1
 
 
 def command_ov_server(args: argparse.Namespace) -> int:
@@ -3576,6 +3854,41 @@ def build_parser() -> argparse.ArgumentParser:
     server.add_argument("--with-bot", action="store_true")
     server.add_argument("--dry-run", action="store_true")
     server.set_defaults(func=command_ov_server)
+
+    service = ov_sub.add_parser("service")
+    service_sub = service.add_subparsers(dest="service_action", required=True)
+
+    def add_service_args(service_parser: argparse.ArgumentParser) -> None:
+        service_parser.add_argument("--home", default=str(DEFAULT_OV_HOME))
+        service_parser.add_argument("--server-bin")
+        service_parser.add_argument("--config")
+        service_parser.add_argument("--label", default=DEFAULT_OV_SERVICE_LABEL)
+        service_parser.add_argument("--plist")
+        service_parser.add_argument("--timeout", type=float, default=DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
+        service_parser.add_argument("--dry-run", action="store_true")
+        service_parser.set_defaults(func=command_ov_service)
+
+    service_install = service_sub.add_parser("install")
+    add_service_args(service_install)
+    service_install.add_argument("--force", action="store_true")
+    service_install.add_argument("--no-load", action="store_true")
+
+    service_status = service_sub.add_parser("status")
+    add_service_args(service_status)
+
+    service_start = service_sub.add_parser("start")
+    add_service_args(service_start)
+
+    service_stop = service_sub.add_parser("stop")
+    add_service_args(service_stop)
+
+    service_restart = service_sub.add_parser("restart")
+    add_service_args(service_restart)
+    service_restart.add_argument("--force", action="store_true")
+    service_restart.add_argument("--no-load", action="store_true")
+
+    service_uninstall = service_sub.add_parser("uninstall")
+    add_service_args(service_uninstall)
 
     import_memory = ov_sub.add_parser("import-repo-memory")
     import_memory.add_argument("--target", default=None)

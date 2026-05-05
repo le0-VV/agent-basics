@@ -83,6 +83,13 @@ class SetupMacosTest(unittest.TestCase):
             "    printf '{\"storage\":{\"workspace\":\"%s/workspace\"}}\\n' \"$home\" > \"$config\"\n"
             "    printf '{\"url\":\"http://127.0.0.1:1933\",\"timeout\":86400}\\n' > \"$cli_config\"\n"
             "    ;;\n"
+            "  service)\n"
+            "    shift 2\n"
+            "    if [ \"${1:-}\" != \"install\" ]; then\n"
+            "      echo \"unexpected fake service action: $*\" >&2\n"
+            "      exit 2\n"
+            "    fi\n"
+            "    ;;\n"
             "  *)\n"
             "    echo \"unexpected fake dispatcher command: $*\" >&2\n"
             "    exit 2\n"
@@ -255,6 +262,7 @@ class SetupMacosTest(unittest.TestCase):
                 [
                     f"ov install-system --home {ov_home}",
                     f"ov write-default-config --home {ov_home} --config {ov_home / 'ov.conf'} --cli-config {ov_home / 'ovcli.conf'}",
+                    f"ov service install --home {ov_home}",
                 ],
             )
             self.assertTrue((ov_home / "venv" / "bin" / "ov").is_file())

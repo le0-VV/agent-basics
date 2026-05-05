@@ -63,12 +63,15 @@ OpenViking is required. If it is missing, install and configure it with:
 ```bash
 agent-basics ov install-system
 agent-basics ov write-default-config --force
+agent-basics ov service install
 agent-basics ov doctor
 ```
 
-Start the OpenViking server when live search, ingest, or MCP calls need it:
+On macOS, setup installs OpenViking as a user LaunchAgent so live search, ingest, and MCP calls can use the same always-on server. Foreground server mode is mainly for debugging:
 
 ```bash
+agent-basics ov service status
+agent-basics ov service restart
 agent-basics ov server
 ```
 

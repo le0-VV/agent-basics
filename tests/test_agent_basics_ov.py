@@ -982,6 +982,66 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
             ],
         )
 
+    def test_ov_service_plist_wraps_user_level_openviking_server(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "openviking"
+            server_path = home / "venv" / "bin" / "openviking-server"
+            config_path = home / "ov.conf"
+
+            payload = agent_basics_ov.ov_service_plist_payload(
+                label="com.agent-basics.test.openviking",
+                home=home,
+                server_bin=server_path,
+                config=config_path,
+                no_proxy="example.com,localhost,127.0.0.1,::1",
+            )
+            plist_text = agent_basics_ov.ov_service_plist_text(payload)
+
+        self.assertIn("<key>Label</key>", plist_text)
+        self.assertIn("<string>com.agent-basics.test.openviking</string>", plist_text)
+        self.assertIn(f"<string>{server_path}</string>", plist_text)
+        self.assertIn(f"<string>{config_path}</string>", plist_text)
+        self.assertIn("<key>RunAtLoad</key>\n    <true/>", plist_text)
+        self.assertIn("<key>KeepAlive</key>\n    <true/>", plist_text)
+        self.assertIn("<string>example.com,localhost,127.0.0.1,::1</string>", plist_text)
+        self.assertIn(f"<string>{home / 'logs' / 'openviking-server.out.log'}</string>", plist_text)
+
+    def test_ov_service_install_dry_run_does_not_write_launch_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "openviking"
+            server_path = home / "venv" / "bin" / "openviking-server"
+            config_path = home / "ov.conf"
+            plist_path = Path(tmp) / "com.agent-basics.test.openviking.plist"
+            server_path.parent.mkdir(parents=True)
+            server_path.write_text("#!/bin/sh\n", encoding="utf-8")
+            server_path.chmod(0o755)
+            config_path.write_text("{}\n", encoding="utf-8")
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = agent_basics_ov.command_ov_service(
+                    SimpleNamespace(
+                        service_action="install",
+                        home=str(home),
+                        server_bin=str(server_path),
+                        config=str(config_path),
+                        label="com.agent-basics.test.openviking",
+                        plist=str(plist_path),
+                        dry_run=True,
+                        force=False,
+                        no_load=False,
+                    )
+                )
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["dry_run"])
+        self.assertTrue(payload["would_change_plist"])
+        self.assertFalse(plist_path.exists())
+        self.assertIn(["launchctl", "bootstrap", payload["target"].rsplit("/", 1)[0], str(plist_path)], payload["commands"])
+        self.assertEqual(payload["plist_payload"]["ProgramArguments"], [str(server_path), "--config", str(config_path)])
+
     def test_ov_native_memory_paths_map_to_openviking_categories(self) -> None:
         category, reason, review = agent_basics_ov.legacy_to_ov_category(
             Path(".agents/memory/memories/preferences/example.md"),
