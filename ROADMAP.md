@@ -327,7 +327,7 @@ OpenViking wrapper commands:
 | `agent-basics ov add-resource <path-or-url>` | Implemented | Repo-aware resource ingestion wrapper. |
 | `agent-basics ov add-skill <path>` | Implemented | Registers skills through OpenViking; OpenViking currently does not expose a target URI for skills. |
 | `agent-basics ov ingest-changed` | Implemented | Incremental import/ingest after source-store changes. |
-| `agent-basics ov install-hooks` | Implemented | Installs managed `pre-commit` and `post-merge` hooks that run repo-scoped OpenViking ingest for source-store changes and check run-state consistency. |
+| `agent-basics ov install-hooks` | Implemented | Installs managed `pre-commit` and `post-merge` hooks that run repo-scoped OpenViking ingest for source-store changes. |
 | `agent-basics ov status` | Implemented | Repo-scoped import, source-store, namespace, and OpenViking status. |
 
 LM Studio commands:

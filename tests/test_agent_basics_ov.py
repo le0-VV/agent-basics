@@ -198,6 +198,7 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertTrue(payload["changed"])
         self.assertFalse(second["changed"])
         self.assertIn(agent_basics_ov.OV_HOOK_MARKER, pre_commit_text)
+        self.assertIn('if [ -x "$repo/agent-basics" ]', pre_commit_text)
         self.assertIn("ov hook pre-commit", pre_commit_text)
         self.assertIn("ov hook post-merge", post_merge_text)
         self.assertTrue(pre_commit_executable)

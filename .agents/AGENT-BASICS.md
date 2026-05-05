@@ -29,7 +29,7 @@ The target agent-facing surfaces are:
 - `agent-basics ov add-resource <path-or-url>`: ingest documentation or reference material.
 - `agent-basics ov add-skill <path>`: register reusable agent workflows.
 - `agent-basics ov ingest-changed`: update OpenViking after source instructions, docs, or memory files change.
-- `agent-basics ov install-hooks`: install repo-local hooks that refresh OpenViking after source-store changes and check run-state consistency.
+- `agent-basics ov install-hooks`: install repo-local hooks that refresh OpenViking after source-store changes.
 - `agent-basics ov status`: report repo-specific OpenViking state.
 
 When configuring an MCP-capable agent, prefer a systemwide `agent-basics` command without a fixed working directory. Agents should pass their current working directory through the `cwd` tool argument on each repo-scoped call:

@@ -16,9 +16,8 @@
       "method": "add-resource",
       "ok": true,
       "path": ".agents/memory/INDEX.md",
-      "returncode": 0,
       "sha256": "3fb4b46dbe960b549dda4e2af135bbdcfd32936729dd97f3207d1a7dcee09d51",
-      "skipped": false,
+      "skipped": true,
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/INDEX.md"
     },
     ".agents/memory/SCHEMA.md": {
@@ -87,11 +86,9 @@
       "method": "write",
       "ok": true,
       "path": ".agents/memory/memories/preferences/1777944754-installation-wide-agent-basics-language.md",
-      "returncode": 0,
       "sha256": "8ca01e9283b6c43838e17689975f9e352621fcecfb49197188e21c5cd5e86fa7",
-      "skipped": false,
-      "target": "viking://user/default/memories/preferences/projects/agent-basics/1777944754-installation-wide-agent-basics-language.md",
-      "verified_existing": true
+      "skipped": true,
+      "target": "viking://user/default/memories/preferences/projects/agent-basics/1777944754-installation-wide-agent-basics-language.md"
     },
     ".agents/memory/memories/tools/1777935030-openviking-cli-http-timeout-lives-in-ovcli-conf.md": {
       "imported_at": 1777935377,
@@ -104,10 +101,10 @@
       "target": "viking://user/default/memories/tools/projects/agent-basics/1777935030-openviking-cli-http-timeout-lives-in-ovcli-conf.md"
     }
   },
-  "last_import": 1777944986,
+  "last_import": 1777945068,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1777944986,
+  "updated": 1777945068,
   "version": 1
 }
