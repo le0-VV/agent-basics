@@ -8,9 +8,9 @@ coding agent 新手村套装。
 
 > **`agent-basics` 会增加不算少的 context 开销，换来更可靠的长线工作。**
 
-## 问题是什么
+## 痛点
 
-Agents 做长线工作很容易掉链子，本质上还是 context 限制。Context window 越大、经历的 compact 越多，agent 越容易不听话、忘事情。用户之前拍板的决定、代码库里的坑、某个必须按顺序执行的流程，这些东西都会随着项目拖长而丢失，除非仓库里有一套明确的护栏，也就是 harness。
+Agents 做长线工作很容易掉链子，本质上还是 context 限制。Context window 越大、经历的 compact 越多，agent 越容易不听话、忘事情。用户之前做的决定、代码库里的坑、某个必须按顺序执行的流程，这些东西都会随着项目拖长而丢失，除非仓库里有一套明确的护栏，也就是 harness。
 
 搭护栏本身又很麻烦。从我自己用、也和其他用户聊下来的感觉看，很多人还在找一套可靠、系统化的 agentic programming 护栏。Markdown 文件能解决一部分问题，但项目一大，记录 memory 和项目细节的 markdown 很容易膨胀，agent 读起来费劲，也很吃 context。
 
@@ -206,12 +206,12 @@ agent-basics lmstudio route-test
 
 ### Jessie 和 Yolo
 
-| Jessie 第一天 | Jessie | Jessie，可能在嫌弃我 |
-| --- | --- | --- |
-| <img src="assets/cats/jessie-first-day.jpg" alt="Jessie 第一天" width="220"> | <img src="assets/cats/jessie-1.jpg" alt="Jessie" width="220"> | <img src="assets/cats/jessie-2.jpg" alt="Jessie 看起来不太满意" width="220"> |
+| Jessie 第一天                                                                | Jessie                                                        | 还是 Jessie                                                        |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| <img src="assets/cats/jessie-first-day.jpg" alt="Jessie 第一天" width="220"> | <img src="assets/cats/jessie-1.jpg" alt="Jessie" width="220"> | <img src="assets/cats/jessie-2.jpg" alt="还是 Jessie" width="220"> |
 
-| 小小 Yolo | Yolo | 还是 Yolo | Jessie 和 Yolo |
-| --- | --- | --- | --- |
+| 小小 Yolo                                                         | Yolo                                                      | 还是 Yolo                                                      | Jessie 和 Yolo                                                                      |
+| ----------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | <img src="assets/cats/smol-yolo.jpg" alt="小小 Yolo" width="180"> | <img src="assets/cats/yolo-1.jpg" alt="Yolo" width="180"> | <img src="assets/cats/yolo-2.jpg" alt="还是 Yolo" width="180"> | <img src="assets/cats/yolo-and-jessie.jpg" alt="Jessie 和 Yolo 在一起" width="240"> |
 
 ## 更多细节

@@ -206,12 +206,12 @@ This is completely voluntary. It does not change the license, issue priority, fe
 
 ### Jessie and Yolo
 
-| Jessie, first day | Jessie | Jessie, judging probably |
-| --- | --- | --- |
-| <img src="assets/cats/jessie-first-day.jpg" alt="Jessie on her first day" width="220"> | <img src="assets/cats/jessie-1.jpg" alt="Jessie" width="220"> | <img src="assets/cats/jessie-2.jpg" alt="Jessie looking unimpressed" width="220"> |
+| Jessie, first day                                                                      | Jessie                                                        | Also Jessie                                                        |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| <img src="assets/cats/jessie-first-day.jpg" alt="Jessie on her first day" width="220"> | <img src="assets/cats/jessie-1.jpg" alt="Jessie" width="220"> | <img src="assets/cats/jessie-2.jpg" alt="Also Jessie" width="220"> |
 
-| Smol Yolo | Yolo | Yolo, still Yolo | Jessie and Yolo |
-| --- | --- | --- | --- |
+| Smol Yolo                                                         | Yolo                                                      | Still Yolo                                                      | Jessie and Yolo                                                                        |
+| ----------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | <img src="assets/cats/smol-yolo.jpg" alt="Smol Yolo" width="180"> | <img src="assets/cats/yolo-1.jpg" alt="Yolo" width="180"> | <img src="assets/cats/yolo-2.jpg" alt="Yolo again" width="180"> | <img src="assets/cats/yolo-and-jessie.jpg" alt="Yolo and Jessie together" width="240"> |
 
 ## More Detail
