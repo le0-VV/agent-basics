@@ -20,9 +20,9 @@ Agents 做长线工作很容易掉链子，本质上还是 context 限制。Cont
 
 ## 核心想法
 
-`agent-basics` 是一个基础 repo harness：安装一个共享的 memory backend，把稳定的 agent-facing 文件放在可预测的位置，再教 agents 几个固定流程。
+`agent-basics` 是一个基础 repo harness：安装一个共享的记忆后端，把稳定的 agent-facing 文件放在可预测的位置，再教 agents 几个固定流程。
 
-仓库把可人工 review 的 source files 放在 `.agents/memory/`；OpenViking 负责存储、搜索和检索；MCP 给 agents 一个一致的方式来读取上下文和记录新上下文。Setup 和 upgrade 负责安全地处理已有项目，git hooks 则在提交知识文件变化时刷新 memory backend。
+仓库把可人工审核的源文件放在 `.agents/memory/`；OpenViking 负责存储、搜索和检索；MCP 给 agents 一个一致的方式来读取上下文和记录新上下文。Setup 和 upgrade 负责安全地处理已有项目，git hooks 则在提交知识文件变化时刷新 memory backend。
 
 ## 它怎么工作
 
