@@ -157,6 +157,114 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(payload["RunAtLoad"], True)
         self.assertEqual(payload["KeepAlive"], True)
 
+    def test_lmstudio_service_permission_error_returns_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "lmstudio"
+            lms_bin = home / "bin" / "lms"
+            plist_path = Path(tmp) / "com.agent-basics.test.lmstudio.plist"
+            lms_bin.parent.mkdir(parents=True)
+            lms_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+            lms_bin.chmod(0o755)
+
+            original_mkdir = agent_basics_ov.Path.mkdir
+            original_platform_system = agent_basics_ov.platform.system
+
+            def fake_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+                if Path(path).name == "logs":
+                    raise PermissionError(1, "Operation not permitted", str(path))
+                return original_mkdir(path, *args, **kwargs)
+
+            try:
+                agent_basics_ov.Path.mkdir = fake_mkdir
+                agent_basics_ov.platform.system = lambda: "Darwin"
+                payload = agent_basics_ov.lmstudio_service_payload(
+                    SimpleNamespace(
+                        service_action="install",
+                        lmstudio_home=str(home),
+                        lms_bin=str(lms_bin),
+                        port=1234,
+                        label="com.agent-basics.test.lmstudio",
+                        plist=str(plist_path),
+                        timeout=1,
+                        dry_run=False,
+                        force=False,
+                        no_load=True,
+                    )
+                )
+            finally:
+                agent_basics_ov.Path.mkdir = original_mkdir
+                agent_basics_ov.platform.system = original_platform_system
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["exception_type"], "PermissionError")
+        self.assertIn("failed to write LM Studio service files", payload["error"])
+        self.assertFalse(plist_path.exists())
+
+    def test_lmstudio_bootstrap_best_effort_ignores_service_permission_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "lmstudio"
+            lms_bin = home / "bin" / "lms"
+            plist_path = Path(tmp) / "com.agent-basics.test.lmstudio.plist"
+            lms_bin.parent.mkdir(parents=True)
+            lms_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+            lms_bin.chmod(0o755)
+
+            original_mkdir = agent_basics_ov.Path.mkdir
+            original_platform_system = agent_basics_ov.platform.system
+
+            def fake_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+                if Path(path).name == "logs":
+                    raise PermissionError(1, "Operation not permitted", str(path))
+                return original_mkdir(path, *args, **kwargs)
+
+            try:
+                agent_basics_ov.Path.mkdir = fake_mkdir
+                agent_basics_ov.platform.system = lambda: "Darwin"
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    result = agent_basics_ov.command_lmstudio_bootstrap(
+                        SimpleNamespace(
+                            base_url="http://127.0.0.1:1234",
+                            lmstudio_home=str(home),
+                            model=agent_basics_ov.DEFAULT_CHAT_MODEL,
+                            embedding_model=agent_basics_ov.DEFAULT_EMBEDDING_MODEL,
+                            download_model=[],
+                            min_memory_gb=16,
+                            allow_non_macos=False,
+                            force_hardware=True,
+                            install="never",
+                            service="always",
+                            configure="never",
+                            download="never",
+                            cask=agent_basics_ov.DEFAULT_LMSTUDIO_CASK,
+                            app_path=str(Path(tmp) / "LM Studio.app"),
+                            lms_bin=str(lms_bin),
+                            port=1234,
+                            label="com.agent-basics.test.lmstudio",
+                            plist=str(plist_path),
+                            timeout=5,
+                            service_timeout=1,
+                            wait_server_seconds=0,
+                            force_install=False,
+                            force_service=False,
+                            no_load=True,
+                            best_effort=True,
+                            dry_run=False,
+                        )
+                    )
+            finally:
+                agent_basics_ov.Path.mkdir = original_mkdir
+                agent_basics_ov.platform.system = original_platform_system
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["best_effort"])
+        service = payload["steps"][1]
+        self.assertEqual(service["name"], "service install")
+        self.assertTrue(service["best_effort_ignored_failure"])
+        self.assertEqual(service["payload"]["exception_type"], "PermissionError")
+
     def test_lmstudio_bootstrap_dry_run_plans_service_download_and_jit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "lmstudio"

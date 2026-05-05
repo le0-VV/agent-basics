@@ -807,8 +807,18 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
 
 def command_payload_from_handler(handler: Any, args: argparse.Namespace) -> dict[str, Any]:
     output = io.StringIO()
-    with redirect_stdout(output):
-        returncode = handler(args)
+    try:
+        with redirect_stdout(output):
+            returncode = handler(args)
+    except Exception as exc:
+        text = output.getvalue().strip()
+        return {
+            "ok": False,
+            "returncode": 1,
+            "stdout": text,
+            "error": str(exc),
+            "exception_type": type(exc).__name__,
+        }
     text = output.getvalue().strip()
     try:
         payload = json.loads(text) if text else {}
@@ -2942,15 +2952,26 @@ def lmstudio_service_payload(args: argparse.Namespace) -> dict[str, Any]:
         payload.update({"ok": False, "error": "LM Studio lms CLI is not executable"})
         return payload
 
-    home.mkdir(parents=True, exist_ok=True)
-    (home / "logs").mkdir(parents=True, exist_ok=True)
-    plist_path.parent.mkdir(parents=True, exist_ok=True)
     backup = None
-    if changed:
-        if plist_path.exists():
-            backup = plist_path.with_name(f"{plist_path.name}.bak.{int(time.time())}")
-            backup.write_text(plist_path.read_text(encoding="utf-8"), encoding="utf-8")
-        plist_path.write_text(plist_text, encoding="utf-8")
+    try:
+        home.mkdir(parents=True, exist_ok=True)
+        (home / "logs").mkdir(parents=True, exist_ok=True)
+        plist_path.parent.mkdir(parents=True, exist_ok=True)
+        if changed:
+            if plist_path.exists():
+                backup = plist_path.with_name(f"{plist_path.name}.bak.{int(time.time())}")
+                backup.write_text(plist_path.read_text(encoding="utf-8"), encoding="utf-8")
+            plist_path.write_text(plist_text, encoding="utf-8")
+    except OSError as exc:
+        payload.update(
+            {
+                "ok": False,
+                "changed": False,
+                "error": f"failed to write LM Studio service files: {exc}",
+                "exception_type": type(exc).__name__,
+            }
+        )
+        return payload
 
     if getattr(args, "no_load", False):
         payload.update({"changed": changed, "backup": str(backup) if backup else None, "loaded": False, "no_load": True})
