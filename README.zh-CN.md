@@ -2,6 +2,8 @@
 
 [English](README.md)
 
+coding agent 新手村套装。
+
 `agent-basics` 用来把一个仓库设置成适合 coding agents 长 session、交接和持续更新的稳定工作区。
 
 它使用 OpenViking 作为记忆和检索后端。`agent-basics` 负责仓库侧的事情：说明文件、setup、upgrade、MCP 接线、git hooks、run state，以及安全的 markdown 冲突处理。

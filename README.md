@@ -2,6 +2,8 @@
 
 [中文](README.zh-CN.md)
 
+baby's first coding agent harness.
+
 `agent-basics` sets up a repository so coding agents have a predictable way to work across long sessions, handoffs, and repeated project updates.
 
 It uses OpenViking as the memory and retrieval backend. `agent-basics` handles the repo side: instructions, setup, upgrade, MCP wiring, git hooks, run state, and safe markdown conflict handling.
