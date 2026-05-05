@@ -6,21 +6,27 @@ coding agent 新手村套装。
 
 `agent-basics` 用来把一个仓库设置成适合 coding agents 稳定读取说明、记忆和项目上下文的工作区。
 
-它使用 OpenViking 作为记忆和检索后端。`agent-basics` 负责仓库侧的事情：说明文件、setup、upgrade、MCP 接线、git hooks，以及安全的 markdown 冲突处理。
-
-> 这会增加一些 prompt 和流程开销。换来的是更好的连续性，以及更少丢失的决策。
+> **`agent-basics` 会增加不算少的 context 开销，换来更可靠的长线工作。**
 
 ## 问题是什么
 
-Coding agents 很有用，但它们不擅长把项目上下文稳定带过长会话、新聊天、分支切换和多个 agents 的交接。重要决策很容易散落在聊天记录、TODO、临时笔记和半记得的 instructions 里。每个新 agent 又得重新搞清楚项目怎么工作、哪些文件重要、用户偏好是什么、什么方案已经踩过坑。
+Agents 做长线工作很容易掉链子，本质上还是 context 限制。Context window 越大、经历的 compact 越多，agent 越容易不听话、忘事情。用户之前拍板的决定、代码库里的坑、某个必须按顺序执行的流程，这些东西都会随着项目拖长而丢失，除非仓库里有一套明确的护栏，也就是 harness。
 
-大多数仓库也没有给 agents 一个稳定的操作界面。Instructions 可能缺失、重复、过期，或者藏在 agent 不一定会读的文件里。就算有 memory system，也常常和 git 分离，导致项目知识和对应代码慢慢漂开。
+搭护栏本身又很麻烦。从我自己用、也和其他用户聊下来的感觉看，很多人还在找一套可靠、系统化的 agentic programming 护栏。Markdown 文件能解决一部分问题，但项目一大，记录 memory 和项目细节的 markdown 很容易膨胀，agent 读起来费劲，也很吃 context。
+
+这个项目就是想尽量把这件事变简单一点。
+
+一个不需要 OpenViking，也就是不额外依赖 LLM 和 embedding model API 的方案，也在计划中。
 
 ## 核心想法
 
-`agent-basics` 是一个轻量 repo harness：安装一个共享的 memory backend，把稳定的 agent-facing 文件放在可预测的位置，再教 agents 几个固定流程。
+`agent-basics` 是一个基础 repo harness：安装一个共享的 memory backend，把稳定的 agent-facing 文件放在可预测的位置，再教 agents 几个固定流程。
 
 仓库把可人工 review 的 source files 放在 `.agents/memory/`；OpenViking 负责存储、搜索和检索；MCP 给 agents 一个一致的方式来读取上下文和记录新上下文。Setup 和 upgrade 负责安全地处理已有项目，git hooks 则在提交知识文件变化时刷新 memory backend。
+
+## 它怎么工作
+
+它使用 OpenViking 作为记忆和检索后端，而 OpenViking 本身需要通过 API 访问一个 LLM 和一个 embedding model，用来生成结构化 memory 和做语义检索。`agent-basics` 负责仓库侧的 instructions、setup、upgrade、MCP 接线、git hooks，以及安全的 markdown 冲突处理。它也会管理一个用户级 OpenViking 安装；如果机器条件允许，还会通过 Homebrew 设置 LM Studio，用作本地 LLM 和 embedding model API。
 
 ## 它提供什么
 
@@ -30,7 +36,7 @@ Coding agents 很有用，但它们不擅长把项目上下文稳定带过长会
 - 仓库感知的 MCP tools，让 agents 通过 OpenViking 搜索和记录项目上下文。
 - 当 repo memory files 变化时刷新 OpenViking 的 git hooks。
 - 更安全的新项目 setup 和旧项目 upgrade 流程，包括 markdown merge prompts。
-- 一个 supervised commit helper，用配置好的 coding-agent author 提交。
+- 一个 supervised git commit helper，用配置好的 coding-agent author 提交。
 
 ## 安装
 
@@ -74,7 +80,7 @@ agent-basics upgrade /path/to/project
 
 ## OpenViking
 
-OpenViking 是必需的，并且会在 Homebrew 安装时自动 bootstrap。需要修复或重新运行完整本地 runtime setup 时：
+OpenViking 目前是必需的，并且会在 Homebrew 安装时自动 bootstrap。需要修复或重新运行完整本地 runtime setup 时：
 
 ```bash
 agent-basics ov bootstrap-system
@@ -111,12 +117,12 @@ agent-basics ov install-hooks
 
 ```json
 {
-  "mcpServers": {
-    "agent-basics": {
-      "command": "agent-basics",
-      "args": ["mcp"]
+    "mcpServers": {
+        "agent-basics": {
+            "command": "agent-basics",
+            "args": ["mcp"]
+        }
     }
-  }
 }
 ```
 
@@ -183,6 +189,30 @@ agent-basics lmstudio configure --write
 agent-basics lmstudio load --dry-run
 agent-basics lmstudio route-test
 ```
+
+## 需要帮助的话
+
+可以 clone 这个 repo，然后问你的 agent 应该怎么把它用起来。
+
+## 👉👈
+
+如果 agent-basics 帮你省了时间，或者你刚好想支持一下，而且你有支付宝，欢迎请我喝杯奶茶。一分钱也是巨大的鼓励。
+
+<img src="assets/support/alipay.jpg" alt="支付宝收款码" width="180">
+
+以及 bro 现在真的没收入 💀。你的投喂会帮我养活两只毛孩子：Jessie 和 Yolo <3
+
+完全自愿。不影响 license、issue 优先级、feature 优先级，也不代表任何 support SLA。
+
+### Jessie 和 Yolo
+
+| Jessie 第一天 | Jessie | Jessie，可能在嫌弃我 |
+| --- | --- | --- |
+| <img src="assets/cats/jessie-first-day.jpg" alt="Jessie 第一天" width="220"> | <img src="assets/cats/jessie-1.jpg" alt="Jessie" width="220"> | <img src="assets/cats/jessie-2.jpg" alt="Jessie 看起来不太满意" width="220"> |
+
+| 小小 Yolo | Yolo | 还是 Yolo | Jessie 和 Yolo |
+| --- | --- | --- | --- |
+| <img src="assets/cats/smol-yolo.jpg" alt="小小 Yolo" width="180"> | <img src="assets/cats/yolo-1.jpg" alt="Yolo" width="180"> | <img src="assets/cats/yolo-2.jpg" alt="还是 Yolo" width="180"> | <img src="assets/cats/yolo-and-jessie.jpg" alt="Jessie 和 Yolo 在一起" width="240"> |
 
 ## 更多细节
 

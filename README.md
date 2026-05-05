@@ -6,21 +6,27 @@ baby's first coding agent harness.
 
 `agent-basics` sets up a repository so coding agents have a predictable way to keep instructions, memory, and project context consistent.
 
-It uses OpenViking as the memory and retrieval backend. `agent-basics` handles the repo side: instructions, setup, upgrade, MCP wiring, git hooks, and safe markdown conflict handling.
+> **`agent-basics` will add a non-trivial amount of context overhead in exchange for more reliable work.**
 
-> This adds some prompt and workflow overhead. The tradeoff is better continuity and fewer lost decisions.
+## The Problem
 
-## Problem Statement
+Agents are bad at doing extended work due to context limits. As the context window gets bigger, more compacting cycles it went through, agents become less compliant, easier to forget things. A prior user-made decision; a caveat with the codebase; a specific order of operation agents are meant to go through while working, all of these can and will be lost as a project drag on. Unless guide rails ("Harnesses") are in place.
 
-Coding agents are useful, but they are bad at carrying project context across long sessions, new chats, branch switches, and handoffs between agents. Important decisions end up scattered through chat history, TODO files, local notes, and half-remembered instructions. Each new agent then has to rediscover how the project works, which files matter, what the user prefers, and what already failed.
+Setting up guide rails is tedious work. From what I've been seeing and communicating with other users, a lot of people are still struggling to find a reliable, systemic guide rail for agentic programming. Markdown files can only do so much, and especially for big projects, markdowns containing memories and project details can balloon, become difficult for agents to read through, or at least cost a lot of context in doing so.
 
-Most repos also do not give agents a predictable operating surface. Instructions may be missing, duplicated, stale, or buried in files the agent may not read. Memory systems, when present, are often separate from git, so project knowledge can drift away from the code it describes.
+This project aims to help solve this for as many people as possible.
+
+A solution that does not need OpenViking, and therefore does not need a separate LLM and embedding model API, is in the works.
 
 ## The Idea
 
-`agent-basics` is a small repo harness: install one shared memory backend, put stable agent-facing files in predictable places, and teach agents a few repeatable routines.
+`agent-basics` is a basic repo harness: install one shared memory backend, put stable agent-facing files in predictable places, and teach agents a few repeatable routines.
 
 The repo keeps human-reviewable source files under `.agents/memory/`; OpenViking handles storage, search, and retrieval; MCP gives agents a consistent way to ask for context and record new context. Setup and upgrade keep the structure safe for existing projects, while git hooks keep the memory backend current when committed knowledge changes.
+
+## How It Works
+
+It uses OpenViking as the memory and retrieval backend, which itself needs access to an LLM and an embedding model API for generating structured memory and semantic retrieval. `agent-basics` handles the repo instructions, setup, upgrade, MCP wiring, git hooks, and safe markdown conflict handling. It will also manage a user-level OpenViking installation and, if the hardware allows it, an LM Studio installation via Homebrew for a local LLM and embedding model API.
 
 ## What It Gives You
 
@@ -30,7 +36,7 @@ The repo keeps human-reviewable source files under `.agents/memory/`; OpenViking
 - Repo-aware MCP tools so agents can search and record project context through OpenViking.
 - Git hooks that refresh OpenViking when repo memory files change.
 - A safer setup and upgrade flow for existing projects, including markdown merge prompts.
-- A supervised commit helper that uses the configured coding-agent author.
+- A supervised git commit helper that uses the configured coding-agent author.
 
 ## Install
 
@@ -74,7 +80,7 @@ If setup finds existing markdown files such as `Agents.md`, it asks whether to k
 
 ## OpenViking
 
-OpenViking is required and is bootstrapped during Homebrew install. To repair or rerun the full local runtime setup:
+OpenViking is required (for now) and is bootstrapped during Homebrew install. To repair or rerun the full local runtime setup:
 
 ```bash
 agent-basics ov bootstrap-system
@@ -111,12 +117,12 @@ Example:
 
 ```json
 {
-  "mcpServers": {
-    "agent-basics": {
-      "command": "agent-basics",
-      "args": ["mcp"]
+    "mcpServers": {
+        "agent-basics": {
+            "command": "agent-basics",
+            "args": ["mcp"]
+        }
     }
-  }
 }
 ```
 
@@ -183,6 +189,30 @@ agent-basics lmstudio configure --write
 agent-basics lmstudio load --dry-run
 agent-basics lmstudio route-test
 ```
+
+## If you need any help
+
+Please clone this repo and ask your agent how to best use it.
+
+## 👉👈
+
+If agent-basics helped you in any way, or you're just feeling generous, and you have Alipay, please consider making a small donation to this project. Even 1 fen means a world of encouragement to me.
+
+<img src="assets/support/alipay.jpg" alt="Alipay support QR code" width="180">
+
+Also bro's got no source of income right now 💀. Your donation will help me feed my 2 fur babies: Jessie and Yolo <3
+
+This is completely voluntary. It does not change the license, issue priority, feature priority, or support expectations.
+
+### Jessie and Yolo
+
+| Jessie, first day | Jessie | Jessie, judging probably |
+| --- | --- | --- |
+| <img src="assets/cats/jessie-first-day.jpg" alt="Jessie on her first day" width="220"> | <img src="assets/cats/jessie-1.jpg" alt="Jessie" width="220"> | <img src="assets/cats/jessie-2.jpg" alt="Jessie looking unimpressed" width="220"> |
+
+| Smol Yolo | Yolo | Yolo, still Yolo | Jessie and Yolo |
+| --- | --- | --- | --- |
+| <img src="assets/cats/smol-yolo.jpg" alt="Smol Yolo" width="180"> | <img src="assets/cats/yolo-1.jpg" alt="Yolo" width="180"> | <img src="assets/cats/yolo-2.jpg" alt="Yolo again" width="180"> | <img src="assets/cats/yolo-and-jessie.jpg" alt="Yolo and Jessie together" width="240"> |
 
 ## More Detail
 
