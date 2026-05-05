@@ -6,7 +6,7 @@ coding agent 新手村套装。
 
 `agent-basics` 用来把一个仓库设置成适合 coding agents 稳定读取说明、记忆和项目上下文的工作区。
 
-> **`agent-basics` 会增加不算少的 context 开销，换来更可靠的长线工作。**
+> **`agent-basics` 会增加不少的 context 开销，换来更可靠的长线工作。**
 
 ## 痛点
 
@@ -194,11 +194,11 @@ agent-basics lmstudio route-test
 
 ## 👉👈
 
-如果 agent-basics 帮你省了时间，或者你刚好想支持一下，而且你有支付宝，欢迎请我喝杯奶茶。一分钱也是巨大的鼓励。
+如果 agent-basics 有帮到你，或者你刚好想支持一下，欢迎请我喝杯奶茶。哪怕1分钱对我来说也是莫大的鼓励。
 
 <img src="assets/support/alipay.jpg" alt="支付宝收款码" width="180">
 
-以及 bro 现在真的没收入 💀。你的投喂会帮我养活两只毛孩子：Jessie 和 Yolo <3
+还有 bro 现在真的没有收入 💀。你的投喂会养活我的两只毛孩子：Jessie 和 Yolo <3
 
 完全自愿。不影响 license、issue 优先级、feature 优先级，也不代表任何 support SLA。
 
