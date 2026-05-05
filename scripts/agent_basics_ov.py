@@ -33,6 +33,7 @@ DEFAULT_RUN_STALE_SECONDS = 86400
 DEFAULT_OV_MEMORY_TARGET = "viking://user/default/memories"
 DEFAULT_OV_RESOURCE_TARGET = "viking://resources/projects"
 OV_HOOK_MARKER = "agent-basics-openviking-hook"
+LEGACY_MEMORY_HOOK_MARKER = "agent-basics memory hook"
 DEFAULT_LMSTUDIO_HOME = Path.home() / ".lmstudio"
 LMSTUDIO_DEFAULT_CONFIG_ROOT = Path(".internal") / "user-concrete-model-default-config"
 GEMMA_LLM_KEYS = {"google/gemma-4-e2b", "google/gemma-4-e4b"}
@@ -793,6 +794,16 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def merge_no_proxy(value: str) -> str:
+    required = ["127.0.0.1", "localhost", "::1"]
+    existing = [item.strip() for item in value.split(",") if item.strip()]
+    lowered = {item.lower() for item in existing}
+    for item in required:
+        if item.lower() not in lowered:
+            existing.append(item)
+    return ",".join(existing)
+
+
 def command_ov_server(args: argparse.Namespace) -> int:
     server_bin = Path(args.server_bin).expanduser() if args.server_bin else find_ov_server()
     if server_bin is None:
@@ -821,6 +832,7 @@ def command_ov_server(args: argparse.Namespace) -> int:
         "server_bin": str(server_bin),
         "config": str(config),
         "foreground": True,
+        "no_proxy": merge_no_proxy(os.environ.get("NO_PROXY") or os.environ.get("no_proxy", "")),
     }
     if args.dry_run:
         payload["dry_run"] = True
@@ -832,7 +844,10 @@ def command_ov_server(args: argparse.Namespace) -> int:
     if not config.exists():
         print_json({"ok": False, "config": str(config), "error": "OpenViking config does not exist"})
         return 1
-    os.execv(str(server_bin), command)
+    env = dict(os.environ)
+    env["NO_PROXY"] = payload["no_proxy"]
+    env["no_proxy"] = payload["no_proxy"]
+    os.execve(str(server_bin), command, env)
     return 1
 
 
@@ -1020,15 +1035,20 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
             "imported_at": int(time.time()) if ok and not skipped else imports.get(rel, {}).get("imported_at"),
         }
         if command_result is not None:
-            entry["command"] = command_result.get("command")
             entry["returncode"] = command_result.get("returncode")
-            entry["stdout"] = command_result.get("stdout")
-            entry["stderr"] = command_result.get("stderr")
+            if not ok:
+                entry["stdout"] = command_result.get("stdout")
+                entry["stderr"] = command_result.get("stderr")
             for key in ["busy_retries", "verified_existing", "already_exists", "previous_error"]:
                 if key in command_result:
                     entry[key] = command_result[key]
         imports[rel] = entry
-        results.append(entry)
+        result_entry = dict(entry)
+        if command_result is not None:
+            result_entry["command"] = command_result.get("command")
+            result_entry["stdout"] = command_result.get("stdout")
+            result_entry["stderr"] = command_result.get("stderr")
+        results.append(result_entry)
 
     for path in files["memories"]:
         text = path.read_text(encoding="utf-8")
@@ -1822,6 +1842,9 @@ def ov_managed_hook_content(event: str, helper_path: Path) -> str:
             f"# {OV_HOOK_MARKER}",
             "set -eu",
             "repo=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0",
+            "if command -v agent-basics >/dev/null 2>&1; then",
+            f'  exec agent-basics --repo "$repo" ov hook {event}',
+            "fi",
             f"HELPER=${{AGENT_BASICS_OV_HELPER:-{quoted_helper}}}",
             'PYTHON=${AGENT_BASICS_PYTHON:-python3}',
             f'exec "$PYTHON" "$HELPER" --repo "$repo" ov hook {event}',
@@ -1849,7 +1872,8 @@ def ov_install_hooks_payload(repo: Path, *, force: bool = False, helper_path: Pa
         desired = ov_managed_hook_content(event, helper)
         existing = path.read_text(encoding="utf-8", errors="replace") if path.exists() else None
         managed = existing is not None and OV_HOOK_MARKER in existing
-        if existing is not None and not managed and not force:
+        legacy_managed = existing is not None and LEGACY_MEMORY_HOOK_MARKER in existing
+        if existing is not None and not managed and not legacy_managed and not force:
             ok = False
             results.append(
                 {
@@ -1876,6 +1900,26 @@ def ov_install_hooks_payload(repo: Path, *, force: bool = False, helper_path: Pa
                 "changed": True,
                 "managed": True,
                 "event": event,
+                "upgraded_from": "legacy-memory" if legacy_managed else None,
+            }
+        )
+    for name in ["post-commit", "post-checkout"]:
+        path = hooks_dir / name
+        if not path.exists():
+            continue
+        existing = path.read_text(encoding="utf-8", errors="replace")
+        if LEGACY_MEMORY_HOOK_MARKER not in existing:
+            continue
+        path.unlink()
+        changed = True
+        results.append(
+            {
+                "ok": True,
+                "hook": name,
+                "path": str(path),
+                "changed": True,
+                "managed": False,
+                "removed_obsolete_legacy_hook": True,
             }
         )
     return {

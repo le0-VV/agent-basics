@@ -41,8 +41,8 @@ Implemented and verified in this repository:
 
 Still transitional or incomplete:
 
-- The custom `.agents/memory/rag/` mini-RAG still exists as fallback compatibility.
-- Decision: keep checked-in `.agents/memory/rag/` files only as source-checkout fallback for this development repo and older repos until a separate legacy package exists. Fresh setup must not install them unless `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` is set.
+- The custom mini-RAG still exists as fallback compatibility under `compat/memory-rag/`.
+- Decision: keep checked-in compatibility source outside `.agents/memory/` so the active source store stays OpenViking-native. Fresh setup must not install the mini-RAG into target repos unless `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` is set.
 - Broader live dogfood against real OpenViking/LM Studio should continue, especially for large ingests and model/provider edge cases.
 
 ## What agent-basics Is
@@ -165,15 +165,16 @@ Target layout:
     └── backups/
 ```
 
-`.agents/memory/` remains important permanently as the repo-owned OpenViking source store. The roadmap target is to adapt old custom mini-RAG memory into OV-native `memories/`, `resources/`, and `skills/` files, preserve legacy snapshots under `.agents/openviking/legacy-memory/`, and demote custom RAG code to fallback support until the OpenViking-backed gateway replaces it.
+`.agents/memory/` remains important permanently as the repo-owned OpenViking source store. The roadmap target is to adapt old custom mini-RAG memory into OV-native `memories/`, `resources/`, and `skills/` files, preserve legacy snapshots under `.agents/openviking/legacy-memory/`, and keep custom RAG code isolated as fallback support under `compat/memory-rag/` until it is retired or split out.
 
 Fresh setup should create only the OpenViking source-store shape under `.agents/memory/`. Existing legacy mini-RAG trees should be copied to `.agents/openviking/legacy-memory/<unix-timestamp>/` as migration input, not reinstalled into new projects unless the user explicitly enables compatibility fallback.
 
 Current `.agents/memory/` status:
 
 - Canonical OV source store: `.agents/memory/memories/`, `.agents/memory/resources/`, `.agents/memory/skills/`, `.agents/memory/imports/`, `SCHEMA.md`, `INDEX.md`, and `ADAPTATION.md`.
-- Legacy/transitional compatibility: `.agents/memory/memory/`, `.agents/memory/documentations/`, `.agents/memory/templates/`, and `.agents/memory/rag/`.
-- `agent-basics ov import-repo-memory` currently imports the canonical OV source-store files and ignores legacy/transitional files unless they have been adapted into the canonical layout.
+- Legacy/transitional compatibility snapshots: `.agents/openviking/legacy-memory/`.
+- Compatibility mini-RAG implementation: `compat/memory-rag/`.
+- `agent-basics ov import-repo-memory` imports canonical OV source-store files and ignores archived legacy material unless it has been adapted into the canonical layout.
 
 ## Enforcement Model
 
@@ -372,7 +373,7 @@ Migration commands:
 Compatibility commands:
 
 - `agent-basics memory <command>` remains only while the custom markdown/RAG layer exists.
-- `.agents/memory/rag/agent-memory.py` and `.agents/memory/rag/memory-mcp.py` are source-checkout fallbacks until they are removed or replaced by OpenViking-backed equivalents.
+- `compat/memory-rag/agent-memory.py` and `compat/memory-rag/memory-mcp.py` are source-checkout fallback implementations. Explicit compatibility installs still copy them into `.agents/memory/rag/` inside target repositories.
 
 ## Model Runtime
 
@@ -386,6 +387,7 @@ The local runtime target is LM Studio first, with other OpenAI-compatible provid
 - Load and unload models through LM Studio's native REST API when the user allows it.
 - Avoid the `lms` CLI from Codex on macOS because it can launch the LM Studio Electron app and crash during AppKit registration.
 - Verify OpenAI-compatible chat and embedding endpoints.
+- Launch OpenViking with localhost proxy bypass variables so local LM Studio requests do not get intercepted by system HTTP proxies.
 - Configure OpenViking with the selected chat/VLM model and embedding model.
 - Keep model/provider settings in config files, not scattered environment variables.
 - Store only secret environment variable names, never raw secret values.
@@ -406,7 +408,7 @@ Gemma 4 E2B should be used with shallow structured-output schemas for routing an
 The next unlock is hardening the now-usable OpenViking-backed harness:
 
 1. Run longer live dogfood passes against real OpenViking/LM Studio on messy existing repositories.
-2. Move checked-in compatibility `.agents/memory/rag/` source files to a legacy package once old-repo fallback support has a stable distribution path.
+2. Decide whether `compat/memory-rag/` should be retired completely or split into a separate legacy package after old-repo fallback support has a stable distribution path.
 3. Add CI examples that run `agent-basics verify` plus `agent-basics ov status --offline`.
 4. Measure whether `Skills.md` plus stable command prefixes actually reduce approval prompts in sample project work.
 5. Defer a full agent runner until hooks, MCP, skills, and command workflows show a concrete gap.

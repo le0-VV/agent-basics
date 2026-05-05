@@ -491,7 +491,7 @@ The older agent-basics compatibility mini-RAG used these legacy paths:
   rag/
 ```
 
-Those paths may still exist as compatibility fallback. They are compatibility input, not the target source-store shape. Compatibility writers must still respect `.agents/memory/rag/write.lock/` while the legacy mini-RAG is in use:
+Those paths may still exist in target repositories as compatibility fallback. They are compatibility input, not the target source-store shape. The agent-basics development checkout keeps fallback implementation source under `compat/memory-rag/`; setup copies it to `.agents/memory/rag/` only when `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` is used. Compatibility writers must still respect `.agents/memory/rag/write.lock/` while the legacy mini-RAG is in use:
 
 - Memory writers must wait while it exists.
 - Indexers must create it before hashing, chunking, embedding, or replacing indexes.
@@ -2257,6 +2257,7 @@ find_memory_tool_source() {
 
   candidates=(
     "$SCRIPT_DIR/agent-memory.py"
+    "$SCRIPT_DIR/compat/memory-rag/agent-memory.py"
     "$SCRIPT_DIR/.agents/memory/rag/agent-memory.py"
   )
 
@@ -2276,6 +2277,7 @@ find_memory_mcp_source() {
 
   candidates=(
     "$SCRIPT_DIR/memory-mcp.py"
+    "$SCRIPT_DIR/compat/memory-rag/memory-mcp.py"
     "$SCRIPT_DIR/.agents/memory/rag/memory-mcp.py"
   )
 
@@ -2287,6 +2289,46 @@ find_memory_mcp_source() {
   done
 
   return 1
+}
+
+find_ov_helper_source() {
+  local candidate
+  local -a candidates
+
+  candidates=(
+    "$SCRIPT_DIR/agent-basics-ov.py"
+    "$SCRIPT_DIR/scripts/agent_basics_ov.py"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      printf "%s\n" "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+install_openviking_hooks() {
+  local helper_path
+  local dispatcher
+
+  if helper_path="$(find_ov_helper_source)"; then
+    if python3 "$helper_path" --repo "$TARGET_DIR" ov install-hooks; then
+      return
+    fi
+    echo "Warning: OpenViking hook installation failed. Re-run manually with: agent-basics ov install-hooks" >&2
+    return
+  fi
+
+  if dispatcher="$(find_agent_basics_dispatcher)"; then
+    if "$dispatcher" --repo "$TARGET_DIR" ov install-hooks; then
+      return
+    fi
+  fi
+
+  echo "Warning: OpenViking hook installation could not be completed. Re-run manually with: agent-basics ov install-hooks" >&2
 }
 
 write_memory_tool_files() {
@@ -3048,9 +3090,7 @@ else
   echo "Initialized empty Git repository"
 fi
 
-if compat_memory_enabled; then
-  ".agents/memory/rag/agent-memory.py" install-hooks
-fi
+install_openviking_hooks
 
 while IFS= read -r markdown_file; do
   ensure_trailing_blank_line "$markdown_file"

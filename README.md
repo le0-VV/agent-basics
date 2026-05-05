@@ -6,7 +6,7 @@
 
 `agent-basics` is a repo-local programming harness. Its direction is to make one user-level OpenViking installation the required memory, documentation, resource, skill, semantic organization, and retrieval backend, while `agent-basics` owns the repository contract around that backend.
 
-`.agents/memory/` is the repo-owned OpenViking source store. Older agent-basics mini-RAG files may still exist as fallback compatibility input, but new durable memory should be adapted toward the OV-native layout documented in `.agents/memory/SCHEMA.md` and `.agents/memory/ADAPTATION.md`.
+`.agents/memory/` is the repo-owned OpenViking source store. Older agent-basics mini-RAG material is preserved as migration input under `.agents/openviking/legacy-memory/`, while fallback mini-RAG source code lives under `compat/memory-rag/` for explicit compatibility installs.
 
 ## Direction
 
@@ -110,7 +110,7 @@ Fresh setup now creates `.agents/memory/` as the OpenViking source store instead
     └── backups/
 ```
 
-The old compatibility mini-RAG layout may still exist during migration or when `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` is used:
+The old compatibility mini-RAG layout may still exist in target repositories during migration or when `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` is used:
 
 ```text
 .agents/memory/
@@ -126,6 +126,8 @@ The old compatibility mini-RAG layout may still exist during migration or when `
 ```
 
 Before reshaping this repo, the existing compatibility source tree was copied to `.agents/openviking/legacy-memory/1777901050/`. Future setup agents should preserve existing project memory into `.agents/memory/imports/<timestamp>-<source>/` or `.agents/openviking/legacy-memory/<timestamp>/`, then adapt it into OV-native `memories/`, `resources/`, and `skills/` records. Setup should not delete `.agents/memory/`; that directory is the repo-specific source store OpenViking will ingest from.
+
+This development checkout keeps the compatibility implementation in `compat/memory-rag/`, not inside the active `.agents/memory/` source store.
 
 ## OpenViking Gateway
 
@@ -293,3 +295,5 @@ On macOS, `agent-basics` should not use the `lms` CLI from Codex or other sandbo
 The default local model plan is Gemma 4 E2B with max context, max GPU offload, concurrency 1, KV cache quantization `q4_0`, flash attention enabled, and temperature 0 for routing tests.
 
 `agent-basics lmstudio configure` is dry-run by default. With `--write`, it updates LM Studio's observed persisted defaults under `~/.lmstudio/.internal/user-concrete-model-default-config/`, preserving unrelated fields and backing up changed files beside the originals. It clears stale persisted routing system-prompt and structured-output defaults because they can conflict with OpenViking's own request-time grammar. Routing tests still send the system prompt and `response_format` explicitly per request.
+
+`agent-basics ov server` sets `NO_PROXY`/`no_proxy` for `127.0.0.1`, `localhost`, and `::1` before launching OpenViking so local LM Studio requests do not get routed through system HTTP proxies.

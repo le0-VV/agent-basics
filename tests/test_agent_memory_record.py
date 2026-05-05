@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MEMORY_CLI = ROOT / ".agents" / "memory" / "rag" / "agent-memory.py"
+MEMORY_CLI = ROOT / "compat" / "memory-rag" / "agent-memory.py"
 
 
 class AgentMemoryRecordTest(unittest.TestCase):

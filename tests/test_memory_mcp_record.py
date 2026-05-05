@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MEMORY_MCP = ROOT / ".agents" / "memory" / "rag" / "memory-mcp.py"
+MEMORY_MCP = ROOT / "compat" / "memory-rag" / "memory-mcp.py"
 
 
 class MemoryMcpRecordTest(unittest.TestCase):

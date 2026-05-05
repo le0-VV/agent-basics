@@ -230,6 +230,33 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertTrue(pre_commit_executable)
         self.assertTrue(post_merge_executable)
 
+    def test_ov_install_hooks_upgrades_legacy_memory_hooks_and_removes_obsolete_ones(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            hooks_dir = repo / ".git" / "hooks"
+            hooks_dir.mkdir(parents=True)
+            for hook_name in ["pre-commit", "post-merge", "post-commit", "post-checkout"]:
+                (hooks_dir / hook_name).write_text(
+                    "#!/usr/bin/env bash\n"
+                    "set -euo pipefail\n"
+                    "# agent-basics memory hook\n"
+                    "exec .agents/memory/rag/agent-memory.py hook\n",
+                    encoding="utf-8",
+                )
+
+            payload = agent_basics_ov.ov_install_hooks_payload(repo)
+            pre_commit_text = (hooks_dir / "pre-commit").read_text(encoding="utf-8")
+            post_merge_text = (hooks_dir / "post-merge").read_text(encoding="utf-8")
+            post_commit_exists = (hooks_dir / "post-commit").exists()
+            post_checkout_exists = (hooks_dir / "post-checkout").exists()
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["changed"])
+        self.assertIn(agent_basics_ov.OV_HOOK_MARKER, pre_commit_text)
+        self.assertIn(agent_basics_ov.OV_HOOK_MARKER, post_merge_text)
+        self.assertFalse(post_commit_exists)
+        self.assertFalse(post_checkout_exists)
+
     def test_ov_install_hooks_uses_git_common_hooks_for_linked_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -903,6 +930,16 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         assert cli_payload is not None
         self.assertGreater(payload["vlm"]["timeout"], 0)
         self.assertEqual(cli_payload["timeout"], agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+
+    def test_merge_no_proxy_preserves_existing_and_adds_localhost_bypass(self) -> None:
+        merged = agent_basics_ov.merge_no_proxy("example.com,localhost")
+        values = merged.split(",")
+
+        self.assertIn("example.com", values)
+        self.assertIn("localhost", values)
+        self.assertIn("127.0.0.1", values)
+        self.assertIn("::1", values)
+        self.assertEqual(values.count("localhost"), 1)
 
     def test_ov_server_dry_run_wraps_user_level_server(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

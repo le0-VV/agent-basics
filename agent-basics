@@ -22,6 +22,7 @@ find_memory_cli() {
   for candidate in \
     "${AGENT_BASICS_MEMORY_CLI:-}" \
     "$SCRIPT_DIR/agent-memory.py" \
+    "$SCRIPT_DIR/compat/memory-rag/agent-memory.py" \
     "$SCRIPT_DIR/.agents/memory/rag/agent-memory.py" \
     "$(pwd)/.agents/memory/rag/agent-memory.py"; do
     if [[ -n "$candidate" && -f "$candidate" ]]; then
@@ -39,6 +40,7 @@ find_memory_mcp() {
   for candidate in \
     "${AGENT_BASICS_MEMORY_MCP:-}" \
     "$SCRIPT_DIR/memory-mcp.py" \
+    "$SCRIPT_DIR/compat/memory-rag/memory-mcp.py" \
     "$SCRIPT_DIR/.agents/memory/rag/memory-mcp.py" \
     "$(pwd)/.agents/memory/rag/memory-mcp.py"; do
     if [[ -n "$candidate" && -f "$candidate" ]]; then

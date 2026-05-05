@@ -10,8 +10,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const DISPATCHER: &[u8] = include_bytes!("../agent-basics");
 const SETUP: &[u8] = include_bytes!("../setup-macos.sh");
-const MEMORY_CLI: &[u8] = include_bytes!("../.agents/memory/rag/agent-memory.py");
-const MEMORY_MCP: &[u8] = include_bytes!("../.agents/memory/rag/memory-mcp.py");
+const MEMORY_CLI: &[u8] = include_bytes!("../compat/memory-rag/agent-memory.py");
+const MEMORY_MCP: &[u8] = include_bytes!("../compat/memory-rag/memory-mcp.py");
 const OV_HELPER: &[u8] = include_bytes!("../scripts/agent_basics_ov.py");
 
 struct Runtime {
