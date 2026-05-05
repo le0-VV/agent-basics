@@ -1,5 +1,7 @@
 # agent-basics
 
+[中文](README.zh-CN.md)
+
 1 command to set up a repository for reliable agent programming work.
 
 > **THIS SETUP WILL INCREASE TOKEN USAGE IN EXCHANGE FOR MORE RELIABLE AGENT OPERATIONS**
