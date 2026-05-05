@@ -100,6 +100,61 @@ class AgentBasicsDispatcherTest(unittest.TestCase):
         self.assertEqual(response["result"]["serverInfo"]["name"], "agent-basics-openviking")
         self.assertIn("OpenViking", response["result"]["serverInfo"]["title"])
 
+    def test_mcp_tools_prefer_cwd_argument(self) -> None:
+        request = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        completed = subprocess.run(
+            [str(DISPATCHER), "mcp"],
+            input=json.dumps(request) + "\n",
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=10,
+        )
+
+        response = json.loads(completed.stdout)
+        status_tool = next(tool for tool in response["result"]["tools"] if tool["name"] == "status")
+        properties = status_tool["inputSchema"]["properties"]
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("cwd", properties)
+        self.assertIn("repo_path", properties)
+        self.assertIn("Backward-compatible alias", properties["repo_path"]["description"])
+
+    def test_mcp_status_resolves_cwd_inside_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            subdir = repo / "src" / "feature"
+            (repo / ".agents").mkdir(parents=True)
+            subdir.mkdir(parents=True)
+            (repo / ".agents" / "config.toml").write_text("version = 1\n", encoding="utf-8")
+            request = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "status",
+                    "arguments": {"cwd": str(subdir), "online": False},
+                },
+            }
+
+            completed = subprocess.run(
+                [str(DISPATCHER), "mcp"],
+                input=json.dumps(request) + "\n",
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=10,
+            )
+
+        response = json.loads(completed.stdout)
+        payload = response["result"]["structuredContent"]
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(payload["repo"], str(repo.resolve()))
+
     def test_run_lifecycle_uses_repo_local_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

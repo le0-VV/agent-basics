@@ -226,15 +226,14 @@ The target agent-facing surfaces are:
 - `agent-basics ov install-hooks`: install repo-local hooks that refresh OpenViking after source-store changes.
 - `agent-basics ov status`: report repo-specific OpenViking state.
 
-When configuring an MCP-capable agent, prefer a systemwide `agent-basics` command with the target repository root as the working directory:
+When configuring an MCP-capable agent, prefer a systemwide `agent-basics` command without a fixed working directory. Agents should pass their current working directory through the `cwd` tool argument on each repo-scoped call:
 
 ```json
 {
   "mcpServers": {
     "agent-basics": {
       "command": "agent-basics",
-      "args": ["mcp"],
-      "cwd": "/absolute/path/to/repository"
+      "args": ["mcp"]
     }
   }
 }
@@ -248,7 +247,8 @@ For Codex Desktop custom MCP setup, guide the user to Settings -> MCP servers ->
 - Arguments: `mcp`
 - Environment variables: only provider secret variables named by `.agents/config.toml` or user-level OpenViking config
 - Environment variable passthrough: the same provider secret variables, only when needed
-- Working directory: absolute path to the repository root
+- Working directory: leave unset/default
+- Tool calls: pass `cwd` as the repository root or any directory inside it
 
 ## Legacy Compatibility
 
@@ -1030,7 +1030,7 @@ Use this whenever an agent needs prior project context, durable memory recording
 
 1. Resolve the repository root before calling the gateway.
 2. Prefer `agent-basics mcp` when the agent client supports MCP.
-3. Configure the MCP server with the repository root as the working directory.
+3. Configure the MCP server without a fixed working directory and pass `cwd` on each repo-scoped tool call.
 4. Verify the user-level OpenViking service with `agent-basics ov doctor` or install it with `agent-basics ov service install` when live retrieval is needed. Use `agent-basics ov server` only for foreground debugging.
 5. Search prior context through the OpenViking-backed MCP search tool or `agent-basics ov search "<query>"` before answering vague or history-dependent requests.
 6. Record durable decisions, facts, preferences, gotchas, events, procedures, and useful findings through the OpenViking-backed MCP record tool or `agent-basics ov record`.
@@ -1050,7 +1050,8 @@ In Settings -> MCP servers -> Connect to a custom MCP, use these fields:
 - Arguments: `mcp`
 - Environment variables: only provider secret variables named by `.agents/config.toml` or user-level OpenViking config
 - Environment variable passthrough: the same provider secret variables, only when needed
-- Working directory: absolute path to the repository root
+- Working directory: leave unset/default
+- Tool calls: pass `cwd` as the repository root or any directory inside it
 
 ## Verification
 
@@ -2078,7 +2079,7 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write("[openviking.mcp]\n")
     handle.write('command = "agent-basics"\n')
     handle.write('args = ["mcp"]\n')
-    handle.write(f"cwd = {quote(target_dir)}\n")
+    handle.write('cwd_argument = "cwd"\n')
     handle.write("\n[run]\n")
     handle.write("stale_after_seconds = 86400\n")
 PY
@@ -2126,19 +2127,18 @@ write_repo_mcp_config_snippets() {
   local codex_snippet="$REPO_OPENVIKING_DIR/codex-mcp.json"
 
   mkdir -p "$REPO_OPENVIKING_DIR"
-  python3 - "$codex_snippet" "$TARGET_DIR" <<'PY'
+python3 - "$codex_snippet" <<'PY'
 from __future__ import annotations
 
 import json
 import sys
 
-path, target_dir = sys.argv[1:]
+path = sys.argv[1]
 payload = {
     "mcpServers": {
         "agent-basics": {
             "command": "agent-basics",
             "args": ["mcp"],
-            "cwd": target_dir,
         }
     }
 }
@@ -3266,7 +3266,8 @@ Codex Desktop custom MCP 字段:
   Transport: STDIO
   Command to launch: agent-basics
   Arguments: mcp
-  Working directory: $TARGET_DIR
+  Working directory: 留空/默认
+  Tool calls: 用 cwd 传仓库根目录，或仓库内任意目录
 
 如果 legacy material 被 snapshot，按这个文件适配:
   .agents/memory/ADAPTATION.md
@@ -3307,7 +3308,8 @@ Codex Desktop custom MCP fields for the target gateway:
   Transport: STDIO
   Command to launch: agent-basics
   Arguments: mcp
-  Working directory: $TARGET_DIR
+  Working directory: leave unset/default
+  Tool calls: pass cwd as the repository root or any directory inside it
 
 If legacy material was snapshotted, adapt it with:
   .agents/memory/ADAPTATION.md

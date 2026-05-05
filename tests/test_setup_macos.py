@@ -175,7 +175,7 @@ class SetupMacosTest(unittest.TestCase):
                     "mcp": {
                         "command": "agent-basics",
                         "args": ["mcp"],
-                        "cwd": str(repo),
+                        "cwd_argument": "cwd",
                     },
                 },
             )
@@ -189,7 +189,6 @@ class SetupMacosTest(unittest.TestCase):
                         "agent-basics": {
                             "command": "agent-basics",
                             "args": ["mcp"],
-                            "cwd": str(repo),
                         }
                     }
                 },
@@ -270,9 +269,9 @@ class SetupMacosTest(unittest.TestCase):
             self.assertTrue((ov_home / "ovcli.conf").is_file())
 
             config = tomllib.loads((repo / ".agents" / "config.toml").read_text(encoding="utf-8"))
-            self.assertEqual(config["openviking"]["mcp"]["cwd"], str(repo))
+            self.assertEqual(config["openviking"]["mcp"]["cwd_argument"], "cwd")
             snippet = json.loads((repo / ".agents" / "openviking" / "codex-mcp.json").read_text(encoding="utf-8"))
-            self.assertEqual(snippet["mcpServers"]["agent-basics"]["cwd"], str(repo))
+            self.assertNotIn("cwd", snippet["mcpServers"]["agent-basics"])
 
     def test_setup_persists_chinese_language_and_prints_chinese_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

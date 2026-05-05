@@ -119,11 +119,12 @@ the `lms` CLI from Codex on macOS; it can launch the Electron app and crash.
 MCP clients should use:
   command: agent-basics
   arguments: mcp
-  working directory: repository root
+  working directory: optional
 
 The MCP implementation is OpenViking-backed and repo-aware. It infers the
-repository from the process working directory unless a tool call passes an
-explicit repo_path.
+repository from each tool call's `cwd` argument. `cwd` may be the repository
+root or any directory inside it. `repo_path` remains as a backward-compatible
+alias.
 EOT
 }
 

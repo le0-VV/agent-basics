@@ -90,7 +90,7 @@ agent-basics ov install-hooks
 
 ## MCP 设置
 
-把 MCP client 配成从仓库根目录运行 `agent-basics mcp`。
+把 MCP client 配成运行 `agent-basics mcp`。不要把 server 绑定到某个项目目录；agents 在每次 tool call 里用 `cwd` 传当前工作目录。
 
 示例：
 
@@ -99,8 +99,7 @@ agent-basics ov install-hooks
   "mcpServers": {
     "agent-basics": {
       "command": "agent-basics",
-      "args": ["mcp"],
-      "cwd": "/path/to/project"
+      "args": ["mcp"]
     }
   }
 }
@@ -112,7 +111,8 @@ Codex Desktop：
 - Transport: `STDIO`
 - Command: `agent-basics`
 - Arguments: `mcp`
-- Working directory: 仓库根目录的绝对路径
+- Working directory: 留空/默认
+- Tool calls: 用 `cwd` 传仓库根目录，或仓库内任意目录
 
 ## 日常使用
 

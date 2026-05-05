@@ -90,7 +90,7 @@ agent-basics ov install-hooks
 
 ## MCP Setup
 
-Configure your MCP client to run `agent-basics mcp` from the repository root.
+Configure your MCP client to run `agent-basics mcp`. Do not pin the server to a project directory; agents pass their current working directory as the `cwd` tool argument.
 
 Example:
 
@@ -99,8 +99,7 @@ Example:
   "mcpServers": {
     "agent-basics": {
       "command": "agent-basics",
-      "args": ["mcp"],
-      "cwd": "/path/to/project"
+      "args": ["mcp"]
     }
   }
 }
@@ -112,7 +111,8 @@ For Codex Desktop:
 - Transport: `STDIO`
 - Command: `agent-basics`
 - Arguments: `mcp`
-- Working directory: absolute path to the repository root
+- Working directory: leave unset/default
+- Tool calls: pass `cwd` as the repository root or any directory inside it
 
 ## Daily Use
 

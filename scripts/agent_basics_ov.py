@@ -3413,9 +3413,14 @@ MCP_ERROR_INVALID_PARAMS = -32602
 MCP_ERROR_INTERNAL = -32603
 
 
+MCP_CWD_SCHEMA = {
+    "type": "string",
+    "description": "Preferred current working directory for this tool call. May be the repo root or any directory inside it.",
+}
+
 MCP_REPO_PATH_SCHEMA = {
     "type": "string",
-    "description": "Optional absolute repository root. Defaults to the MCP server working directory.",
+    "description": "Backward-compatible alias for cwd. Prefer cwd for new clients.",
 }
 
 MCP_TOOLS: list[dict[str, Any]] = [
@@ -3433,6 +3438,7 @@ MCP_TOOLS: list[dict[str, Any]] = [
                     "default": False,
                     "description": "When true, allow global OpenViking search outside the repo namespace.",
                 },
+                "cwd": MCP_CWD_SCHEMA,
                 "repo_path": MCP_REPO_PATH_SCHEMA,
             },
             "required": ["query"],
@@ -3452,6 +3458,7 @@ MCP_TOOLS: list[dict[str, Any]] = [
                     "default": False,
                     "description": "When true, allow reads outside the repo namespace.",
                 },
+                "cwd": MCP_CWD_SCHEMA,
                 "repo_path": MCP_REPO_PATH_SCHEMA,
             },
             "required": ["uri"],
@@ -3472,6 +3479,7 @@ MCP_TOOLS: list[dict[str, Any]] = [
                 "tags": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
                 "status": {"type": "string", "default": "active"},
                 "wait": {"type": "boolean", "default": True},
+                "cwd": MCP_CWD_SCHEMA,
                 "repo_path": MCP_REPO_PATH_SCHEMA,
             },
             "required": ["category", "title", "content"],
@@ -3489,6 +3497,7 @@ MCP_TOOLS: list[dict[str, Any]] = [
                 "reason": {"type": "string"},
                 "instruction": {"type": "string"},
                 "wait": {"type": "boolean", "default": True},
+                "cwd": MCP_CWD_SCHEMA,
                 "repo_path": MCP_REPO_PATH_SCHEMA,
             },
             "required": ["path_or_url"],
@@ -3504,6 +3513,7 @@ MCP_TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "path_or_content": {"type": "string"},
                 "wait": {"type": "boolean", "default": True},
+                "cwd": MCP_CWD_SCHEMA,
                 "repo_path": MCP_REPO_PATH_SCHEMA,
             },
             "required": ["path_or_content"],
@@ -3518,6 +3528,7 @@ MCP_TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "include_review": {"type": "boolean", "default": False},
+                "cwd": MCP_CWD_SCHEMA,
                 "repo_path": MCP_REPO_PATH_SCHEMA,
             },
             "additionalProperties": False,
@@ -3532,6 +3543,7 @@ MCP_TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "online": {"type": "boolean", "default": True},
                 "providers": {"type": "boolean", "default": False},
+                "cwd": MCP_CWD_SCHEMA,
                 "repo_path": MCP_REPO_PATH_SCHEMA,
             },
             "additionalProperties": False,
@@ -3546,6 +3558,7 @@ MCP_TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "online": {"type": "boolean", "default": True},
                 "providers": {"type": "boolean", "default": False},
+                "cwd": MCP_CWD_SCHEMA,
                 "repo_path": MCP_REPO_PATH_SCHEMA,
             },
             "additionalProperties": False,
@@ -3626,13 +3639,41 @@ def mcp_int(arguments: dict[str, Any], key: str, default: int, *, minimum: int, 
     return value
 
 
+def resolve_repo_from_cwd(value: str | Path) -> Path:
+    path = Path(value).expanduser().resolve()
+    if path.is_file():
+        path = path.parent
+    for candidate in [path, *path.parents]:
+        if (candidate / ".agents" / "config.toml").exists():
+            return candidate
+        if (candidate / ".agents").is_dir() and (candidate / "Agents.md").exists():
+            return candidate
+        if (candidate / ".git").exists():
+            return candidate
+    return path
+
+
 def mcp_repo(arguments: dict[str, Any], default_repo: Path) -> Path:
-    value = arguments.get("repo_path")
-    if value is None or value == "":
-        return default_repo
-    if not isinstance(value, str):
-        raise McpError(MCP_ERROR_INVALID_PARAMS, "`repo_path` must be a string")
-    return Path(value).expanduser().resolve()
+    cwd_value = arguments.get("cwd")
+    repo_path_value = arguments.get("repo_path")
+    has_cwd = cwd_value is not None and cwd_value != ""
+    has_repo_path = repo_path_value is not None and repo_path_value != ""
+    if has_cwd:
+        if not isinstance(cwd_value, str):
+            raise McpError(MCP_ERROR_INVALID_PARAMS, "`cwd` must be a string")
+        if has_repo_path:
+            if not isinstance(repo_path_value, str):
+                raise McpError(MCP_ERROR_INVALID_PARAMS, "`repo_path` must be a string")
+            cwd_repo = resolve_repo_from_cwd(cwd_value)
+            repo_path = resolve_repo_from_cwd(repo_path_value)
+            if cwd_repo != repo_path:
+                raise McpError(MCP_ERROR_INVALID_PARAMS, "`cwd` and `repo_path` resolve to different repositories")
+        return resolve_repo_from_cwd(cwd_value)
+    if has_repo_path:
+        if not isinstance(repo_path_value, str):
+            raise McpError(MCP_ERROR_INVALID_PARAMS, "`repo_path` must be a string")
+        return resolve_repo_from_cwd(repo_path_value)
+    return resolve_repo_from_cwd(default_repo)
 
 
 def ov_ingest_changed_payload(repo: Path, *, include_review: bool = False, dry_run: bool = False) -> dict[str, Any]:
@@ -3758,7 +3799,8 @@ def mcp_handle_request(default_repo: Path, message: dict[str, Any]) -> dict[str,
                 "instructions": (
                     "Use search before answering vague or history-dependent project requests. "
                     "Use record for durable decisions, preferences, facts, cases, events, patterns, tools, and skills. "
-                    "All default operations are scoped to the MCP working-directory repository."
+                    "Pass cwd on every repo-scoped tool call; it may be the repository root or any directory inside it. "
+                    "repo_path is supported only as a backward-compatible alias."
                 ),
             },
         )

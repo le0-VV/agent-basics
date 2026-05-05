@@ -32,15 +32,14 @@ The target agent-facing surfaces are:
 - `agent-basics ov install-hooks`: install repo-local hooks that refresh OpenViking after source-store changes and check run-state consistency.
 - `agent-basics ov status`: report repo-specific OpenViking state.
 
-When configuring an MCP-capable agent, prefer a systemwide `agent-basics` command with the target repository root as the working directory:
+When configuring an MCP-capable agent, prefer a systemwide `agent-basics` command without a fixed working directory. Agents should pass their current working directory through the `cwd` tool argument on each repo-scoped call:
 
 ```json
 {
   "mcpServers": {
     "agent-basics": {
       "command": "agent-basics",
-      "args": ["mcp"],
-      "cwd": "/absolute/path/to/repository"
+      "args": ["mcp"]
     }
   }
 }
@@ -54,9 +53,8 @@ For Codex Desktop custom MCP setup, guide the user to Settings -> MCP servers ->
 - Arguments: `mcp`
 - Environment variables: only provider secret variables named by `.agents/config.toml` or the user-level `~/.openviking/ov.conf`
 - Environment variable passthrough: the same provider secret variables, only when needed
-- Working directory: absolute path to the repository root
-
-For this repository, the intended working directory is `/Users/leonardw/Projects/agent-basics`.
+- Working directory: leave unset/default
+- Tool calls: pass `cwd` as the repository root or any directory inside it
 
 ## Legacy Compatibility
 
