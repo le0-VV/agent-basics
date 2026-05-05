@@ -4,16 +4,16 @@
 
 baby's first coding agent harness.
 
-`agent-basics` sets up a repository so coding agents have a predictable way to work across long sessions, handoffs, and repeated project updates.
+`agent-basics` sets up a repository so coding agents have a predictable way to keep instructions, memory, and project context consistent.
 
-It uses OpenViking as the memory and retrieval backend. `agent-basics` handles the repo side: instructions, setup, upgrade, MCP wiring, git hooks, run state, and safe markdown conflict handling.
+It uses OpenViking as the memory and retrieval backend. `agent-basics` handles the repo side: instructions, setup, upgrade, MCP wiring, git hooks, and safe markdown conflict handling.
 
 > This adds some prompt and workflow overhead. The tradeoff is better continuity and fewer lost decisions.
 
 ## What It Gives You
 
 - A root `Agents.md` that agents can reliably discover.
-- A repo-local `.agents/` workspace for agent instructions, run state, skills, and OpenViking metadata.
+- A repo-local `.agents/` workspace for agent instructions, skills, memory source files, and OpenViking metadata.
 - A user-level OpenViking install, normally under `~/.openviking`, shared across projects.
 - Repo-aware MCP tools so agents can search and record project context through OpenViking.
 - Git hooks that refresh OpenViking when repo memory files change.
@@ -42,11 +42,13 @@ For a new or existing project:
 agent-basics setup /path/to/project
 ```
 
-Use Chinese output and repo defaults:
+Set the installation-wide language to Simplified Chinese:
 
 ```bash
 agent-basics setup --language zh-CN /path/to/project
 ```
+
+The language preference is stored under `~/.agent-basics/config.toml`, not in each repo.
 
 Re-running setup is the upgrade path:
 
@@ -116,16 +118,6 @@ For Codex Desktop:
 
 ## Daily Use
 
-Start or inspect long-running work:
-
-```bash
-agent-basics run start --task "ship the feature"
-agent-basics run status
-agent-basics run checkpoint --message "what changed"
-agent-basics run handoff --message "handoff notes"
-agent-basics run finish --message "done"
-```
-
 Validate and commit:
 
 ```bash
@@ -151,7 +143,6 @@ After setup, a project usually has:
     ├── openviking/
     ├── memory/
     ├── skills/
-    ├── runs/
     ├── merge-sessions/
     └── backups/
 ```
@@ -163,7 +154,6 @@ Key files:
 - `.agents/memory/`: repo-owned memory and resource files that OpenViking ingests.
 - `.agents/openviking/`: repo metadata, import state, locks, and migration records.
 - `.agents/skills/` and `Skills.md`: repeatable workflows for agents.
-- `.agents/runs/`: local long-horizon run state and handoff files.
 - `.agents/TODO.md`: current work checklist; ignored by git.
 
 ## LM Studio

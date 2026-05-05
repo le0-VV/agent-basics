@@ -21,9 +21,10 @@ REPO_OPENVIKING_DIR="$REPO_AGENTS_DIR/openviking"
 REPO_BACKUPS_DIR="$REPO_AGENTS_DIR/backups"
 REPO_MERGE_SESSIONS_DIR="$REPO_AGENTS_DIR/merge-sessions"
 REPO_SKILLS_DIR="$REPO_AGENTS_DIR/skills"
-REPO_RUNS_DIR="$REPO_AGENTS_DIR/runs"
 RAG_DIR="$REPO_MEMORY_ROOT/rag"
 EMBEDDING_API_DIR="$RAG_DIR/embedding-api"
+AGENT_BASICS_CONFIG_HOME="${AGENT_BASICS_CONFIG_HOME:-${AGENT_BASICS_HOME:-$HOME/.agent-basics}}"
+AGENT_BASICS_CONFIG_FILE="${AGENT_BASICS_CONFIG_FILE:-$AGENT_BASICS_CONFIG_HOME/config.toml}"
 RAW_AGENT_BASICS_LANGUAGE="${AGENT_BASICS_LANGUAGE:-}"
 AGENT_BASICS_LANGUAGE_EXPLICIT="${AGENT_BASICS_LANGUAGE_EXPLICIT:-0}"
 
@@ -65,11 +66,131 @@ normalize_agent_basics_language() {
   esac
 }
 
-AGENT_BASICS_LANGUAGE="$(normalize_agent_basics_language "${RAW_AGENT_BASICS_LANGUAGE:-en}")"
+read_agent_basics_install_language() {
+  local config_file="$AGENT_BASICS_CONFIG_FILE"
+
+  [[ -f "$config_file" ]] || return 1
+  python3 - "$config_file" <<'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+
+path = Path(sys.argv[1])
+current_section = ""
+
+for raw_line in path.read_text(encoding="utf-8").splitlines():
+    line = raw_line.split("#", 1)[0].strip()
+    if not line:
+        continue
+    if line.startswith("[") and line.endswith("]"):
+        current_section = line.strip("[]").strip()
+        continue
+    if current_section != "agent_basics" or "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    if key.strip() != "language":
+        continue
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    print(value)
+    raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+}
+
+resolve_agent_basics_language() {
+  local configured_language
+
+  if [[ -n "$RAW_AGENT_BASICS_LANGUAGE" ]]; then
+    normalize_agent_basics_language "$RAW_AGENT_BASICS_LANGUAGE"
+    return
+  fi
+
+  if configured_language="$(read_agent_basics_install_language 2>/dev/null)"; then
+    normalize_agent_basics_language "$configured_language"
+    return
+  fi
+
+  normalize_agent_basics_language "en"
+}
+
+AGENT_BASICS_LANGUAGE="$(resolve_agent_basics_language)"
 export AGENT_BASICS_LANGUAGE
 
 agent_basics_language_is_zh() {
   [[ "$AGENT_BASICS_LANGUAGE" == "zh-CN" ]]
+}
+
+write_agent_basics_install_language() {
+  local config_file="$AGENT_BASICS_CONFIG_FILE"
+  local existed="0"
+
+  if [[ -f "$config_file" ]]; then
+    existed="1"
+  fi
+
+  mkdir -p "$(dirname "$config_file")"
+  python3 - "$config_file" "$AGENT_BASICS_LANGUAGE" <<'PY'
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+
+path = Path(sys.argv[1])
+language = sys.argv[2]
+line = f"language = {json.dumps(language)}"
+
+if path.exists():
+    text = path.read_text(encoding="utf-8")
+else:
+    text = "version = 1\n"
+
+section_re = re.compile(r"(?ms)^\[agent_basics\]\n(?P<body>.*?)(?=^\[|\Z)")
+match = section_re.search(text)
+
+if match:
+    body = match.group("body")
+    if re.search(r"(?m)^language\s*=", body):
+        body = re.sub(r"(?m)^language\s*=.*$", line, body)
+    else:
+        if body and not body.endswith("\n"):
+            body += "\n"
+        body += line + "\n"
+    text = text[: match.start("body")] + body + text[match.end("body") :]
+else:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += f"\n[agent_basics]\n{line}\n"
+
+path.write_text(text, encoding="utf-8")
+PY
+
+  if [[ "$existed" == "1" ]]; then
+    echo "Updated: $config_file language = $AGENT_BASICS_LANGUAGE"
+  else
+    echo "Created: $config_file"
+  fi
+}
+
+ensure_agent_basics_install_config() {
+  if [[ "$AGENT_BASICS_LANGUAGE_EXPLICIT" == "1" ]]; then
+    write_agent_basics_install_language
+    return
+  fi
+
+  if read_agent_basics_install_language >/dev/null 2>&1; then
+    echo "Exists: $AGENT_BASICS_CONFIG_FILE"
+    return
+  fi
+
+  write_agent_basics_install_language
 }
 
 require_interactive() {
@@ -183,7 +304,7 @@ create_template_file() {
 Follow in this order:
 
 1. Use the language of the user's message when it is clear.
-2. If the user's language is ambiguous, use the configured repo language in `.agents/config.toml` under `[agent_basics].language`.
+2. If the user's language is ambiguous, use the installation language in `~/.agent-basics/config.toml` under `[agent_basics].language`.
 3. If `[agent_basics].language` is `zh-CN`, use Simplified Chinese for user-facing explanations unless the user asks otherwise.
 4. Search OpenViking or the compatibility memory layer before relying on assumptions about prior work.
 5. Combine project context and clear reasoning to answer with concrete details.
@@ -284,8 +405,8 @@ Compatibility files are not the long-term architecture. Useful compatibility mem
 - `ROADMAP.md` records project direction, design choices, milestones, non-goals, and open questions.
 - `.agents/TODO.md` records the current work plan and cross-session state.
 - For substantial work, update `.agents/TODO.md` before editing files and tick items off as they are completed.
-- Preserve useful handoff context in `.agents/TODO.md` or future `.agents/runs/<run-id>/` files when work may continue in another session.
-- Long-horizon work state should route through `agent-basics run start/status/checkpoint/finish/handoff`.
+- Preserve useful handoff context in `.agents/TODO.md`, OpenViking records, commits, pull requests, or chat handoff notes when work may continue in another session.
+- Pre-work and finish-work routines are instruction-driven. agent-basics does not try to enforce them with a local run-state command.
 
 ## Skills And Stable Commands
 
@@ -306,20 +427,19 @@ EOT
       cat > "$template_file" <<'EOT'
 # Skills
 
-This file indexes repo-local agent workflows. Skills reduce repeated prompt overhead, but stable `agent-basics` commands remain the executable contract.
+This file indexes repo-local agent workflows. Skills reduce repeated prompt overhead; baseline behavior still depends on root instructions and MCP tools.
 
 ## Available Skills
 
-- [Prework](.agents/skills/prework.md): establish context, run state, and plan before editing.
+- [Prework](.agents/skills/prework.md): establish context and plan before editing.
 - [Memory Update](.agents/skills/memory-update.md): record durable decisions, preferences, facts, cases, resources, and skills through OpenViking.
-- [Finish Work](.agents/skills/finish-work.md): verify, checkpoint, ingest, and commit completed work.
+- [Finish Work](.agents/skills/finish-work.md): verify, ingest, summarize, and commit completed work.
 
 ## Command Surface
 
 Prefer these stable command prefixes:
 
 ```bash
-agent-basics run
 agent-basics ov
 agent-basics verify
 agent-basics commit
@@ -332,7 +452,7 @@ EOT
       cat > "$template_file" <<'EOT'
 ---
 name: agent-basics-prework
-description: Establish context, run state, and a concrete plan before editing an agent-basics repository.
+description: Establish context and a concrete plan before editing an agent-basics repository.
 ---
 
 # Prework Skill
@@ -342,17 +462,14 @@ Use this before non-trivial repository work.
 ## Steps
 
 1. Read `Agents.md`, `.agents/AGENT-BASICS.md`, `ROADMAP.md`, `.agents/TODO.md`, and `Skills.md` when they exist.
-2. Start or inspect run state with `agent-basics run start --task "<task>"` or `agent-basics run status`.
-3. Verify or start the user-level OpenViking service with `agent-basics ov status --offline`, `agent-basics ov doctor`, or `agent-basics ov service install` when live retrieval is needed. Use `agent-basics ov server` only for foreground debugging.
-4. Search prior context through the OpenViking MCP server or `agent-basics ov search "<query>"`.
-5. Inspect the git state before editing.
-6. Write or update the concrete checklist in `.agents/TODO.md`.
+2. Verify or start the user-level OpenViking service with `agent-basics ov status --offline`, `agent-basics ov doctor`, or `agent-basics ov service install` when live retrieval is needed. Use `agent-basics ov server` only for foreground debugging.
+3. Search prior context through the OpenViking MCP server or `agent-basics ov search "<query>"`.
+4. Inspect the git state before editing.
+5. Write or update the concrete checklist in `.agents/TODO.md`.
 
 ## Commands
 
 ```bash
-agent-basics run status
-agent-basics run start --task "<task>"
 agent-basics ov status --offline
 agent-basics ov search "<query>"
 ```
@@ -414,7 +531,7 @@ EOT
       cat > "$template_file" <<'EOT'
 ---
 name: agent-basics-finish-work
-description: Verify, ingest, checkpoint, and commit completed agent-basics repository work.
+description: Verify, ingest, summarize, and commit completed agent-basics repository work.
 ---
 
 # Finish Work Skill
@@ -430,15 +547,12 @@ Use this before handing work back to the user or another agent.
 5. Check `git status --short`.
 6. Stage intentional changes.
 7. Commit with `agent-basics commit "type(scope): description"` when a commit is expected.
-8. Finish or checkpoint run state with `agent-basics run finish --message "<summary>"` or `agent-basics run checkpoint --message "<summary>"`.
 
 ## Commands
 
 ```bash
 agent-basics verify
 agent-basics ov ingest-changed
-agent-basics run checkpoint --message "<summary>"
-agent-basics run finish --message "<summary>"
 agent-basics commit "feat(scope): description"
 ```
 
@@ -1177,7 +1291,6 @@ create_memory_layout() {
     "$REPO_BACKUPS_DIR" \
     "$REPO_MERGE_SESSIONS_DIR" \
     "$REPO_SKILLS_DIR" \
-    "$REPO_RUNS_DIR" \
     "$REPO_MEMORY_ROOT/inbox" \
     "$REPO_MEMORY_ROOT/imports" \
     "$REPO_MEMORY_ROOT/memories/profile" \
@@ -2043,23 +2156,21 @@ write_repo_config_if_missing() {
 
   if [[ -f "$repo_config" ]]; then
     echo "Exists: .agents/config.toml"
-    if [[ "$AGENT_BASICS_LANGUAGE_EXPLICIT" == "1" ]]; then
-      update_repo_config_language "$repo_config"
-    fi
+    remove_repo_config_language "$repo_config"
     return
   fi
 
   timestamp="$(date -u +%s)"
   repo_slug="$(slugify "$PROJECT_NAME")"
   mkdir -p "$REPO_AGENTS_DIR"
-  python3 - "$repo_config" "$timestamp" "$repo_slug" "$TARGET_DIR" "$AGENT_BASICS_LANGUAGE" <<'PY'
+  python3 - "$repo_config" "$timestamp" "$repo_slug" "$TARGET_DIR" <<'PY'
 from __future__ import annotations
 
 import json
 import sys
 
 
-path, timestamp, repo_slug, target_dir, language = sys.argv[1:]
+path, timestamp, repo_slug, target_dir = sys.argv[1:]
 
 
 def quote(value: str) -> str:
@@ -2070,8 +2181,6 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write("version = 1\n")
     handle.write(f"generated_at = {int(timestamp)}\n")
     handle.write(f"repo_slug = {quote(repo_slug)}\n\n")
-    handle.write("[agent_basics]\n")
-    handle.write(f"language = {quote(language)}\n\n")
     handle.write("[openviking]\n")
     handle.write("enabled = true\n")
     handle.write("required = true\n")
@@ -2080,16 +2189,15 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write('command = "agent-basics"\n')
     handle.write('args = ["mcp"]\n')
     handle.write('cwd_argument = "cwd"\n')
-    handle.write("\n[run]\n")
-    handle.write("stale_after_seconds = 86400\n")
 PY
   echo "Created: .agents/config.toml"
 }
 
-update_repo_config_language() {
+remove_repo_config_language() {
   local repo_config="$1"
+  local result
 
-  python3 - "$repo_config" "$AGENT_BASICS_LANGUAGE" <<'PY'
+  result="$(python3 - "$repo_config" <<'PY'
 from __future__ import annotations
 
 import re
@@ -2098,29 +2206,31 @@ from pathlib import Path
 
 
 path = Path(sys.argv[1])
-language = sys.argv[2]
 text = path.read_text(encoding="utf-8")
-line = f'language = "{language}"'
+original = text
 section_re = re.compile(r"(?ms)^\[agent_basics\]\n(?P<body>.*?)(?=^\[|\Z)")
 match = section_re.search(text)
 
 if match:
     body = match.group("body")
-    if re.search(r"(?m)^language\s*=", body):
-        body = re.sub(r"(?m)^language\s*=.*$", line, body)
+    body = re.sub(r"(?m)^language\s*=.*\n?", "", body)
+    if body.strip():
+        text = text[: match.start("body")] + body + text[match.end("body") :]
     else:
-        if body and not body.endswith("\n"):
-            body += "\n"
-        body += line + "\n"
-    text = text[: match.start("body")] + body + text[match.end("body") :]
-else:
-    if text and not text.endswith("\n"):
-        text += "\n"
-    text += f"\n[agent_basics]\n{line}\n"
+        text = text[: match.start()] + text[match.end():]
+        text = re.sub(r"\n{3,}", "\n\n", text)
 
-path.write_text(text, encoding="utf-8")
+if text != original:
+    path.write_text(text, encoding="utf-8")
+    print("changed")
+else:
+    print("unchanged")
 PY
-  echo "Updated: .agents/config.toml language = $AGENT_BASICS_LANGUAGE"
+)"
+
+  if [[ "$result" == "changed" ]]; then
+    echo "Removed repo-scoped language: .agents/config.toml"
+  fi
 }
 
 write_repo_mcp_config_snippets() {
@@ -3117,6 +3227,7 @@ start_repo_local_embedding_api_for_setup() {
   done
 }
 
+ensure_agent_basics_install_config
 verify_user_openviking_installation
 ensure_user_openviking_config
 ensure_user_openviking_service
@@ -3199,7 +3310,6 @@ append_gitignore_entry_if_missing ".agents/TODO.md"
 append_gitignore_entry_if_missing ".agents/backups/"
 append_gitignore_entry_if_missing ".agents/merge-sessions/"
 append_gitignore_entry_if_missing ".agents/openviking/locks/"
-append_gitignore_entry_if_missing ".agents/runs/"
 
 if compat_memory_enabled; then
   configure_embedding
@@ -3243,13 +3353,15 @@ OpenViking 仓库 metadata:
 OpenViking 仓库配置:
   .agents/config.toml
 
-项目语言:
+agent-basics 安装配置:
+  $AGENT_BASICS_CONFIG_FILE
+
+安装语言:
   $AGENT_BASICS_LANGUAGE
 
-Skills 和 run state:
+Skills:
   Skills.md
   .agents/skills/
-  .agents/runs/
 
 MCP 配置片段:
   .agents/openviking/codex-mcp.json
@@ -3285,13 +3397,15 @@ OpenViking repo metadata:
 OpenViking repo config:
   .agents/config.toml
 
-Project language:
+agent-basics install config:
+  $AGENT_BASICS_CONFIG_FILE
+
+Installation language:
   $AGENT_BASICS_LANGUAGE
 
-Skills and run state:
+Skills:
   Skills.md
   .agents/skills/
-  .agents/runs/
 
 MCP config snippets:
   .agents/openviking/codex-mcp.json

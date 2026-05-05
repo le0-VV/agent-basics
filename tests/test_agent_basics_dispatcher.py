@@ -155,63 +155,6 @@ class AgentBasicsDispatcherTest(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(payload["repo"], str(repo.resolve()))
 
-    def test_run_lifecycle_uses_repo_local_state(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp)
-            started = self.run_dispatcher(
-                ["--repo", str(repo), "run", "start", "--task", "Build long horizon workflow"]
-            )
-            self.assertEqual(started.returncode, 0, started.stderr)
-            self.assertIn("Started run:", started.stdout)
-
-            current = repo / ".agents" / "runs" / "current"
-            self.assertTrue(current.is_file())
-            run_id = current.read_text(encoding="utf-8").strip()
-            self.assertRegex(run_id, r"^\d+-build-long-horizon-workflow$")
-
-            run_dir = repo / ".agents" / "runs" / run_id
-            state_path = run_dir / "state.json"
-            checkpoint_path = run_dir / "CHECKPOINT.md"
-            handoff_path = run_dir / "handoff.md"
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-            self.assertEqual(state["task"], "Build long horizon workflow")
-            self.assertEqual(state["status"], "active")
-            self.assertIsInstance(state["created_at"], int)
-            self.assertTrue(checkpoint_path.is_file())
-            self.assertTrue(handoff_path.is_file())
-
-            checkpointed = self.run_dispatcher(
-                ["--repo", str(repo), "run", "checkpoint", "--message", "first checkpoint"]
-            )
-            self.assertEqual(checkpointed.returncode, 0, checkpointed.stderr)
-            self.assertIn("first checkpoint", checkpoint_path.read_text(encoding="utf-8"))
-
-            handed_off = self.run_dispatcher(
-                ["--repo", str(repo), "run", "handoff", "--message", "next worker owns tests"]
-            )
-            self.assertEqual(handed_off.returncode, 0, handed_off.stderr)
-            self.assertIn("next worker owns tests", handoff_path.read_text(encoding="utf-8"))
-
-            status = self.run_dispatcher(["--repo", str(repo), "run", "status"])
-            self.assertEqual(status.returncode, 0, status.stderr)
-            self.assertIn("Status: active", status.stdout)
-            self.assertIn("Task: Build long horizon workflow", status.stdout)
-
-            finished = self.run_dispatcher(["--repo", str(repo), "run", "finish", "--message", "done"])
-            self.assertEqual(finished.returncode, 0, finished.stderr)
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-            self.assertEqual(state["status"], "complete")
-            self.assertIsInstance(state["completed_at"], int)
-            self.assertIn("Run finished: done", checkpoint_path.read_text(encoding="utf-8"))
-            self.assertFalse(current.exists())
-
-    def test_run_status_fails_without_current_run(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            completed = self.run_dispatcher(["--repo", tmp, "run", "status"])
-
-        self.assertEqual(completed.returncode, 1)
-        self.assertIn("no current run", completed.stderr)
-
     def test_verify_runs_available_lightweight_checks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

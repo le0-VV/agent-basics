@@ -1,6 +1,6 @@
 ---
 name: agent-basics-finish-work
-description: Verify, ingest, checkpoint, and commit completed agent-basics repository work.
+description: Verify, ingest, summarize, and commit completed agent-basics repository work.
 ---
 
 # Finish Work Skill
@@ -16,15 +16,12 @@ Use this before handing work back to the user or another agent.
 5. Check `git status --short`.
 6. Stage intentional changes.
 7. Commit with `agent-basics commit "type(scope): description"` when a commit is expected.
-8. Finish or checkpoint run state with `agent-basics run finish --message "<summary>"` or `agent-basics run checkpoint --message "<summary>"`.
 
 ## Commands
 
 ```bash
 agent-basics verify
 agent-basics ov ingest-changed
-agent-basics run checkpoint --message "<summary>"
-agent-basics run finish --message "<summary>"
 agent-basics commit "feat(scope): description"
 ```
 

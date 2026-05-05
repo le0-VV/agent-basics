@@ -90,8 +90,8 @@ Compatibility files are not the long-term architecture. Useful compatibility mem
 - `ROADMAP.md` records project direction, design choices, milestones, non-goals, and open questions.
 - `.agents/TODO.md` records the current work plan and cross-session state.
 - For substantial work, update `.agents/TODO.md` before editing files and tick items off as they are completed.
-- Preserve useful handoff context in `.agents/TODO.md` or `.agents/runs/<run-id>/` files when work may continue in another session.
-- Long-horizon work state should route through `agent-basics run start/status/checkpoint/finish/handoff`.
+- Preserve useful handoff context in `.agents/TODO.md`, OpenViking records, commits, pull requests, or chat handoff notes when work may continue in another session.
+- Pre-work and finish-work routines are instruction-driven. agent-basics does not try to enforce them with a local run-state command.
 
 ## Skills And Stable Commands
 

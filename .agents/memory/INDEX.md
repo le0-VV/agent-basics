@@ -12,6 +12,7 @@ This index is maintained by agents and setup tooling. Update it whenever entries
 - `imports/`: copied source material awaiting adaptation.
 - [Keep .agents/memory as the OpenViking source store](memories/preferences/1777901050-keep-memory-as-ov-source-store.md)
 - [Setup keeps .agents/memory as the OV source store](memories/preferences/1777903459-setup-keeps-memory-as-ov-source-store.md)
+- [Installation-wide agent-basics language](memories/preferences/1777944754-installation-wide-agent-basics-language.md)
 - [Legacy compatibility memory snapshot created](memories/events/1777901050-legacy-memory-snapshot-created.md)
 - [OpenViking rejects zero VLM timeout](memories/cases/1777909438-openviking-rejects-zero-vlm-timeout.md)
 - [Persistent LM Studio routing defaults can conflict with OpenViking](memories/cases/1777910744-lmstudio-routing-defaults-conflict-with-openviking.md)

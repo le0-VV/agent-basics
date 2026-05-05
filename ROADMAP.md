@@ -35,8 +35,8 @@ Implemented and verified in this repository:
 - `agent-basics ov search`, `read`, `record`, `add-resource`, `add-skill`, `ingest-changed`, `server`, and `status` are implemented as repo-aware OpenViking wrappers.
 - `agent-basics mcp` is implemented as a repo-aware OpenViking-backed stdio MCP server.
 - LM Studio setup helpers avoid the `lms` CLI and clear stale persisted routing prompt/schema defaults by default.
-- Setup/upgrade creates the modern source-store structure, verifies or installs user-level OpenViking, writes `.agents/config.toml`, generates a Codex-style MCP snippet, creates `Skills.md` plus `.agents/skills/`, creates `.agents/runs/`, and creates first-class markdown merge sessions for conflicts.
-- Managed OpenViking hooks refresh source-store changes and check `.agents/runs/current` before commits.
+- Setup/upgrade creates the modern source-store structure, verifies or installs user-level OpenViking, writes `.agents/config.toml`, generates a Codex-style MCP snippet, creates `Skills.md` plus `.agents/skills/`, and creates first-class markdown merge sessions for conflicts.
+- Managed OpenViking hooks refresh source-store changes before commits.
 - Fast dogfood coverage exercises fresh setup and existing-repo upgrade with fake user-level OpenViking.
 
 Still transitional or incomplete:
@@ -54,7 +54,7 @@ It answers practical questions:
 - What instructions should agents load first?
 - Which memory/context backend should agents use?
 - How is the backend installed and checked?
-- How do agents start, checkpoint, and finish long work?
+- How do agents preserve handoff context across app/client sessions without a custom run-state command?
 - How do agents record useful findings for future sessions?
 - Which commands are safe, stable, and worth approving once?
 - Which repository files are generated, source-of-truth, or user-owned?
@@ -156,11 +156,6 @@ Target layout:
     │   ├── prework.md
     │   ├── memory-update.md
     │   └── finish-work.md
-    ├── runs/
-    │   └── <run-id>/
-    │       ├── state.json
-    │       ├── CHECKPOINT.md
-    │       └── handoff.md
     ├── merge-sessions/
     └── backups/
 ```
@@ -178,7 +173,7 @@ Current `.agents/memory/` status:
 
 ## Enforcement Model
 
-There is no universal way to force every agent client to perform pre-work and post-work routines. `agent-basics` should use progressive enforcement.
+There is no universal way to force every agent client to perform pre-work and post-work routines. `agent-basics` should treat those routines as instruction-driven behavior, not as local run-state enforcement.
 
 Guidance:
 
@@ -187,27 +182,20 @@ Guidance:
 
 Structured happy path:
 
-- `agent-basics run start`
-- `agent-basics ov search`
-- `agent-basics ov record`
-- `agent-basics run checkpoint`
-- `agent-basics verify`
-- `agent-basics run finish`
+- Agent reads `Agents.md`, `.agents/AGENT-BASICS.md`, `Skills.md`, `ROADMAP.md`, and `.agents/TODO.md`.
+- Agent searches OpenViking through MCP before context-dependent work.
+- Agent records durable findings through MCP/OpenViking.
+- Agent validates, updates `.agents/TODO.md`, summarizes the handoff, and commits when appropriate.
 
 Boundary enforcement:
 
-- Git hooks validate setup, memory/backend health, stale ingest state, and TODO/run consistency.
+- Git hooks validate OpenViking source-store ingest state where possible.
 - CI can enforce the same checks before merge.
 - Client-specific hooks can inject context or run checks where supported.
 
-True enforcement:
-
-- A future `agent-basics run "<task>"` runner could own the agent loop and enforce every pre/post routine.
-- This should remain a later milestone, not the first implementation target.
-
 ## Long-Horizon Work
 
-Long work needs state that survives chat compaction, branch switches, and agent handoff.
+Long work needs state that survives chat compaction, branch switches, and agent handoff without requiring users to leave their agent app or CLI.
 
 `ROADMAP.md`:
 
@@ -223,20 +211,14 @@ Long work needs state that survives chat compaction, branch switches, and agent 
 - Must be updated while work progresses.
 - Should be cleared and rewritten when a new work round starts.
 
-`.agents/runs/<run-id>/`:
+Handoff should use existing surfaces:
 
-- Machine-readable run state.
-- Human-readable checkpoint.
-- Handoff note for the next agent/session.
-- Links to OpenViking memory/resource records created during the run.
+- `.agents/TODO.md` for current checklist and blockers.
+- OpenViking records for durable decisions, preferences, facts, cases, events, patterns, tools, and skills.
+- Git commits, branches, pull requests, and review comments for operational transfer.
+- Chat handoff notes when the agent app provides them.
 
-Near-term commands:
-
-- `agent-basics run start [--task "..."]`
-- `agent-basics run status`
-- `agent-basics run checkpoint`
-- `agent-basics run finish`
-- `agent-basics run handoff`
+`agent-basics` intentionally does not own a local `run` lifecycle command.
 
 ## Skills And Stable Commands
 
@@ -252,7 +234,6 @@ Each skill should point to stable commands. The goal is for users to approve com
 
 ```bash
 agent-basics ov
-agent-basics run
 agent-basics verify
 agent-basics commit
 ```
@@ -273,7 +254,7 @@ instead of approving many small command variations.
 8. Write or merge root `Agents.md`.
 9. Write or merge `.agents/AGENT-BASICS.md`.
 10. Write `.agents/config.toml`.
-11. Create `.agents/TODO.md`, `.agents/skills/`, `.agents/runs/`, `.agents/backups/`, and `.agents/merge-sessions/`.
+11. Create `.agents/TODO.md`, `.agents/skills/`, `.agents/backups/`, and `.agents/merge-sessions/`.
 12. Configure `agent-basics mcp` for the repository where possible.
 13. Install git hooks.
 14. Snapshot any existing legacy `.agents/memory/{templates,memory,documentations,rag}` material before adaptation.
@@ -320,7 +301,7 @@ Core commands:
 
 | Command | Status | Notes |
 | --- | --- | --- |
-| `agent-basics setup [directory]` | Implemented | Creates the modern source-store shape, verifies or installs user-level OV, writes repo config, emits MCP snippets, creates skills/run directories, and opens or records merge UI sessions for markdown conflicts. |
+| `agent-basics setup [directory]` | Implemented | Creates the modern source-store shape, verifies or installs user-level OV, writes repo config, emits MCP snippets, creates skills, and opens or records merge UI sessions for markdown conflicts. |
 | `agent-basics upgrade [directory]` | Implemented | Uses the setup path for existing repos; existing user files stay user-owned unless a safe merge/replace/append/save path is selected. |
 | `agent-basics doctor [--online]` | Partial | Needs stronger OV/provider/repo-state checks. |
 | `agent-basics mcp` | Implemented | Repo-aware OpenViking-backed MCP server with search, read, record, add-resource, add-skill, ingest, status, and doctor tools. |
@@ -328,7 +309,6 @@ Core commands:
 | `agent-basics lmstudio <command>` | Implemented | REST/OpenAI-compatible management and route tests exist; LM Studio API coverage still limits some load/inference settings. |
 | `agent-basics migrate memory-to-openviking` | Implemented | Inventories/adapts legacy memory into OV-native categories and manifest state. |
 | `agent-basics memory <command>` | Implemented | Transitional mini-RAG compatibility only. |
-| `agent-basics run <command>` | Implemented | Initial repo-local long-horizon run state under `.agents/runs/`. |
 | `agent-basics verify` | Implemented | Runs unit tests, Cargo tests, shell syntax, formula syntax, and offline OV status when available. |
 | `agent-basics commit` | Implemented | Commits staged changes with the supervised coding-agent author and validates commit-message shape. |
 
@@ -422,7 +402,7 @@ Status: complete.
 - Treat OpenViking as the target memory backend.
 - Mark custom mini-RAG as transitional.
 - Define stable harness responsibilities.
-- Define long-horizon run state.
+- Define long-horizon handoff as instruction-driven state in `.agents/TODO.md`, OpenViking, and git.
 - Define initial skills and stable command surfaces.
 
 Milestone 2: OpenViking setup proof.
@@ -446,33 +426,34 @@ Milestone 3: MCP gateway.
 Status: implemented, with broader live integration tests still planned.
 
 - Keep `agent-basics mcp` as the repo-aware OpenViking gateway.
-- Require `repo_path` or current working directory resolution per tool call.
+- Require `cwd` or backward-compatible `repo_path` resolution per tool call.
 - Maintain search, read, record, add-resource, add-skill, ingest, status, and doctor tools.
 - Add broader tests for path safety and repo isolation.
 
 Acceptance criteria:
 
-- A Codex custom MCP config can use `command: agent-basics`, `args: ["mcp"]`, and repo-root `cwd`.
+- A Codex custom MCP config can use `command: agent-basics`, `args: ["mcp"]`, and no fixed working directory.
+- Agents pass `cwd` on each repo-scoped tool call.
 - Every MCP tool resolves a repository root before touching OpenViking.
 - Search defaults to the current repo namespace and can optionally include wider context.
 - Record writes to the correct `viking://user/default/memories/<category>/projects/<repo-slug>/` namespace.
 - Add-resource writes to the correct `viking://resources/projects/<repo-slug>/` namespace; add-skill uses OpenViking's skill registration surface and includes repo attribution in source content.
 - Tests cover at least two repositories sharing one mocked OpenViking command layer; a live shared-server test is still desirable.
 
-Milestone 4: long-horizon workflow.
+Milestone 4: command-backed long-horizon workflow.
 
-Status: implemented.
+Status: retired.
 
-- Implement `agent-basics run start/status/checkpoint/finish/handoff`.
-- Add `.agents/runs/` state.
-- Update agent instructions to require run state for non-trivial work.
-- Add git hook checks for incomplete or stale run state.
+- Earlier builds implemented `agent-basics run start/status/checkpoint/finish/handoff`.
+- Decision: retire this surface from setup, docs, and enforcement.
+- Rationale: users operate through agent apps/CLIs, and agents can only be reliably nudged by instructions, MCP tools, git state, and OpenViking memory.
+- Handoff belongs in `.agents/TODO.md`, OpenViking, git commits/PRs, and agent-app handoff notes.
 
 Acceptance criteria:
 
-- A run can be started, checkpointed, handed off, and finished across sessions.
-- Run state links to OpenViking records created during the run.
-- Git hooks can detect unfinished run state before commit when configured.
+- Fresh setup does not create `.agents/runs/`.
+- Git hooks do not block on run state.
+- Agent instructions and skills describe pre/post work routines without requiring `agent-basics run`.
 
 Milestone 5: skills and command approval reduction.
 
@@ -505,7 +486,7 @@ Acceptance criteria:
 
 Milestone 7: optional runner.
 
-Status: deferred.
+Status: rejected for current scope.
 
-- Evaluate whether a full `agent-basics run "<task>"` agent runner is worth building.
-- Only proceed if plugins, hooks, MCP, and git boundaries are not enough.
+- Do not build a custom agent runner unless agent-basics changes scope into an agent framework.
+- Keep agent-basics as setup, MCP, OpenViking, hooks, migration, docs, and install tooling.
