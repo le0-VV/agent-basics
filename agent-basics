@@ -76,7 +76,7 @@ Usage:
   agent-basics [--repo DIR] [--language en|zh-CN|auto] upgrade [options] [DIR]
   agent-basics [--repo DIR] memory <validate|rebuild|search|record|doctor|install-hooks> [...]
   agent-basics [--repo DIR] mcp
-  agent-basics [--repo DIR] ov <doctor|status|search|read|record|add-resource|add-skill|ingest-changed|install-hooks|install-system|write-default-config|service|server|import-repo-memory> [...]
+  agent-basics [--repo DIR] ov <doctor|status|search|read|record|add-resource|add-skill|ingest-changed|install-hooks|install-system|bootstrap-system|write-default-config|service|server|import-repo-memory> [...]
   agent-basics [--repo DIR] lmstudio <status|hardware|plan|configure|load|unload|route-test> [...]
   agent-basics [--repo DIR] migrate memory-to-openviking [--write]
   agent-basics [--repo DIR] verify
@@ -108,11 +108,9 @@ under ~/.openviking, instead of installing OpenViking into each repository.
 Fresh setup creates `.agents/memory/` as the OpenViking source store.
 Use `agent-basics ov import-repo-memory --write` to write repo OV-native memory
 files into OpenViking memory categories and ingest resources/skills.
-Use `agent-basics ov service install` to keep the configured user-level
-OpenViking HTTP server running as a macOS LaunchAgent. Use
+Use `agent-basics ov bootstrap-system` to install or repair the user-level
+OpenViking package, default config, and macOS LaunchAgent. Use
 `agent-basics ov server` for foreground debugging.
-Use `agent-basics ov write-default-config` to write both ~/.openviking/ov.conf
-and ~/.openviking/ovcli.conf with local-model-friendly timeouts.
 
 LM Studio management uses REST/OpenAI-compatible HTTP endpoints only. Do not use
 the `lms` CLI from Codex on macOS; it can launch the Electron app and crash.

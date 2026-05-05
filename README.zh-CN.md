@@ -27,6 +27,8 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
+Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。
+
 验证命令：
 
 ```bash
@@ -60,16 +62,14 @@ agent-basics upgrade /path/to/project
 
 ## OpenViking
 
-OpenViking 是必需的。如果还没安装，用下面的命令安装并配置：
+OpenViking 是必需的，并且会在 Homebrew 安装时自动 bootstrap。需要修复或重新运行这一步时：
 
 ```bash
-agent-basics ov install-system
-agent-basics ov write-default-config --force
-agent-basics ov service install
+agent-basics ov bootstrap-system
 agent-basics ov doctor
 ```
 
-在 macOS 上，setup 会把 OpenViking 装成用户级 LaunchAgent，让 live search、ingest 和 MCP calls 共用同一个常驻 server。Foreground server mode 主要用来 debug：
+在 macOS 上，bootstrap 会把 OpenViking 装成用户级 LaunchAgent，让 live search、ingest 和 MCP calls 共用同一个常驻 server。Foreground server mode 主要用来 debug：
 
 ```bash
 agent-basics ov service status

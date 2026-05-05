@@ -9,6 +9,18 @@ class AgentBasics < Formula
     system "cargo", "install", *std_cargo_args
   end
 
+  def post_install
+    system bin/"agent-basics", "ov", "bootstrap-system", "--service-best-effort"
+  end
+
+  def caveats
+    <<~EOS
+      agent-basics bootstraps OpenViking during install. To repair or rerun that
+      step manually:
+        agent-basics ov bootstrap-system
+    EOS
+  end
+
   test do
     require "json"
 

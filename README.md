@@ -27,6 +27,8 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
+The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, writes default config when missing, and attempts to install the macOS LaunchAgent.
+
 Verify the command:
 
 ```bash
@@ -60,16 +62,14 @@ If setup finds existing markdown files such as `Agents.md`, it asks whether to k
 
 ## OpenViking
 
-OpenViking is required. If it is missing, install and configure it with:
+OpenViking is required and is bootstrapped during Homebrew install. To repair or rerun that step:
 
 ```bash
-agent-basics ov install-system
-agent-basics ov write-default-config --force
-agent-basics ov service install
+agent-basics ov bootstrap-system
 agent-basics ov doctor
 ```
 
-On macOS, setup installs OpenViking as a user LaunchAgent so live search, ingest, and MCP calls can use the same always-on server. Foreground server mode is mainly for debugging:
+On macOS, bootstrap installs OpenViking as a user LaunchAgent so live search, ingest, and MCP calls can use the same always-on server. Foreground server mode is mainly for debugging:
 
 ```bash
 agent-basics ov service status

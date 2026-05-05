@@ -913,6 +913,122 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertIn(["launchctl", "bootstrap", payload["target"].rsplit("/", 1)[0], str(plist_path)], payload["commands"])
         self.assertEqual(payload["plist_payload"]["ProgramArguments"], [str(server_path), "--config", str(config_path)])
 
+    def test_ov_bootstrap_dry_run_reports_install_config_and_service_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "openviking"
+            ov_bin = home / "venv" / "bin" / "ov"
+            ov_bin.parent.mkdir(parents=True)
+            ov_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = agent_basics_ov.command_ov_bootstrap_system(
+                    SimpleNamespace(
+                        home=str(home),
+                        python="3.12",
+                        package="openviking",
+                        config=None,
+                        cli_config=None,
+                        lmstudio_base="http://127.0.0.1:1234",
+                        chat_model=agent_basics_ov.DEFAULT_CHAT_MODEL,
+                        embedding_model=agent_basics_ov.DEFAULT_EMBEDDING_MODEL,
+                        embedding_dimension=768,
+                        vlm_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                        server_url="http://127.0.0.1:1933",
+                        cli_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                        service="never",
+                        service_best_effort=False,
+                        server_bin=None,
+                        label=agent_basics_ov.DEFAULT_OV_SERVICE_LABEL,
+                        plist=None,
+                        service_timeout=agent_basics_ov.DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS,
+                        force_install=False,
+                        force_config=False,
+                        force_service=False,
+                        no_load=False,
+                        dry_run=True,
+                    )
+                )
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["dry_run"])
+        self.assertFalse(payload["install"]["needed"])
+        self.assertTrue(payload["config"]["needed"])
+        self.assertFalse(payload["service"]["enabled"])
+        self.assertEqual(payload["service"]["skipped_reason"], "disabled by --service never")
+
+    def test_ov_bootstrap_installs_config_and_macos_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "openviking"
+            server_path = home / "venv" / "bin" / "openviking-server"
+            plist_path = Path(tmp) / "com.agent-basics.test.openviking.plist"
+            server_path.parent.mkdir(parents=True)
+            server_path.write_text("#!/bin/sh\n", encoding="utf-8")
+            server_path.chmod(0o755)
+            commands: list[list[str]] = []
+
+            def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+                commands.append(command)
+                return {"ok": True, "command": command, "returncode": 0, "stdout": "", "stderr": ""}
+
+            original_run_command = agent_basics_ov.run_command
+            original_shutil_which = agent_basics_ov.shutil_which
+            original_platform_system = agent_basics_ov.platform.system
+            try:
+                agent_basics_ov.run_command = fake_run
+                agent_basics_ov.shutil_which = lambda name: "/tmp/uv" if name == "uv" else None
+                agent_basics_ov.platform.system = lambda: "Darwin"
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    result = agent_basics_ov.command_ov_bootstrap_system(
+                        SimpleNamespace(
+                            home=str(home),
+                            python="3.12",
+                            package="openviking",
+                            config=None,
+                            cli_config=None,
+                            lmstudio_base="http://127.0.0.1:1234",
+                            chat_model=agent_basics_ov.DEFAULT_CHAT_MODEL,
+                            embedding_model=agent_basics_ov.DEFAULT_EMBEDDING_MODEL,
+                            embedding_dimension=768,
+                            vlm_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                            server_url="http://127.0.0.1:1933",
+                            cli_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                            service="auto",
+                            service_best_effort=False,
+                            server_bin=str(server_path),
+                            label="com.agent-basics.test.openviking",
+                            plist=str(plist_path),
+                            service_timeout=agent_basics_ov.DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS,
+                            force_install=False,
+                            force_config=False,
+                            force_service=False,
+                            no_load=True,
+                            dry_run=False,
+                        )
+                    )
+            finally:
+                agent_basics_ov.run_command = original_run_command
+                agent_basics_ov.shutil_which = original_shutil_which
+                agent_basics_ov.platform.system = original_platform_system
+
+            payload = json.loads(output.getvalue())
+            config_exists = (home / "ov.conf").is_file()
+            cli_config_exists = (home / "ovcli.conf").is_file()
+            plist_exists = plist_path.is_file()
+
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["service_enabled"])
+        self.assertEqual([step["name"] for step in payload["steps"]], ["install-system", "write-default-config", "service install"])
+        self.assertEqual(commands[0], ["/tmp/uv", "venv", "--python", "3.12", str(home / "venv")])
+        self.assertEqual(commands[1][:4], ["/tmp/uv", "pip", "install", "--python"])
+        self.assertTrue(config_exists)
+        self.assertTrue(cli_config_exists)
+        self.assertTrue(plist_exists)
+
     def test_ov_native_memory_paths_map_to_openviking_categories(self) -> None:
         category, reason, review = agent_basics_ov.legacy_to_ov_category(
             Path(".agents/memory/memories/preferences/example.md"),

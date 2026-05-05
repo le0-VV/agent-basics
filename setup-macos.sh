@@ -334,8 +334,9 @@ The target agent-facing surfaces are:
 
 - `agent-basics mcp`: repo-aware MCP server for OpenViking-backed tools.
 - `agent-basics ov doctor`: check the user-level OpenViking installation, repo config, providers, ingest status, and health.
-- `agent-basics ov install-system`: install OpenViking under `~/.openviking` when it is missing.
-- `agent-basics ov write-default-config`: write default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
+- `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, write default config, and install the macOS LaunchAgent when available.
+- `agent-basics ov install-system`: low-level repair command for only the OpenViking package installation.
+- `agent-basics ov write-default-config`: low-level repair command for default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
 - `agent-basics ov service install`: install and load the configured user-level OpenViking HTTP server as a macOS LaunchAgent.
 - `agent-basics ov server`: start the configured user-level OpenViking HTTP server in the foreground for debugging.
 - `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
@@ -2304,13 +2305,13 @@ install_or_repair_user_openviking() {
   if ! dispatcher="$(find_agent_basics_dispatcher)"; then
     echo "Error: user-level OpenViking $mode is required, but no executable agent-basics dispatcher was found." >&2
     echo "Expected an executable dispatcher next to setup-macos.sh or on PATH as: agent-basics" >&2
-    echo "Install or repair agent-basics, then run: agent-basics ov install-system --home \"$ov_home\"" >&2
+    echo "Install or repair agent-basics, then run: agent-basics ov bootstrap-system --home \"$ov_home\" --service-best-effort" >&2
     exit 1
   fi
 
-  install_args=(ov install-system --home "$ov_home")
+  install_args=(ov bootstrap-system --home "$ov_home" --service-best-effort)
   if [[ "$mode" == "repair" ]]; then
-    install_args+=(--force)
+    install_args+=(--force-install)
   fi
 
   if [[ "${AGENT_BASICS_TEST_OPENVIKING_AUTO_INSTALL:-0}" == "1" && -n "${AGENT_BASICS_TEST_OPENVIKING_INSTALL_DISPATCHER:-}" ]]; then
@@ -2320,11 +2321,11 @@ install_or_repair_user_openviking() {
       echo "Error: user-level OpenViking $mode is required, but setup is not running interactively." >&2
       echo "Expected executable: $ov_bin" >&2
       echo "Run setup in an interactive terminal, or run this first:" >&2
-      echo "  $dispatcher ov install-system --home \"$ov_home\"" >&2
+      echo "  $dispatcher ov bootstrap-system --home \"$ov_home\" --service-best-effort" >&2
       exit 1
     fi
 
-    printf "User-level OpenViking %s is required at %s. Run '%s ov install-system --home \"%s\"' now? [y/N]: " \
+    printf "User-level OpenViking %s is required at %s. Run '%s ov bootstrap-system --home \"%s\" --service-best-effort' now? [y/N]: " \
       "$mode" "$ov_bin" "$dispatcher" "$ov_home" >&2
     read -r choice
     case "$choice" in
@@ -2332,7 +2333,7 @@ install_or_repair_user_openviking() {
         ;;
       *)
         echo "Error: user-level OpenViking $mode was declined." >&2
-        echo "Install or repair OpenViking with: $dispatcher ov install-system --home \"$ov_home\"" >&2
+        echo "Install or repair OpenViking with: $dispatcher ov bootstrap-system --home \"$ov_home\" --service-best-effort" >&2
         exit 1
         ;;
     esac
@@ -2381,7 +2382,7 @@ verify_user_openviking_installation() {
   if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" ]]; then
     echo "Error: user-level OpenViking installation was not found." >&2
     echo "Expected executable: $ov_bin" >&2
-    echo "Install or repair OpenViking with: agent-basics ov install-system" >&2
+    echo "Install or repair OpenViking with: agent-basics ov bootstrap-system" >&2
     exit 1
   fi
 
@@ -2422,13 +2423,13 @@ ensure_user_openviking_config() {
 
   if ! dispatcher="$(find_agent_basics_dispatcher)"; then
     echo "Error: user-level OpenViking configuration is missing, but no executable agent-basics dispatcher was found." >&2
-    echo "Run: agent-basics ov write-default-config --home \"$ov_home\"" >&2
+    echo "Run: agent-basics ov bootstrap-system --home \"$ov_home\" --service-best-effort" >&2
     exit 1
   fi
 
   if ! "$dispatcher" ov write-default-config --home "$ov_home" --config "$ov_config" --cli-config "$ovcli_config"; then
     echo "Error: failed to write user-level OpenViking configuration." >&2
-    echo "Run manually: $dispatcher ov write-default-config --home \"$ov_home\"" >&2
+    echo "Run manually: $dispatcher ov bootstrap-system --home \"$ov_home\" --service-best-effort" >&2
     exit 1
   fi
 

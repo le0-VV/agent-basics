@@ -25,6 +25,7 @@ This section separates shipped behavior from target architecture.
 Implemented and verified in this repository:
 
 - User-level OpenViking is installed under `~/.openviking`.
+- Homebrew install runs `agent-basics ov bootstrap-system` to install/configure OpenViking and attempt macOS LaunchAgent setup.
 - OpenViking is configured for the local LM Studio chat/VLM and embedding endpoints.
 - `.agents/memory/` is preserved as the repo-owned OpenViking source store.
 - `.agents/openviking/migration-manifest.json` records migration/adaptation state.
@@ -318,6 +319,7 @@ OpenViking wrapper commands:
 | --- | --- | --- |
 | `agent-basics ov doctor` | Partial | Should become the full OV install/config/provider/repo-state doctor. |
 | `agent-basics ov install-system` | Implemented | Installs OpenViking under user-level home. |
+| `agent-basics ov bootstrap-system` | Implemented | Idempotently installs OpenViking when missing, writes default user-level config, and installs the macOS service when available. |
 | `agent-basics ov write-default-config` | Implemented | Writes LM Studio-backed `ov.conf` plus `ovcli.conf` with long local HTTP timeouts. |
 | `agent-basics ov server` | Implemented | Starts the configured user-level OpenViking HTTP server in the foreground. |
 | `agent-basics ov import-repo-memory` | Implemented | Writes OV-native memories directly and ingests source-store resources/skills. |

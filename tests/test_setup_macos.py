@@ -48,6 +48,29 @@ class SetupMacosTest(unittest.TestCase):
             "  exit 2\n"
             "fi\n"
             "case \"$2\" in\n"
+            "  bootstrap-system)\n"
+            "    shift 2\n"
+            "    home=\"\"\n"
+            "    while [ \"$#\" -gt 0 ]; do\n"
+            "      case \"$1\" in\n"
+            "        --home) home=\"$2\"; shift 2 ;;\n"
+            "        *) shift ;;\n"
+            "      esac\n"
+            "    done\n"
+            "    if [ -z \"$home\" ]; then echo \"missing --home\" >&2; exit 2; fi\n"
+            "    mkdir -p \"$home/venv/bin\"\n"
+            "    cat > \"$home/venv/bin/ov\" <<'EOS'\n"
+            "#!/usr/bin/env sh\n"
+            "case \"$1\" in\n"
+            "  --help) echo 'fake installed OpenViking help'; exit 0 ;;\n"
+            "  version) echo 'CLI: 0.0.0-installed-test'; exit 0 ;;\n"
+            "  *) exit 0 ;;\n"
+            "esac\n"
+            "EOS\n"
+            "    chmod 0755 \"$home/venv/bin/ov\"\n"
+            "    printf '{\"storage\":{\"workspace\":\"%s/workspace\"}}\\n' \"$home\" > \"$home/ov.conf\"\n"
+            "    printf '{\"url\":\"http://127.0.0.1:1933\",\"timeout\":86400}\\n' > \"$home/ovcli.conf\"\n"
+            "    ;;\n"
             "  install-system)\n"
             "    shift 2\n"
             "    home=\"\"\n"
@@ -239,7 +262,7 @@ class SetupMacosTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("user-level OpenViking installation is required", result.stderr)
             self.assertIn("setup is not running interactively", result.stderr)
-            self.assertIn("agent-basics ov install-system", result.stderr)
+            self.assertIn("agent-basics ov bootstrap-system", result.stderr)
             self.assertFalse((repo / ".agents" / "config.toml").exists())
 
     def test_setup_invokes_fake_install_and_generates_config_when_openviking_is_missing(self) -> None:
@@ -267,8 +290,7 @@ class SetupMacosTest(unittest.TestCase):
             self.assertEqual(
                 install_log.read_text(encoding="utf-8").strip().splitlines(),
                 [
-                    f"ov install-system --home {ov_home}",
-                    f"ov write-default-config --home {ov_home} --config {ov_home / 'ov.conf'} --cli-config {ov_home / 'ovcli.conf'}",
+                    f"ov bootstrap-system --home {ov_home} --service-best-effort",
                     f"ov service install --home {ov_home}",
                 ],
             )

@@ -796,6 +796,137 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def command_payload_from_handler(handler: Any, args: argparse.Namespace) -> dict[str, Any]:
+    output = io.StringIO()
+    with redirect_stdout(output):
+        returncode = handler(args)
+    text = output.getvalue().strip()
+    try:
+        payload = json.loads(text) if text else {}
+    except json.JSONDecodeError as exc:
+        payload = {"ok": returncode == 0, "stdout": text, "json_parse_error": str(exc)}
+    payload.setdefault("ok", returncode == 0)
+    payload["returncode"] = returncode
+    return payload
+
+
+def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
+    home = Path(args.home).expanduser()
+    config = Path(args.config).expanduser() if args.config else home / "ov.conf"
+    cli_config = Path(args.cli_config).expanduser() if args.cli_config else home / "ovcli.conf"
+    service_enabled = args.service == "always" or (args.service == "auto" and platform.system() == "Darwin")
+    service_skipped_reason = None if service_enabled else (
+        "disabled by --service never" if args.service == "never" else "not macOS"
+    )
+
+    if args.dry_run:
+        print_json(
+            {
+                "ok": True,
+                "dry_run": True,
+                "home": str(home),
+                "install": {
+                    "needed": args.force_install or not (home / "venv" / "bin" / "ov").exists(),
+                    "package": args.package,
+                    "python": args.python,
+                },
+                "config": {
+                    "path": str(config),
+                    "cli_config": str(cli_config),
+                    "needed": args.force_config or not config.exists() or not cli_config.exists(),
+                },
+                "service": {
+                    "enabled": service_enabled,
+                    "best_effort": args.service_best_effort,
+                    "skipped_reason": service_skipped_reason,
+                },
+            }
+        )
+        return 0
+
+    install_payload = command_payload_from_handler(
+        command_ov_install_system,
+        argparse.Namespace(
+            home=str(home),
+            python=args.python,
+            package=args.package,
+            force=args.force_install,
+        ),
+    )
+    steps: list[dict[str, Any]] = [{"name": "install-system", "payload": install_payload}]
+    ok = bool(install_payload.get("ok"))
+    if not ok:
+        print_json({"ok": False, "home": str(home), "steps": steps})
+        return 1
+
+    config_payload = command_payload_from_handler(
+        command_ov_write_default_config,
+        argparse.Namespace(
+            config=str(config),
+            cli_config=str(cli_config),
+            home=str(home),
+            lmstudio_base=args.lmstudio_base,
+            chat_model=args.chat_model,
+            embedding_model=args.embedding_model,
+            embedding_dimension=args.embedding_dimension,
+            vlm_timeout=args.vlm_timeout,
+            server_url=args.server_url,
+            cli_timeout=args.cli_timeout,
+            force=args.force_config,
+        ),
+    )
+    steps.append({"name": "write-default-config", "payload": config_payload})
+    ok = ok and bool(config_payload.get("ok"))
+    if not config_payload.get("ok"):
+        print_json({"ok": False, "home": str(home), "steps": steps})
+        return 1
+
+    if service_enabled:
+        service_payload = command_payload_from_handler(
+            command_ov_service,
+            argparse.Namespace(
+                service_action="install",
+                home=str(home),
+                server_bin=args.server_bin,
+                config=str(config),
+                label=args.label,
+                plist=args.plist,
+                timeout=args.service_timeout,
+                dry_run=False,
+                force=args.force_service,
+                no_load=args.no_load,
+            ),
+        )
+        steps.append({"name": "service install", "payload": service_payload})
+        if not service_payload.get("ok"):
+            ok = bool(args.service_best_effort)
+            steps[-1]["best_effort_ignored_failure"] = bool(args.service_best_effort)
+    else:
+        steps.append(
+            {
+                "name": "service install",
+                "payload": {
+                    "ok": True,
+                    "changed": False,
+                    "skipped": True,
+                    "reason": service_skipped_reason,
+                },
+            }
+        )
+
+    print_json(
+        {
+            "ok": ok,
+            "changed": any(bool(step["payload"].get("changed")) for step in steps),
+            "home": str(home),
+            "service_enabled": service_enabled,
+            "service_best_effort": args.service_best_effort,
+            "steps": steps,
+        }
+    )
+    return 0 if ok else 1
+
+
 def merge_no_proxy(value: str) -> str:
     required = ["127.0.0.1", "localhost", "::1"]
     existing = [item.strip() for item in value.split(",") if item.strip()]
@@ -3695,6 +3826,32 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--package", default="openviking")
     install.add_argument("--force", action="store_true")
     install.set_defaults(func=command_ov_install_system)
+
+    bootstrap = ov_sub.add_parser("bootstrap-system")
+    bootstrap.add_argument("--home", default=str(DEFAULT_OV_HOME))
+    bootstrap.add_argument("--python", default="3.12")
+    bootstrap.add_argument("--package", default="openviking")
+    bootstrap.add_argument("--config")
+    bootstrap.add_argument("--cli-config")
+    bootstrap.add_argument("--lmstudio-base", default=DEFAULT_LM_STUDIO_BASE)
+    bootstrap.add_argument("--chat-model", default=DEFAULT_CHAT_MODEL)
+    bootstrap.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    bootstrap.add_argument("--embedding-dimension", type=int, default=768)
+    bootstrap.add_argument("--vlm-timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+    bootstrap.add_argument("--server-url", default="http://127.0.0.1:1933")
+    bootstrap.add_argument("--cli-timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+    bootstrap.add_argument("--service", choices=["auto", "always", "never"], default="auto")
+    bootstrap.add_argument("--service-best-effort", action="store_true")
+    bootstrap.add_argument("--server-bin")
+    bootstrap.add_argument("--label", default=DEFAULT_OV_SERVICE_LABEL)
+    bootstrap.add_argument("--plist")
+    bootstrap.add_argument("--service-timeout", type=float, default=DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
+    bootstrap.add_argument("--force-install", action="store_true")
+    bootstrap.add_argument("--force-config", action="store_true")
+    bootstrap.add_argument("--force-service", action="store_true")
+    bootstrap.add_argument("--no-load", action="store_true")
+    bootstrap.add_argument("--dry-run", action="store_true")
+    bootstrap.set_defaults(func=command_ov_bootstrap_system)
 
     config = ov_sub.add_parser("write-default-config")
     config.add_argument("--config", default=str(DEFAULT_OV_CONFIG))
