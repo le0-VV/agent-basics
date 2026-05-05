@@ -26,7 +26,7 @@ Agents 做长线工作很容易掉链子，本质上还是 context 限制。Cont
 
 ## 它怎么工作
 
-它使用 OpenViking 作为记忆和检索后端，而 OpenViking 本身需要通过 API 访问一个 LLM 和一个 embedding model，用来生成结构化 memory 和做语义检索。`agent-basics` 负责仓库侧的 instructions、setup、upgrade、MCP 接线、git hooks，以及安全的 markdown 冲突处理。它也会管理一个用户级 OpenViking 安装；如果机器条件允许，还会通过 Homebrew 设置 LM Studio，用作本地 LLM 和 embedding model API。
+它使用 OpenViking 作为记忆和检索后端，而 OpenViking 本身需要通过 API 访问一个 LLM 和一个 embedding 模型，用来生成结构化记忆和做语义检索。`agent-basics` 负责仓库侧的 instructions、setup、upgrade、MCP 接线、git hooks，以及安全的 markdown 冲突处理。它也会管理一个用户级 OpenViking 安装；如果设备条件允许，还会通过 Homebrew 安装设置 LM Studio，用作本地 LLM 和 embedding model API。
 
 ## 它提供什么
 
