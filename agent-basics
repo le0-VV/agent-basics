@@ -80,6 +80,7 @@ Usage:
   agent-basics [--repo DIR] lmstudio <status|hardware|bootstrap|service|plan|configure|load|unload|route-test> [...]
   agent-basics [--repo DIR] migrate memory-to-openviking [--write]
   agent-basics [--repo DIR] verify
+  agent-basics licenses
   agent-basics [--repo DIR] commit <type(scope): description>
   agent-basics [--repo DIR] doctor [--online]
   agent-basics [--repo DIR] validate|rebuild|search|record|install-hooks [...]
@@ -340,6 +341,58 @@ def skip_check(name: str, reason: str) -> None:
     print(f"[SKIP] {name}: {reason}")
 
 
+def check_license_notices(repo: Path) -> bool:
+    print("[RUN] licensing notices")
+    cargo = repo / "Cargo.toml"
+    license_file = repo / "LICENSE"
+    notices = repo / "THIRD-PARTY-NOTICES.md"
+    errors: list[str] = []
+
+    if not license_file.is_file():
+        errors.append("LICENSE is missing")
+    elif "MIT License" not in license_file.read_text(encoding="utf-8"):
+        errors.append("LICENSE does not contain the MIT license text")
+
+    if cargo.is_file():
+        cargo_text = cargo.read_text(encoding="utf-8")
+        if 'license = "MIT"' not in cargo_text:
+            errors.append('Cargo.toml must keep license = "MIT" or update the notices')
+
+    if not notices.is_file():
+        errors.append("THIRD-PARTY-NOTICES.md is missing")
+    else:
+        notice_text = notices.read_text(encoding="utf-8").lower()
+        for token in [
+            "openviking",
+            "agpl-3.0",
+            "lm studio",
+            "gemma",
+            "embeddinggemma",
+            "uv",
+            "fastapi",
+            "sentence-transformers",
+            "uvicorn",
+        ]:
+            if token not in notice_text:
+                errors.append(f"THIRD-PARTY-NOTICES.md missing `{token}`")
+
+    if errors:
+        print("[FAIL] licensing notices")
+        for error in errors:
+            print(f"  - {error}")
+        return False
+
+    print("[PASS] licensing notices")
+    return True
+
+
+def is_agent_basics_source_repo(repo: Path) -> bool:
+    cargo = repo / "Cargo.toml"
+    if not cargo.is_file() or not (repo / "agent-basics").is_file():
+        return False
+    return 'name = "agent-basics"' in cargo.read_text(encoding="utf-8")
+
+
 def main(argv: list[str]) -> int:
     if argv:
         print("Error: verify does not accept arguments.", file=sys.stderr)
@@ -393,6 +446,12 @@ def main(argv: list[str]) -> int:
     else:
         skip_check("OpenViking offline status", "./agent-basics not found")
 
+    if is_agent_basics_source_repo(repo):
+        if not check_license_notices(repo):
+            failed += 1
+    else:
+        skip_check("licensing notices", "not an agent-basics source checkout")
+
     print()
     if failed:
         print(f"Verification failed: {failed} check(s) failed.", file=sys.stderr)
@@ -403,6 +462,53 @@ def main(argv: list[str]) -> int:
 
 raise SystemExit(main(sys.argv[1:]))
 PY
+}
+
+find_license_file() {
+  local candidate
+  for candidate in \
+    "${AGENT_BASICS_LICENSE:-}" \
+    "$SCRIPT_DIR/LICENSE"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+      printf "%s\n" "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+find_third_party_notices() {
+  local candidate
+  for candidate in \
+    "${AGENT_BASICS_THIRD_PARTY_NOTICES:-}" \
+    "$SCRIPT_DIR/THIRD-PARTY-NOTICES.md"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+      printf "%s\n" "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+run_licenses() {
+  local license_file=""
+  local notices_file=""
+
+  license_file="$(find_license_file || true)"
+  notices_file="$(find_third_party_notices || true)"
+
+  if [[ -z "$license_file" ]]; then
+    echo "Error: LICENSE was not found." >&2
+    return 1
+  fi
+  if [[ -z "$notices_file" ]]; then
+    echo "Error: THIRD-PARTY-NOTICES.md was not found." >&2
+    return 1
+  fi
+
+  cat "$license_file"
+  printf "\n\n"
+  cat "$notices_file"
 }
 
 run_commit() {
@@ -538,6 +644,13 @@ case "$command_name" in
     ;;
   verify)
     run_verify "$@"
+    ;;
+  licenses|license|notices)
+    if [[ $# -gt 0 ]]; then
+      echo "Error: $command_name does not accept arguments." >&2
+      exit 2
+    fi
+    run_licenses
     ;;
   commit)
     run_commit "$@"

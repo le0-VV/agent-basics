@@ -13,6 +13,8 @@ const SETUP: &[u8] = include_bytes!("../setup-macos.sh");
 const MEMORY_CLI: &[u8] = include_bytes!("../compat/memory-rag/agent-memory.py");
 const MEMORY_MCP: &[u8] = include_bytes!("../compat/memory-rag/memory-mcp.py");
 const OV_HELPER: &[u8] = include_bytes!("../scripts/agent_basics_ov.py");
+const LICENSE: &[u8] = include_bytes!("../LICENSE");
+const THIRD_PARTY_NOTICES: &[u8] = include_bytes!("../THIRD-PARTY-NOTICES.md");
 
 struct Runtime {
     root: PathBuf,
@@ -52,6 +54,11 @@ fn run() -> Result<(), Box<dyn Error>> {
             "AGENT_BASICS_OV_HELPER",
             runtime.root.join("agent-basics-ov.py"),
         )
+        .env("AGENT_BASICS_LICENSE", runtime.root.join("LICENSE"))
+        .env(
+            "AGENT_BASICS_THIRD_PARTY_NOTICES",
+            runtime.root.join("THIRD-PARTY-NOTICES.md"),
+        )
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -76,6 +83,8 @@ fn ensure_runtime() -> Result<Runtime, Box<dyn Error>> {
     write_executable(&root.join("agent-memory.py"), MEMORY_CLI)?;
     write_executable(&root.join("memory-mcp.py"), MEMORY_MCP)?;
     write_executable(&root.join("agent-basics-ov.py"), OV_HELPER)?;
+    fs::write(root.join("LICENSE"), LICENSE)?;
+    fs::write(root.join("THIRD-PARTY-NOTICES.md"), THIRD_PARTY_NOTICES)?;
     fs::write(marker, VERSION.as_bytes())?;
 
     Ok(Runtime { root })
