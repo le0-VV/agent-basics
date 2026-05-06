@@ -150,6 +150,16 @@
       "skipped": true,
       "target": "viking://user/default/memories/events/projects/agent-basics/1778110649-mlx-openviking-live-round-trip-demo.md"
     },
+    ".agents/memory/memories/events/1778111562-agent-basics-mlx-packaged-process-introduced.md": {
+      "imported_at": 1778111575,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778111562-agent-basics-mlx-packaged-process-introduced.md",
+      "sha256": "685fadae12cef4e4bda11f771189f5e5acbf1eb53e0e7102b1915e1c25be8147",
+      "skipped": true,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778111562-agent-basics-mlx-packaged-process-introduced.md"
+    },
     ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -241,10 +251,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778110785,
+  "last_import": 1778111638,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778110785,
+  "updated": 1778111638,
   "version": 1
 }
