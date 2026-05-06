@@ -50,6 +50,16 @@
       "skipped": true,
       "target": "viking://user/default/memories/cases/projects/agent-basics/1777910744-lmstudio-routing-defaults-conflict-with-openviking.md"
     },
+    ".agents/memory/memories/cases/1778110752-mlx-memory-pressure-can-hide-in-ioaccelerator-regions.md": {
+      "imported_at": 1778110764,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/cases/1778110752-mlx-memory-pressure-can-hide-in-ioaccelerator-regions.md",
+      "sha256": "f93cadad3e78b117dca70fb43befeeb35c43f6b4ea51048caeba22ab282c7580",
+      "skipped": true,
+      "target": "viking://user/default/memories/cases/projects/agent-basics/1778110752-mlx-memory-pressure-can-hide-in-ioaccelerator-regions.md"
+    },
     ".agents/memory/memories/events/1777901050-legacy-memory-snapshot-created.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -129,6 +139,16 @@
       "sha256": "37e6756148fa01fd54c8c6d63b08b2d62fd3410d29e1de96b08fc867043ecea1",
       "skipped": true,
       "target": "viking://user/default/memories/events/projects/agent-basics/1778054435-ollama-removed-from-local-host.md"
+    },
+    ".agents/memory/memories/events/1778110649-mlx-openviking-live-round-trip-demo.md": {
+      "imported_at": 1778110661,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778110649-mlx-openviking-live-round-trip-demo.md",
+      "sha256": "3c8ffbe0202102bf5e4f2ab276e9f22c4959b611974149e0f062af16910c0d58",
+      "skipped": true,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778110649-mlx-openviking-live-round-trip-demo.md"
     },
     ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md": {
       "imported_at": 1777913431,
@@ -221,10 +241,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778110429,
+  "last_import": 1778110785,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778110429,
+  "updated": 1778110785,
   "version": 1
 }
