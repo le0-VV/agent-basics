@@ -32,6 +32,10 @@ class LicensingTest(unittest.TestCase):
         for token in [
             "openviking",
             "agpl-3.0",
+            "mlx",
+            "mlx-vlm",
+            "mlx-embeddings",
+            "gpl-3.0",
             "ollama",
             "gemma",
             "embeddinggemma",

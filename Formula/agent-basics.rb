@@ -3,7 +3,6 @@ class AgentBasics < Formula
   homepage "https://github.com/le0-VV/agent-basics"
   head "https://github.com/le0-VV/agent-basics.git", branch: "main"
   depends_on "rust" => :build
-  depends_on "ollama"
   depends_on "uv"
 
   def install
@@ -11,16 +10,16 @@ class AgentBasics < Formula
   end
 
   def post_install
-    system bin/"agent-basics", "ov", "bootstrap-system", "--service-best-effort", "--runtime", "ollama", "--runtime-best-effort"
+    system bin/"agent-basics", "ov", "bootstrap-system", "--service-best-effort", "--runtime", "mlx", "--runtime-best-effort"
   end
 
   def caveats
     <<~EOS
-      agent-basics bootstraps OpenViking during install and configures Ollama
-      as the default local OpenAI-compatible runtime. To repair or rerun that
-      step manually:
+      agent-basics bootstraps OpenViking during install and configures the
+      agent-basics MLX runtime as the default local OpenAI-compatible runtime.
+      To repair or rerun that step manually:
         agent-basics ov bootstrap-system
-        agent-basics ollama bootstrap
+        agent-basics mlx bootstrap
     EOS
   end
 

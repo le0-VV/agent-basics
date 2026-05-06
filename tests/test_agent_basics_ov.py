@@ -21,6 +21,135 @@ spec.loader.exec_module(agent_basics_ov)
 
 
 class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
+    def test_ov_default_config_uses_mlx_provider_models(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "ov"
+            config = home / "ov.conf"
+            cli_config = home / "ovcli.conf"
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = agent_basics_ov.command_ov_write_default_config(
+                    SimpleNamespace(
+                        config=str(config),
+                        cli_config=str(cli_config),
+                        home=str(home),
+                        provider="mlx",
+                        base_url=None,
+                        provider_base=None,
+                        lmstudio_base=None,
+                        api_key=None,
+                        chat_model=None,
+                        embedding_model=None,
+                        embedding_dimension=768,
+                        vlm_timeout=86400,
+                        server_url="http://127.0.0.1:1933",
+                        cli_timeout=86400,
+                        force=False,
+                    )
+                )
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertEqual(payload["config"]["vlm"]["api_base"], "http://127.0.0.1:18080/v1")
+        self.assertEqual(payload["config"]["vlm"]["model"], "mlx-community/gemma-4-e2b-it-4bit")
+        self.assertEqual(payload["config"]["embedding"]["dense"]["model"], "mlx-community/embeddinggemma-300m-4bit")
+
+    def test_mlx_service_plist_runs_agent_basics_server(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "mlx"
+            python_bin = home / "venv" / "bin" / "python"
+            server = home / "agent-basics-mlx-server.py"
+            payload = agent_basics_ov.mlx_service_plist_payload(
+                label="com.agent-basics.test.mlx",
+                home=home,
+                python_bin=python_bin,
+                server_script=server,
+                host="127.0.0.1",
+                port=18080,
+                chat_model=agent_basics_ov.DEFAULT_MLX_CHAT_MODEL,
+                embedding_model=agent_basics_ov.DEFAULT_MLX_EMBEDDING_MODEL,
+                no_proxy="localhost,127.0.0.1,::1",
+                hf_home=home / "huggingface",
+                unload_idle_seconds=0,
+                preload_models="all",
+                startup_structured_output_check="openviking-router",
+            )
+
+        self.assertEqual(payload["ProgramArguments"][:2], [str(python_bin), str(server)])
+        self.assertIn("--chat-model", payload["ProgramArguments"])
+        self.assertIn("mlx-community/gemma-4-e2b-it-4bit", payload["ProgramArguments"])
+        self.assertIn("--preload-models", payload["ProgramArguments"])
+        self.assertIn("all", payload["ProgramArguments"])
+        self.assertIn("--startup-structured-output-check", payload["ProgramArguments"])
+        self.assertIn("openviking-router", payload["ProgramArguments"])
+        self.assertEqual(payload["EnvironmentVariables"]["HF_HOME"], str(home / "huggingface"))
+
+    def test_mlx_bootstrap_dry_run_plans_runtime_server_models_and_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "mlx"
+            server_source = Path(tmp) / "server.py"
+            server_source.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+            original_hardware_payload = agent_basics_ov.hardware_payload
+            try:
+                agent_basics_ov.hardware_payload = lambda: {
+                    "ok": True,
+                    "system": "Darwin",
+                    "machine": "arm64",
+                    "recommendation": {"memory_gb": 32.0, "cpu_threads": 8},
+                }
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    result = agent_basics_ov.command_mlx_bootstrap(
+                        SimpleNamespace(
+                            base_url="http://127.0.0.1:18080",
+                            home=str(home),
+                            python="3.12",
+                            package=[],
+                            chat_model=agent_basics_ov.DEFAULT_MLX_CHAT_MODEL,
+                            embedding_model=agent_basics_ov.DEFAULT_MLX_EMBEDDING_MODEL,
+                            model=[],
+                            host="127.0.0.1",
+                            port=18080,
+                            label="com.agent-basics.test.mlx",
+                            plist=str(Path(tmp) / "com.agent-basics.test.mlx.plist"),
+                            server_script=str(home / "agent-basics-mlx-server.py"),
+                            source=str(server_source),
+                            install="auto",
+                            pull="auto",
+                            service="auto",
+                            min_memory_gb=16,
+                            allow_non_macos=False,
+                            force_hardware=False,
+                            force_install=False,
+                            force_server=False,
+                            force_service=False,
+                            no_load=True,
+                            unload_idle_seconds=0,
+                            preload_models="all",
+                            startup_structured_output_check="openviking-router",
+                            timeout=5,
+                            service_timeout=1,
+                            wait_server_seconds=0,
+                            best_effort=False,
+                            dry_run=True,
+                        )
+                    )
+            finally:
+                agent_basics_ov.hardware_payload = original_hardware_payload
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["provider"], "mlx")
+        self.assertEqual(
+            [step["name"] for step in payload["steps"]],
+            ["install runtime", "write server", "pull models", "service install"],
+        )
+        self.assertEqual(payload["steps"][2]["payload"]["models"], [
+            "mlx-community/gemma-4-e2b-it-4bit",
+            "mlx-community/embeddinggemma-300m-4bit",
+        ])
+
     def test_preingest_splits_and_hints_ownership_statements(self) -> None:
         candidates = agent_basics_ov.preingest_candidates(
             "harness_direction",
@@ -914,6 +1043,40 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
             payload["target"],
         )
 
+    def test_ov_record_updates_import_state_after_successful_write(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+            commands.append(command)
+            return {"ok": True, "command": command, "returncode": 0, "stdout": "{}", "stderr": ""}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "Agent Basics"
+            repo.mkdir()
+            original_find_ov_bin = agent_basics_ov.find_ov_bin
+            original_run_command = agent_basics_ov.run_command
+            try:
+                agent_basics_ov.find_ov_bin = lambda: Path("/tmp/ov")
+                agent_basics_ov.run_command = fake_run
+                payload = agent_basics_ov.ov_record_payload(
+                    repo,
+                    category="preferences",
+                    title="Prefer synced record state",
+                    content="A successful record should not leave the source store stale.",
+                )
+                staleness = agent_basics_ov.ov_import_staleness(repo)
+                state_path_exists = Path(payload["state_path"]).is_file()
+            finally:
+                agent_basics_ov.find_ov_bin = original_find_ov_bin
+                agent_basics_ov.run_command = original_run_command
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(state_path_exists)
+        self.assertEqual(payload["state"]["method"], "write")
+        self.assertEqual(payload["state"]["ok"], True)
+        self.assertEqual(staleness["stale_count"], 0)
+        self.assertIn("write", [command[1] for command in commands])
+
     def test_ov_record_dry_run_two_repos_have_distinct_source_paths_and_targets(self) -> None:
         payload_a = agent_basics_ov.ov_record_payload(
             Path("/tmp/Agent"),
@@ -998,8 +1161,8 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
                     provider_base=None,
                     lmstudio_base=None,
                     api_key=None,
-                    chat_model=agent_basics_ov.DEFAULT_CHAT_MODEL,
-                    embedding_model=agent_basics_ov.DEFAULT_EMBEDDING_MODEL,
+                    chat_model=agent_basics_ov.DEFAULT_OLLAMA_CHAT_MODEL,
+                    embedding_model=agent_basics_ov.DEFAULT_OLLAMA_EMBEDDING_MODEL,
                     embedding_dimension=768,
                     vlm_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
                     server_url="http://127.0.0.1:1933",

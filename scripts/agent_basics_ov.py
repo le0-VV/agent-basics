@@ -23,9 +23,33 @@ from typing import Any
 DEFAULT_OLLAMA_BASE = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_API_KEY = "ollama"
 DEFAULT_LM_STUDIO_BASE = "http://127.0.0.1:1234"
-DEFAULT_CHAT_MODEL = "gemma4:e2b"
-DEFAULT_EMBEDDING_MODEL = "embeddinggemma:latest"
-DEFAULT_RUNTIME_PROVIDER = "ollama"
+DEFAULT_MLX_BASE = "http://127.0.0.1:18080"
+DEFAULT_MLX_API_KEY = "agent-basics"
+DEFAULT_MLX_HOME = Path.home() / ".agent-basics" / "mlx"
+DEFAULT_MLX_VENV = DEFAULT_MLX_HOME / "venv"
+DEFAULT_MLX_SERVER_SCRIPT = DEFAULT_MLX_HOME / "agent-basics-mlx-server.py"
+DEFAULT_MLX_CHAT_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
+DEFAULT_MLX_EMBEDDING_MODEL = "mlx-community/embeddinggemma-300m-4bit"
+DEFAULT_MLX_PORT = 18080
+DEFAULT_MLX_SERVICE_LABEL = "com.agent-basics.mlx-runtime"
+DEFAULT_MLX_SERVICE_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{DEFAULT_MLX_SERVICE_LABEL}.plist"
+DEFAULT_MLX_MIN_MEMORY_GB = 16.0
+DEFAULT_MLX_UNLOAD_IDLE_SECONDS = 0
+DEFAULT_MLX_PRELOAD_MODE = "all"
+DEFAULT_MLX_STARTUP_STRUCTURED_OUTPUT_CHECK = "openviking-router"
+DEFAULT_MLX_PYTHON = "3.12"
+DEFAULT_MLX_PACKAGES = [
+    "fastapi",
+    "uvicorn[standard]",
+    "huggingface-hub",
+    "mlx-vlm",
+    "mlx-embeddings",
+]
+DEFAULT_OLLAMA_CHAT_MODEL = "gemma4:e2b"
+DEFAULT_OLLAMA_EMBEDDING_MODEL = "embeddinggemma:latest"
+DEFAULT_CHAT_MODEL = DEFAULT_MLX_CHAT_MODEL
+DEFAULT_EMBEDDING_MODEL = DEFAULT_MLX_EMBEDDING_MODEL
+DEFAULT_RUNTIME_PROVIDER = "mlx"
 DEFAULT_LMSTUDIO_CHAT_MODEL = "google/gemma-4-e2b"
 DEFAULT_LMSTUDIO_EMBEDDING_MODEL = "text-embedding-embeddinggemma-300m-qat"
 DEFAULT_OV_HOME = Path.home() / ".openviking"
@@ -735,6 +759,46 @@ def shutil_which(name: str) -> str | None:
     return None
 
 
+def provider_default_base(provider: str) -> str:
+    if provider == "mlx":
+        return DEFAULT_MLX_BASE
+    if provider == "ollama":
+        return DEFAULT_OLLAMA_BASE
+    if provider == "lmstudio":
+        return DEFAULT_LM_STUDIO_BASE
+    return DEFAULT_MLX_BASE
+
+
+def provider_default_api_key(provider: str) -> str:
+    if provider == "mlx":
+        return DEFAULT_MLX_API_KEY
+    if provider == "ollama":
+        return DEFAULT_OLLAMA_API_KEY
+    if provider == "lmstudio":
+        return "lm-studio"
+    return DEFAULT_MLX_API_KEY
+
+
+def provider_default_chat_model(provider: str) -> str:
+    if provider == "mlx":
+        return DEFAULT_MLX_CHAT_MODEL
+    if provider == "ollama":
+        return DEFAULT_OLLAMA_CHAT_MODEL
+    if provider == "lmstudio":
+        return DEFAULT_LMSTUDIO_CHAT_MODEL
+    return DEFAULT_CHAT_MODEL
+
+
+def provider_default_embedding_model(provider: str) -> str:
+    if provider == "mlx":
+        return DEFAULT_MLX_EMBEDDING_MODEL
+    if provider == "ollama":
+        return DEFAULT_OLLAMA_EMBEDDING_MODEL
+    if provider == "lmstudio":
+        return DEFAULT_LMSTUDIO_EMBEDDING_MODEL
+    return DEFAULT_EMBEDDING_MODEL
+
+
 def command_ov_write_default_config(args: argparse.Namespace) -> int:
     path = Path(args.config).expanduser()
     home = Path(args.home).expanduser()
@@ -745,16 +809,18 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
         getattr(args, "base_url", None)
         or getattr(args, "provider_base", None)
         or getattr(args, "lmstudio_base", None)
-        or (DEFAULT_LM_STUDIO_BASE if provider == "lmstudio" else DEFAULT_OLLAMA_BASE)
+        or provider_default_base(provider)
     ).rstrip("/")
-    api_key = getattr(args, "api_key", None) or (DEFAULT_OLLAMA_API_KEY if provider == "ollama" else "lm-studio")
+    api_key = getattr(args, "api_key", None) or provider_default_api_key(provider)
+    chat_model = getattr(args, "chat_model", None) or provider_default_chat_model(provider)
+    embedding_model = getattr(args, "embedding_model", None) or provider_default_embedding_model(provider)
     config_payload = {
         "storage": {"workspace": str(Path(args.home).expanduser() / "workspace")},
         "log": {"level": "INFO", "output": "stdout"},
         "embedding": {
             "dense": {
                 "provider": "openai",
-                "model": args.embedding_model,
+                "model": embedding_model,
                 "api_key": api_key,
                 "api_base": f"{base_url}/v1",
                 "dimension": args.embedding_dimension,
@@ -765,7 +831,7 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
         },
         "vlm": {
             "provider": "openai",
-            "model": args.chat_model,
+            "model": chat_model,
             "api_key": api_key,
             "api_base": f"{base_url}/v1",
             "max_concurrent": 1,
@@ -878,12 +944,52 @@ def ov_bootstrap_lmstudio_args(args: argparse.Namespace, *, dry_run: bool) -> ar
 def ov_bootstrap_ollama_args(args: argparse.Namespace, *, dry_run: bool) -> argparse.Namespace:
     return argparse.Namespace(
         base_url=getattr(args, "base_url", None) or getattr(args, "provider_base", None) or DEFAULT_OLLAMA_BASE,
-        model=getattr(args, "chat_model", DEFAULT_CHAT_MODEL),
-        embedding_model=getattr(args, "embedding_model", DEFAULT_EMBEDDING_MODEL),
+        model=getattr(args, "ollama_chat_model", None) or DEFAULT_OLLAMA_CHAT_MODEL,
+        embedding_model=getattr(args, "ollama_embedding_model", None) or DEFAULT_OLLAMA_EMBEDDING_MODEL,
         pull_model=[],
         install=getattr(args, "ollama_install", "auto"),
         pull=getattr(args, "ollama_pull", "auto"),
         timeout=getattr(args, "ollama_timeout", 5),
+        dry_run=dry_run,
+    )
+
+
+def ov_bootstrap_mlx_args(args: argparse.Namespace, *, dry_run: bool) -> argparse.Namespace:
+    return argparse.Namespace(
+        base_url=getattr(args, "base_url", None) or getattr(args, "provider_base", None) or DEFAULT_MLX_BASE,
+        home=getattr(args, "mlx_home", str(DEFAULT_MLX_HOME)),
+        python=getattr(args, "mlx_python", DEFAULT_MLX_PYTHON),
+        package=list(getattr(args, "mlx_package", None) or DEFAULT_MLX_PACKAGES),
+        chat_model=getattr(args, "chat_model", None) or DEFAULT_MLX_CHAT_MODEL,
+        embedding_model=getattr(args, "embedding_model", None) or DEFAULT_MLX_EMBEDDING_MODEL,
+        model=[],
+        host=getattr(args, "mlx_host", "127.0.0.1"),
+        port=getattr(args, "mlx_port", DEFAULT_MLX_PORT),
+        label=getattr(args, "mlx_label", DEFAULT_MLX_SERVICE_LABEL),
+        plist=getattr(args, "mlx_plist", None),
+        server_script=getattr(args, "mlx_server_script", str(DEFAULT_MLX_SERVER_SCRIPT)),
+        source=getattr(args, "mlx_source", None),
+        min_memory_gb=getattr(args, "mlx_min_memory_gb", DEFAULT_MLX_MIN_MEMORY_GB),
+        allow_non_macos=False,
+        force_hardware=getattr(args, "mlx_force_hardware", False),
+        install=getattr(args, "mlx_install", "auto"),
+        pull=getattr(args, "mlx_pull", "auto"),
+        service=getattr(args, "mlx_service", "auto"),
+        timeout=getattr(args, "mlx_timeout", 5),
+        service_timeout=getattr(args, "service_timeout", DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS),
+        wait_server_seconds=getattr(args, "mlx_wait_server_seconds", 15),
+        force_install=False,
+        force_server=False,
+        force_service=False,
+        no_load=getattr(args, "no_load", False),
+        unload_idle_seconds=getattr(args, "mlx_unload_idle_seconds", DEFAULT_MLX_UNLOAD_IDLE_SECONDS),
+        preload_models=getattr(args, "mlx_preload_models", DEFAULT_MLX_PRELOAD_MODE),
+        startup_structured_output_check=getattr(
+            args,
+            "mlx_startup_structured_output_check",
+            DEFAULT_MLX_STARTUP_STRUCTURED_OUTPUT_CHECK,
+        ),
+        best_effort=getattr(args, "mlx_best_effort", False),
         dry_run=dry_run,
     )
 
@@ -894,6 +1000,8 @@ def ov_runtime_plan_payload(args: argparse.Namespace, *, dry_run: bool) -> dict[
         runtime = "lmstudio"
     if runtime == "none":
         return {"ok": True, "changed": False, "skipped": True, "provider": "none"}
+    if runtime == "mlx":
+        return command_payload_from_handler(command_mlx_bootstrap, ov_bootstrap_mlx_args(args, dry_run=dry_run))
     if runtime == "ollama":
         return command_payload_from_handler(command_ollama_bootstrap, ov_bootstrap_ollama_args(args, dry_run=dry_run))
     if runtime == "lmstudio":
@@ -1405,6 +1513,52 @@ def write_ov_import_state(repo: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload["updated"] = int(time.time())
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def update_ov_import_state_entry(
+    repo: Path,
+    *,
+    kind: str,
+    method: str,
+    source_path: Path,
+    target: str,
+    digest: str,
+    ok: bool,
+    command_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    state = load_ov_import_state(repo)
+    imports = state.setdefault("imports", {})
+    rel = source_path.relative_to(repo).as_posix()
+    entry: dict[str, Any] = {
+        "kind": kind,
+        "method": method,
+        "path": rel,
+        "target": target,
+        "sha256": digest,
+        "ok": ok,
+        "skipped": False,
+        "imported_at": int(time.time()) if ok else None,
+    }
+    if command_result is not None:
+        entry["returncode"] = command_result.get("returncode")
+        if not ok:
+            entry["stdout"] = command_result.get("stdout")
+            entry["stderr"] = command_result.get("stderr")
+        for key in ["busy_retries", "verified_existing", "already_exists", "previous_error"]:
+            if key in command_result:
+                entry[key] = command_result[key]
+    imports[rel] = entry
+    state.update(
+        {
+            "version": 1,
+            "repo": str(repo),
+            "target": ov_repo_resource_root(repo),
+            "memory_target": DEFAULT_OV_MEMORY_TARGET,
+            "last_import": int(time.time()),
+        }
+    )
+    write_ov_import_state(repo, state)
+    return entry
 
 
 def ov_memory_content(repo: Path, path: Path) -> str:
@@ -1992,14 +2146,27 @@ def ov_record_payload(
         if wait:
             replace_command.extend(["--wait", "--timeout", str(timeout)])
         result = run_command_retry_busy(replace_command, retries=120, delay=5)
+    ok = bool(result.get("ok"))
+    state_entry = update_ov_import_state_entry(
+        repo,
+        kind="memory",
+        method="write",
+        source_path=source_path,
+        target=target,
+        digest=sha256_text(markdown),
+        ok=ok,
+        command_result=result,
+    )
     return {
-        "ok": bool(result.get("ok")),
+        "ok": ok,
         "repo": str(repo),
         "repo_slug": ov_repo_slug(repo),
         "category": category,
         "source_path": str(source_path),
         "target": target,
         "parents": parent_results,
+        "state": state_entry,
+        "state_path": str(ov_import_state_path(repo)),
         "write": result,
     }
 
@@ -2206,8 +2373,9 @@ def ov_status_payload(
     online: bool = True,
     providers: bool = False,
     provider: str = DEFAULT_RUNTIME_PROVIDER,
-    base_url: str = DEFAULT_OLLAMA_BASE,
+    base_url: str | None = None,
 ) -> dict[str, Any]:
+    base_url = (base_url or provider_default_base(provider)).rstrip("/")
     ov_bin = find_ov_bin()
     ov_config = Path(os.environ.get("AGENT_BASICS_OV_CONFIG", str(DEFAULT_OV_CONFIG))).expanduser()
     ov_cli_config = Path(os.environ.get("AGENT_BASICS_OV_CLI_CONFIG", str(DEFAULT_OV_CLI_CONFIG))).expanduser()
@@ -2259,12 +2427,23 @@ def ov_status_payload(
             }
             payload["ok"] = bool(health.get("ok")) and bool(status.get("ok"))
     if providers:
-        if provider == "lmstudio":
+        if provider == "mlx":
+            payload["mlx"] = mlx_status_payload(
+                base_url,
+                chat_model=provider_default_chat_model("mlx"),
+                embedding_model=provider_default_embedding_model("mlx"),
+                timeout=5,
+            )
+            payload["ok"] = bool(payload["ok"]) and bool(payload["mlx"].get("ok"))
+        elif provider == "lmstudio":
             payload["lmstudio"] = lmstudio_status_payload(base_url, timeout=5)
             payload["ok"] = bool(payload["ok"]) and bool(payload["lmstudio"].get("ok"))
-        else:
+        elif provider == "ollama":
             payload["ollama"] = ollama_status_payload(base_url, timeout=5)
             payload["ok"] = bool(payload["ok"]) and bool(payload["ollama"].get("ok"))
+        else:
+            payload["ok"] = False
+            payload["provider_error"] = f"unsupported provider: {provider}"
     if not ov_bin:
         payload["recommendation"] = "Run `agent-basics ov install-system` or install OpenViking under ~/.openviking."
     return payload
@@ -2870,6 +3049,643 @@ def command_ollama_bootstrap(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def mlx_python(home: Path) -> Path:
+    return home / "venv" / "bin" / "python"
+
+
+def mlx_models_from_args(args: argparse.Namespace) -> list[str]:
+    values = list(getattr(args, "model", None) or [])
+    if values:
+        return list(dict.fromkeys(values))
+    return [
+        getattr(args, "chat_model", None) or DEFAULT_MLX_CHAT_MODEL,
+        getattr(args, "embedding_model", None) or DEFAULT_MLX_EMBEDDING_MODEL,
+    ]
+
+
+def mlx_source_server_script(override: str | None = None) -> Path | None:
+    candidates = []
+    if override:
+        candidates.append(Path(override).expanduser())
+    env_value = os.environ.get("AGENT_BASICS_MLX_SERVER")
+    if env_value:
+        candidates.append(Path(env_value).expanduser())
+    helper = Path(__file__).resolve()
+    candidates.extend(
+        [
+            helper.with_name("agent_basics_mlx_server.py"),
+            helper.with_name("agent-basics-mlx-server.py"),
+            helper.parent.parent / "scripts" / "agent_basics_mlx_server.py",
+        ]
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def mlx_status_payload(
+    base_url: str,
+    *,
+    chat_model: str = DEFAULT_MLX_CHAT_MODEL,
+    embedding_model: str = DEFAULT_MLX_EMBEDDING_MODEL,
+    timeout: float | None = 5,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "base_url": base_url,
+        "chat_model": chat_model,
+        "embedding_model": embedding_model,
+    }
+    health = None
+    try:
+        health = http_json(base_url, "/health", timeout=timeout)
+    except Exception as exc:
+        health = {"ok": False, "error": str(exc)}
+    try:
+        openai_models = http_json(base_url, "/v1/models", timeout=timeout)
+    except Exception as exc:
+        payload.update({"ok": False, "health": health, "error": str(exc)})
+        return payload
+    openai_model_items = openai_models.get("data", [])
+    model_ids = {
+        item.get("id") for item in openai_model_items if isinstance(item, dict) and item.get("id")
+    }
+    payload.update(
+        {
+            "ok": True,
+            "health": health,
+            "openai_models": openai_model_items,
+            "model_ids": sorted(model_ids),
+            "chat_available": chat_model in model_ids,
+            "embedding_available": embedding_model in model_ids,
+        }
+    )
+    return payload
+
+
+def command_mlx_status(args: argparse.Namespace) -> int:
+    payload = mlx_status_payload(
+        args.base_url,
+        chat_model=args.chat_model,
+        embedding_model=args.embedding_model,
+        timeout=args.timeout,
+    )
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def mlx_install_payload(args: argparse.Namespace) -> dict[str, Any]:
+    home = Path(getattr(args, "home", DEFAULT_MLX_HOME)).expanduser()
+    venv = home / "venv"
+    python_bin = mlx_python(home)
+    force = bool(getattr(args, "force", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    packages = list(getattr(args, "package", None) or DEFAULT_MLX_PACKAGES)
+    needed = force or not python_bin.exists()
+    payload: dict[str, Any] = {
+        "ok": True,
+        "changed": False,
+        "home": str(home),
+        "venv": str(venv),
+        "python": str(python_bin),
+        "packages": packages,
+        "needed": needed,
+    }
+    if not needed:
+        payload["message"] = "MLX runtime venv already exists"
+        return payload
+    uv = shutil_which("uv")
+    if not uv:
+        payload.update({"ok": False, "error": "uv is required to install the MLX runtime"})
+        return payload
+    commands = [
+        [uv, "venv", "--python", getattr(args, "python", DEFAULT_MLX_PYTHON), str(venv)],
+        [uv, "pip", "install", "--python", str(python_bin), *packages],
+    ]
+    payload["commands"] = commands
+    if dry_run:
+        payload.update({"ok": True, "changed": True, "dry_run": True})
+        return payload
+    home.mkdir(parents=True, exist_ok=True)
+    steps = [run_command(command, timeout=None) for command in commands]
+    payload["steps"] = steps
+    payload["ok"] = all(step.get("ok") for step in steps)
+    payload["changed"] = bool(payload["ok"])
+    return payload
+
+
+def command_mlx_install(args: argparse.Namespace) -> int:
+    payload = mlx_install_payload(args)
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def mlx_write_server_payload(args: argparse.Namespace) -> dict[str, Any]:
+    home = Path(getattr(args, "home", DEFAULT_MLX_HOME)).expanduser()
+    target = Path(getattr(args, "server_script", DEFAULT_MLX_SERVER_SCRIPT)).expanduser()
+    source = mlx_source_server_script(getattr(args, "source", None))
+    payload: dict[str, Any] = {
+        "ok": True,
+        "home": str(home),
+        "target": str(target),
+        "source": str(source) if source else None,
+    }
+    if source is None:
+        payload.update({"ok": False, "changed": False, "error": "agent-basics MLX server source script was not found"})
+        return payload
+    source_text = source.read_text(encoding="utf-8")
+    current_text = target.read_text(encoding="utf-8") if target.exists() else None
+    changed = bool(getattr(args, "force", False) or current_text != source_text)
+    payload["changed"] = changed
+    if getattr(args, "dry_run", False):
+        payload["dry_run"] = True
+        return payload
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if changed:
+        target.write_text(source_text, encoding="utf-8")
+        target.chmod(0o755)
+    return payload
+
+
+def command_mlx_write_server(args: argparse.Namespace) -> int:
+    payload = mlx_write_server_payload(args)
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def mlx_pull_payload(args: argparse.Namespace, *, status: dict[str, Any] | None = None) -> dict[str, Any]:
+    home = Path(getattr(args, "home", DEFAULT_MLX_HOME)).expanduser()
+    python_bin = mlx_python(home)
+    models = mlx_models_from_args(args)
+    dry_run = bool(getattr(args, "dry_run", False))
+    hf_home = home / "huggingface"
+    payload: dict[str, Any] = {
+        "ok": True,
+        "changed": False,
+        "home": str(home),
+        "hf_home": str(hf_home),
+        "models": models,
+        "python": str(python_bin),
+        "dry_run": dry_run,
+    }
+    if not python_bin.exists() and not dry_run:
+        payload.update({"ok": False, "error": "MLX runtime venv is missing; run `agent-basics mlx install` first"})
+        return payload
+    code = (
+        "import os, sys\n"
+        "os.environ.setdefault('HF_HOME', sys.argv[2])\n"
+        "from huggingface_hub import snapshot_download\n"
+        "snapshot_download(sys.argv[1])\n"
+    )
+    results = []
+    for model in models:
+        command = [str(python_bin), "-c", code, model, str(hf_home)]
+        if dry_run:
+            results.append({"model": model, "ok": True, "changed": True, "command": command, "dry_run": True})
+            payload["changed"] = True
+            continue
+        result = run_command(command, timeout=None)
+        results.append({"model": model, "ok": result.get("ok"), "changed": result.get("ok"), "result": result})
+        payload["changed"] = bool(payload["changed"]) or bool(result.get("ok"))
+        payload["ok"] = bool(payload["ok"]) and bool(result.get("ok"))
+    payload["results"] = results
+    return payload
+
+
+def command_mlx_pull(args: argparse.Namespace) -> int:
+    payload = mlx_pull_payload(args)
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def mlx_service_plist_path(label: str) -> Path:
+    if label == DEFAULT_MLX_SERVICE_LABEL:
+        return DEFAULT_MLX_SERVICE_PLIST
+    return Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
+
+
+def mlx_service_plist_payload(
+    *,
+    label: str,
+    home: Path,
+    python_bin: Path,
+    server_script: Path,
+    host: str,
+    port: int,
+    chat_model: str,
+    embedding_model: str,
+    no_proxy: str,
+    hf_home: Path,
+    unload_idle_seconds: int,
+    preload_models: str,
+    startup_structured_output_check: str,
+) -> dict[str, Any]:
+    logs = home / "logs"
+    return {
+        "Label": label,
+        "ProgramArguments": [
+            str(python_bin),
+            str(server_script),
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--chat-model",
+            chat_model,
+            "--embedding-model",
+            embedding_model,
+            "--unload-idle-seconds",
+            str(unload_idle_seconds),
+            "--preload-models",
+            preload_models,
+            "--startup-structured-output-check",
+            startup_structured_output_check,
+        ],
+        "WorkingDirectory": str(home),
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "ProcessType": "Background",
+        "StandardOutPath": str(logs / "mlx-runtime.out.log"),
+        "StandardErrorPath": str(logs / "mlx-runtime.err.log"),
+        "EnvironmentVariables": {
+            "HF_HOME": str(hf_home),
+            "NO_PROXY": no_proxy,
+            "no_proxy": no_proxy,
+        },
+    }
+
+
+def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
+    action = getattr(args, "service_action", "install")
+    home = Path(getattr(args, "home", DEFAULT_MLX_HOME)).expanduser()
+    label = getattr(args, "label", DEFAULT_MLX_SERVICE_LABEL) or DEFAULT_MLX_SERVICE_LABEL
+    python_bin = Path(getattr(args, "python_bin", None) or mlx_python(home)).expanduser()
+    server_script = Path(getattr(args, "server_script", DEFAULT_MLX_SERVER_SCRIPT)).expanduser()
+    host = getattr(args, "host", "127.0.0.1")
+    port = int(getattr(args, "port", DEFAULT_MLX_PORT))
+    chat_model = getattr(args, "chat_model", DEFAULT_MLX_CHAT_MODEL)
+    embedding_model = getattr(args, "embedding_model", DEFAULT_MLX_EMBEDDING_MODEL)
+    unload_idle_seconds = int(getattr(args, "unload_idle_seconds", DEFAULT_MLX_UNLOAD_IDLE_SECONDS))
+    preload_models = getattr(args, "preload_models", DEFAULT_MLX_PRELOAD_MODE)
+    startup_structured_output_check = getattr(
+        args,
+        "startup_structured_output_check",
+        DEFAULT_MLX_STARTUP_STRUCTURED_OUTPUT_CHECK,
+    )
+    plist_path = Path(getattr(args, "plist", None)).expanduser() if getattr(args, "plist", None) else mlx_service_plist_path(label)
+    hf_home = home / "huggingface"
+    no_proxy = merge_no_proxy(os.environ.get("NO_PROXY") or os.environ.get("no_proxy", ""))
+    plist_payload = mlx_service_plist_payload(
+        label=label,
+        home=home,
+        python_bin=python_bin,
+        server_script=server_script,
+        host=host,
+        port=port,
+        chat_model=chat_model,
+        embedding_model=embedding_model,
+        no_proxy=no_proxy,
+        hf_home=hf_home,
+        unload_idle_seconds=unload_idle_seconds,
+        preload_models=preload_models,
+        startup_structured_output_check=startup_structured_output_check,
+    )
+    plist_text = ov_service_plist_text(plist_payload)
+    changed = ov_service_changed(plist_path, plist_text)
+    domain = ov_service_domain()
+    target = ov_service_target(label)
+    timeout = getattr(args, "timeout", DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
+    install_commands = [
+        ["launchctl", "bootstrap", domain, str(plist_path)],
+        ["launchctl", "enable", target],
+        ["launchctl", "kickstart", "-k", target],
+    ]
+    payload: dict[str, Any] = {
+        "ok": True,
+        "action": action,
+        "home": str(home),
+        "label": label,
+        "target": target,
+        "plist": str(plist_path),
+        "python": str(python_bin),
+        "server_script": str(server_script),
+        "base_url": f"http://{host}:{port}",
+        "chat_model": chat_model,
+        "embedding_model": embedding_model,
+        "preload_models": preload_models,
+        "startup_structured_output_check": startup_structured_output_check,
+        "plist_payload": plist_payload,
+        "would_change_plist": changed,
+    }
+
+    if action == "status":
+        command = ["launchctl", "print", target]
+        payload["commands"] = [command]
+        if getattr(args, "dry_run", False):
+            payload["dry_run"] = True
+            return payload
+        result = run_command(command, timeout=timeout)
+        payload["steps"] = [result]
+        payload["ok"] = bool(result.get("ok"))
+        return payload
+
+    if action == "start":
+        command = ["launchctl", "kickstart", "-k", target]
+        payload["commands"] = [command]
+        if getattr(args, "dry_run", False):
+            payload["dry_run"] = True
+            return payload
+        result = run_command(command, timeout=timeout)
+        payload["steps"] = [result]
+        payload["ok"] = bool(result.get("ok"))
+        return payload
+
+    if action == "stop":
+        command = ["launchctl", "bootout", target]
+        payload["commands"] = [command]
+        if getattr(args, "dry_run", False):
+            payload["dry_run"] = True
+            return payload
+        result = run_command(command, timeout=timeout)
+        payload["steps"] = [result]
+        payload["ok"] = bool(result.get("ok"))
+        return payload
+
+    if action == "uninstall":
+        payload["commands"] = [["launchctl", "bootout", target]]
+        if getattr(args, "dry_run", False):
+            payload["dry_run"] = True
+            return payload
+        steps = [run_command(["launchctl", "bootout", target], timeout=timeout)]
+        if plist_path.exists():
+            plist_path.unlink()
+            payload["removed_plist"] = True
+        payload["steps"] = steps
+        payload["ok"] = True
+        return payload
+
+    if action not in {"install", "restart"}:
+        return {"ok": False, "error": f"unsupported MLX service action: {action}"}
+
+    payload["commands"] = install_commands if action == "restart" else [["launchctl", "print", target], *install_commands]
+    if getattr(args, "dry_run", False):
+        payload["dry_run"] = True
+        return payload
+    if platform.system() != "Darwin":
+        payload.update({"ok": False, "error": "MLX service management requires macOS launchctl"})
+        return payload
+    if not python_bin.exists() or not os.access(python_bin, os.X_OK):
+        payload.update({"ok": False, "error": "MLX runtime Python is not executable"})
+        return payload
+    if not server_script.exists() or not os.access(server_script, os.X_OK):
+        payload.update({"ok": False, "error": "agent-basics MLX server script is not executable"})
+        return payload
+
+    backup = None
+    try:
+        home.mkdir(parents=True, exist_ok=True)
+        (home / "logs").mkdir(parents=True, exist_ok=True)
+        hf_home.mkdir(parents=True, exist_ok=True)
+        plist_path.parent.mkdir(parents=True, exist_ok=True)
+        if changed:
+            if plist_path.exists():
+                backup = plist_path.with_name(f"{plist_path.name}.bak.{int(time.time())}")
+                backup.write_text(plist_path.read_text(encoding="utf-8"), encoding="utf-8")
+            plist_path.write_text(plist_text, encoding="utf-8")
+    except OSError as exc:
+        payload.update(
+            {
+                "ok": False,
+                "changed": False,
+                "error": f"failed to write MLX service files: {exc}",
+                "exception_type": type(exc).__name__,
+            }
+        )
+        return payload
+
+    if getattr(args, "no_load", False):
+        payload.update({"changed": changed, "backup": str(backup) if backup else None, "loaded": False, "no_load": True})
+        return payload
+
+    steps = []
+    if action == "restart":
+        bootout = run_command(["launchctl", "bootout", target], timeout=timeout)
+        bootout["optional"] = True
+        steps.append(bootout)
+        steps.extend(run_command(command, timeout=timeout) for command in install_commands)
+    else:
+        status = run_command(["launchctl", "print", target], timeout=timeout)
+        status["optional"] = True
+        steps.append(status)
+        if status["ok"] and not changed and not getattr(args, "force", False):
+            steps.append(run_command(["launchctl", "kickstart", "-k", target], timeout=timeout))
+        else:
+            if status["ok"]:
+                bootout = run_command(["launchctl", "bootout", target], timeout=timeout)
+                bootout["optional"] = True
+                steps.append(bootout)
+            steps.extend(run_command(command, timeout=timeout) for command in install_commands)
+
+    required_steps = [step for step in steps if not step.get("optional")]
+    payload.update(
+        {
+            "changed": changed,
+            "backup": str(backup) if backup else None,
+            "loaded": bool(required_steps and all(step["ok"] for step in required_steps)),
+            "steps": steps,
+            "ok": all(step["ok"] for step in required_steps),
+        }
+    )
+    return payload
+
+
+def command_mlx_service(args: argparse.Namespace) -> int:
+    payload = mlx_service_payload(args)
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def mlx_wait_server_payload(base_url: str, *, timeout: float, wait_seconds: float) -> dict[str, Any]:
+    deadline = time.time() + max(wait_seconds, 0)
+    attempts = []
+    while True:
+        status = mlx_status_payload(base_url, timeout=timeout)
+        attempts.append({"ok": status.get("ok"), **({"error": status.get("error")} if status.get("error") else {})})
+        if status.get("ok") or time.time() >= deadline:
+            return {"ok": bool(status.get("ok")), "attempts": attempts, "status": status, "wait_seconds": wait_seconds}
+        time.sleep(min(1.0, max(0.1, deadline - time.time())))
+
+
+def command_mlx_bootstrap(args: argparse.Namespace) -> int:
+    hardware = hardware_payload()
+    gate = lmstudio_hardware_gate_payload(
+        hardware,
+        min_memory_gb=float(getattr(args, "min_memory_gb", DEFAULT_MLX_MIN_MEMORY_GB)),
+        require_macos=not getattr(args, "allow_non_macos", False),
+    )
+    force_hardware = bool(getattr(args, "force_hardware", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    best_effort = bool(getattr(args, "best_effort", False))
+    if not gate["ok"] and not force_hardware:
+        print_json(
+            {
+                "ok": True,
+                "changed": False,
+                "skipped": True,
+                "reason": "host hardware is below the MLX local-runtime threshold",
+                "hardware_gate": gate,
+                "hardware": hardware,
+            }
+        )
+        return 0
+
+    home = Path(getattr(args, "home", DEFAULT_MLX_HOME)).expanduser()
+    base_url = getattr(args, "base_url", DEFAULT_MLX_BASE)
+    install_mode = getattr(args, "install", "auto")
+    service_mode = getattr(args, "service", "auto")
+    pull_mode = getattr(args, "pull", "auto")
+    service_enabled = service_mode == "always" or (service_mode == "auto" and platform.system() == "Darwin")
+    steps: list[dict[str, Any]] = []
+    ok = True
+
+    def add_step(name: str, payload: dict[str, Any]) -> None:
+        nonlocal ok
+        item = {"name": name, "payload": payload}
+        if not payload.get("ok"):
+            item["best_effort_ignored_failure"] = best_effort
+            ok = ok and best_effort
+        steps.append(item)
+
+    install_needed = bool(getattr(args, "force_install", False) or not mlx_python(home).exists())
+    if mode_is_enabled(install_mode, needed=install_needed):
+        add_step("install runtime", mlx_install_payload(args))
+    else:
+        steps.append({"name": "install runtime", "payload": {"ok": True, "changed": False, "skipped": True, "mode": install_mode}})
+
+    add_step(
+        "write server",
+        mlx_write_server_payload(
+            argparse.Namespace(
+                home=str(home),
+                server_script=getattr(args, "server_script", str(DEFAULT_MLX_SERVER_SCRIPT)),
+                source=getattr(args, "source", None),
+                force=getattr(args, "force_server", False),
+                dry_run=dry_run,
+            )
+        ),
+    )
+
+    if mode_is_enabled(pull_mode, needed=True):
+        add_step("pull models", mlx_pull_payload(args))
+    else:
+        steps.append({"name": "pull models", "payload": {"ok": True, "changed": False, "skipped": True, "mode": pull_mode}})
+
+    if service_enabled:
+        add_step(
+            "service install",
+            mlx_service_payload(
+                argparse.Namespace(
+                    service_action="install",
+                    home=str(home),
+                    python_bin=str(mlx_python(home)),
+                    server_script=getattr(args, "server_script", str(DEFAULT_MLX_SERVER_SCRIPT)),
+                    host=getattr(args, "host", "127.0.0.1"),
+                    port=getattr(args, "port", DEFAULT_MLX_PORT),
+                    chat_model=getattr(args, "chat_model", DEFAULT_MLX_CHAT_MODEL),
+                    embedding_model=getattr(args, "embedding_model", DEFAULT_MLX_EMBEDDING_MODEL),
+                    unload_idle_seconds=getattr(args, "unload_idle_seconds", DEFAULT_MLX_UNLOAD_IDLE_SECONDS),
+                    preload_models=getattr(args, "preload_models", DEFAULT_MLX_PRELOAD_MODE),
+                    startup_structured_output_check=getattr(
+                        args,
+                        "startup_structured_output_check",
+                        DEFAULT_MLX_STARTUP_STRUCTURED_OUTPUT_CHECK,
+                    ),
+                    label=getattr(args, "label", DEFAULT_MLX_SERVICE_LABEL),
+                    plist=getattr(args, "plist", None),
+                    timeout=getattr(args, "service_timeout", DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS),
+                    dry_run=dry_run,
+                    force=getattr(args, "force_service", False),
+                    no_load=getattr(args, "no_load", False),
+                )
+            ),
+        )
+    else:
+        steps.append({"name": "service install", "payload": {"ok": True, "changed": False, "skipped": True, "mode": service_mode}})
+
+    if not dry_run and not getattr(args, "no_load", False) and service_enabled:
+        add_step(
+            "wait server",
+            mlx_wait_server_payload(
+                base_url,
+                timeout=getattr(args, "timeout", 5),
+                wait_seconds=getattr(args, "wait_server_seconds", 15),
+            ),
+        )
+
+    print_json(
+        {
+            "ok": ok,
+            "changed": any(bool(step["payload"].get("changed")) for step in steps),
+            "dry_run": dry_run,
+            "best_effort": best_effort,
+            "provider": "mlx",
+            "base_url": base_url,
+            "hardware_gate": gate,
+            "hardware": hardware,
+            "steps": steps,
+        }
+    )
+    return 0 if ok else 1
+
+
+def command_mlx_server(args: argparse.Namespace) -> int:
+    home = Path(getattr(args, "home", DEFAULT_MLX_HOME)).expanduser()
+    server_script = Path(getattr(args, "server_script", DEFAULT_MLX_SERVER_SCRIPT)).expanduser()
+    python_bin = Path(getattr(args, "python_bin", None) or mlx_python(home)).expanduser()
+    command = [
+        str(python_bin),
+        str(server_script),
+        "--host",
+        args.host,
+        "--port",
+        str(args.port),
+        "--chat-model",
+        args.chat_model,
+        "--embedding-model",
+        args.embedding_model,
+        "--unload-idle-seconds",
+        str(args.unload_idle_seconds),
+        "--preload-models",
+        args.preload_models,
+        "--startup-structured-output-check",
+        args.startup_structured_output_check,
+    ]
+    payload = {
+        "ok": True,
+        "command": command,
+        "home": str(home),
+        "server_script": str(server_script),
+        "python": str(python_bin),
+        "foreground": True,
+    }
+    if args.dry_run:
+        payload["dry_run"] = True
+        print_json(payload)
+        return 0
+    if not python_bin.exists() or not os.access(python_bin, os.X_OK):
+        print_json({"ok": False, "python": str(python_bin), "error": "MLX runtime Python is not executable"})
+        return 1
+    if not server_script.exists() or not os.access(server_script, os.X_OK):
+        print_json({"ok": False, "server_script": str(server_script), "error": "agent-basics MLX server script is not executable"})
+        return 1
+    env = dict(os.environ)
+    env.setdefault("HF_HOME", str(home / "huggingface"))
+    env["NO_PROXY"] = merge_no_proxy(env.get("NO_PROXY") or env.get("no_proxy", ""))
+    env["no_proxy"] = env["NO_PROXY"]
+    os.execve(str(python_bin), command, env)
+    return 1
+
+
 def command_lmstudio_status(args: argparse.Namespace) -> int:
     print_json(lmstudio_status_payload(args.base_url, timeout=args.timeout))
     return 0
@@ -2910,17 +3726,15 @@ def hardware_payload() -> dict[str, Any]:
         "system_profiler": parsed,
         "recommendation": {
             "chat_model": DEFAULT_CHAT_MODEL,
-            "context_length": 131072,
-            "gpu": {"ratio": "max"},
+            "embedding_model": DEFAULT_EMBEDDING_MODEL,
+            "runtime_provider": DEFAULT_RUNTIME_PROVIDER,
             "parallel": 1,
             "cpu_threads": min(cpu_count, 8),
-            "kv_cache_quantization": "q4_0",
-            "flash_attention": True,
             "temperature": 0,
             "notes": [
-                "Use Gemma 4 E2B as the default; E4B is not required.",
-                "Do not use the `lms` CLI from Codex on this host because it can launch the Electron app and crash.",
-                "Use LM Studio REST/OpenAI-compatible HTTP endpoints after the user starts the server.",
+                "Use the agent-basics MLX runtime as the default on Apple Silicon.",
+                "Use Gemma 4 E2B as the default chat/VLM model; E4B is not required.",
+                "Keep Ollama and LM Studio available only as fallback runtime providers.",
             ],
             "memory_gb": memory_gb,
         },
@@ -3216,7 +4030,10 @@ def lmstudio_download_models_from_args(args: argparse.Namespace) -> list[str]:
     values = list(getattr(args, "download_model", None) or [])
     if values:
         return values
-    return [getattr(args, "model", DEFAULT_CHAT_MODEL), getattr(args, "embedding_model", DEFAULT_EMBEDDING_MODEL)]
+    return [
+        getattr(args, "model", DEFAULT_LMSTUDIO_CHAT_MODEL),
+        getattr(args, "embedding_model", DEFAULT_LMSTUDIO_EMBEDDING_MODEL),
+    ]
 
 
 def lmstudio_openai_model_ids(status: dict[str, Any]) -> set[str]:
@@ -3392,8 +4209,8 @@ def command_lmstudio_bootstrap(args: argparse.Namespace) -> int:
                 argparse.Namespace(
                     base_url=getattr(args, "base_url", DEFAULT_LM_STUDIO_BASE),
                     lmstudio_home=getattr(args, "lmstudio_home", str(DEFAULT_LMSTUDIO_HOME)),
-                    model=getattr(args, "model", DEFAULT_CHAT_MODEL),
-                    embedding_model=getattr(args, "embedding_model", DEFAULT_EMBEDDING_MODEL),
+                    model=getattr(args, "model", DEFAULT_LMSTUDIO_CHAT_MODEL),
+                    embedding_model=getattr(args, "embedding_model", DEFAULT_LMSTUDIO_EMBEDDING_MODEL),
                     cpu_threads=0,
                     parallel=1,
                     context_length=0,
@@ -4609,8 +5426,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = ov_sub.add_parser("doctor")
     doctor.add_argument("--online", action="store_true")
     doctor.add_argument("--providers", action="store_true")
-    doctor.add_argument("--provider", choices=["ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
-    doctor.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
+    doctor.add_argument("--provider", choices=["mlx", "ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
+    doctor.add_argument("--base-url")
     doctor.add_argument("--timeout", type=float, default=5)
     doctor.set_defaults(func=command_ov_doctor)
 
@@ -4627,15 +5444,15 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--package", default="openviking")
     bootstrap.add_argument("--config")
     bootstrap.add_argument("--cli-config")
-    bootstrap.add_argument("--provider", choices=["ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
-    bootstrap.add_argument("--runtime", choices=["ollama", "lmstudio", "none"], default=DEFAULT_RUNTIME_PROVIDER)
+    bootstrap.add_argument("--provider", choices=["mlx", "ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
+    bootstrap.add_argument("--runtime", choices=["mlx", "ollama", "lmstudio", "none"], default=DEFAULT_RUNTIME_PROVIDER)
     bootstrap.add_argument("--runtime-best-effort", action="store_true")
     bootstrap.add_argument("--base-url")
     bootstrap.add_argument("--provider-base")
     bootstrap.add_argument("--api-key")
     bootstrap.add_argument("--lmstudio-base", default=None)
-    bootstrap.add_argument("--chat-model", default=DEFAULT_CHAT_MODEL)
-    bootstrap.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    bootstrap.add_argument("--chat-model")
+    bootstrap.add_argument("--embedding-model")
     bootstrap.add_argument("--embedding-dimension", type=int, default=768)
     bootstrap.add_argument("--vlm-timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
     bootstrap.add_argument("--server-url", default="http://127.0.0.1:1933")
@@ -4645,6 +5462,36 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--ollama-install", choices=["auto", "always", "never"], default="auto")
     bootstrap.add_argument("--ollama-pull", choices=["auto", "always", "never"], default="auto")
     bootstrap.add_argument("--ollama-timeout", type=float, default=5)
+    bootstrap.add_argument("--ollama-chat-model", default=DEFAULT_OLLAMA_CHAT_MODEL)
+    bootstrap.add_argument("--ollama-embedding-model", default=DEFAULT_OLLAMA_EMBEDDING_MODEL)
+    bootstrap.add_argument("--mlx-home", default=str(DEFAULT_MLX_HOME))
+    bootstrap.add_argument("--mlx-python", default=DEFAULT_MLX_PYTHON)
+    bootstrap.add_argument("--mlx-package", action="append")
+    bootstrap.add_argument("--mlx-install", choices=["auto", "always", "never"], default="auto")
+    bootstrap.add_argument("--mlx-pull", choices=["auto", "always", "never"], default="auto")
+    bootstrap.add_argument("--mlx-service", choices=["auto", "always", "never"], default="auto")
+    bootstrap.add_argument("--mlx-best-effort", action="store_true")
+    bootstrap.add_argument("--mlx-min-memory-gb", type=float, default=DEFAULT_MLX_MIN_MEMORY_GB)
+    bootstrap.add_argument("--mlx-force-hardware", action="store_true")
+    bootstrap.add_argument("--mlx-host", default="127.0.0.1")
+    bootstrap.add_argument("--mlx-port", type=int, default=DEFAULT_MLX_PORT)
+    bootstrap.add_argument("--mlx-label", default=DEFAULT_MLX_SERVICE_LABEL)
+    bootstrap.add_argument("--mlx-plist")
+    bootstrap.add_argument("--mlx-server-script", default=str(DEFAULT_MLX_SERVER_SCRIPT))
+    bootstrap.add_argument("--mlx-source")
+    bootstrap.add_argument("--mlx-timeout", type=float, default=5)
+    bootstrap.add_argument("--mlx-wait-server-seconds", type=float, default=15)
+    bootstrap.add_argument("--mlx-unload-idle-seconds", type=int, default=DEFAULT_MLX_UNLOAD_IDLE_SECONDS)
+    bootstrap.add_argument(
+        "--mlx-preload-models",
+        choices=["none", "chat", "embedding", "all"],
+        default=DEFAULT_MLX_PRELOAD_MODE,
+    )
+    bootstrap.add_argument(
+        "--mlx-startup-structured-output-check",
+        choices=["none", "openviking-router"],
+        default=DEFAULT_MLX_STARTUP_STRUCTURED_OUTPUT_CHECK,
+    )
     bootstrap.add_argument("--lmstudio", choices=["auto", "always", "never"], default="never")
     bootstrap.add_argument("--lmstudio-best-effort", action="store_true")
     bootstrap.add_argument("--lmstudio-min-memory-gb", type=float, default=DEFAULT_LMSTUDIO_MIN_MEMORY_GB)
@@ -4667,13 +5514,13 @@ def build_parser() -> argparse.ArgumentParser:
     config.add_argument("--config", default=str(DEFAULT_OV_CONFIG))
     config.add_argument("--cli-config", default=str(DEFAULT_OV_CLI_CONFIG))
     config.add_argument("--home", default=str(DEFAULT_OV_HOME))
-    config.add_argument("--provider", choices=["ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
+    config.add_argument("--provider", choices=["mlx", "ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
     config.add_argument("--base-url")
     config.add_argument("--provider-base")
     config.add_argument("--api-key")
     config.add_argument("--lmstudio-base", default=None)
-    config.add_argument("--chat-model", default=DEFAULT_CHAT_MODEL)
-    config.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    config.add_argument("--chat-model")
+    config.add_argument("--embedding-model")
     config.add_argument("--embedding-dimension", type=int, default=768)
     config.add_argument("--vlm-timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
     config.add_argument("--server-url", default="http://127.0.0.1:1933")
@@ -4810,23 +5657,159 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = ov_sub.add_parser("status")
     status_parser.add_argument("--offline", action="store_true")
     status_parser.add_argument("--providers", action="store_true")
-    status_parser.add_argument("--provider", choices=["ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
-    status_parser.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
+    status_parser.add_argument("--provider", choices=["mlx", "ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
+    status_parser.add_argument("--base-url")
     status_parser.set_defaults(func=command_ov_status)
+
+    mlx = subparsers.add_parser("mlx")
+    mlx_sub = mlx.add_subparsers(dest="mlx_command", required=True)
+    mlx_status = mlx_sub.add_parser("status")
+    mlx_status.add_argument("--base-url", default=DEFAULT_MLX_BASE)
+    mlx_status.add_argument("--chat-model", default=DEFAULT_MLX_CHAT_MODEL)
+    mlx_status.add_argument("--embedding-model", default=DEFAULT_MLX_EMBEDDING_MODEL)
+    mlx_status.add_argument("--timeout", type=float, default=5)
+    mlx_status.set_defaults(func=command_mlx_status)
+
+    mlx_install = mlx_sub.add_parser("install")
+    mlx_install.add_argument("--home", default=str(DEFAULT_MLX_HOME))
+    mlx_install.add_argument("--python", default=DEFAULT_MLX_PYTHON)
+    mlx_install.add_argument("--package", action="append")
+    mlx_install.add_argument("--force", action="store_true")
+    mlx_install.add_argument("--dry-run", action="store_true")
+    mlx_install.set_defaults(func=command_mlx_install)
+
+    mlx_write = mlx_sub.add_parser("write-server")
+    mlx_write.add_argument("--home", default=str(DEFAULT_MLX_HOME))
+    mlx_write.add_argument("--server-script", default=str(DEFAULT_MLX_SERVER_SCRIPT))
+    mlx_write.add_argument("--source")
+    mlx_write.add_argument("--force", action="store_true")
+    mlx_write.add_argument("--dry-run", action="store_true")
+    mlx_write.set_defaults(func=command_mlx_write_server)
+
+    mlx_pull = mlx_sub.add_parser("pull")
+    mlx_pull.add_argument("--home", default=str(DEFAULT_MLX_HOME))
+    mlx_pull.add_argument("--chat-model", default=DEFAULT_MLX_CHAT_MODEL)
+    mlx_pull.add_argument("--embedding-model", default=DEFAULT_MLX_EMBEDDING_MODEL)
+    mlx_pull.add_argument("--model", action="append")
+    mlx_pull.add_argument("--dry-run", action="store_true")
+    mlx_pull.set_defaults(func=command_mlx_pull)
+
+    mlx_service = mlx_sub.add_parser("service")
+    mlx_service_sub = mlx_service.add_subparsers(dest="service_action", required=True)
+
+    def add_mlx_service_args(service_parser: argparse.ArgumentParser) -> None:
+        service_parser.add_argument("--home", default=str(DEFAULT_MLX_HOME))
+        service_parser.add_argument("--python-bin")
+        service_parser.add_argument("--server-script", default=str(DEFAULT_MLX_SERVER_SCRIPT))
+        service_parser.add_argument("--host", default="127.0.0.1")
+        service_parser.add_argument("--port", type=int, default=DEFAULT_MLX_PORT)
+        service_parser.add_argument("--chat-model", default=DEFAULT_MLX_CHAT_MODEL)
+        service_parser.add_argument("--embedding-model", default=DEFAULT_MLX_EMBEDDING_MODEL)
+        service_parser.add_argument("--unload-idle-seconds", type=int, default=DEFAULT_MLX_UNLOAD_IDLE_SECONDS)
+        service_parser.add_argument(
+            "--preload-models",
+            choices=["none", "chat", "embedding", "all"],
+            default=DEFAULT_MLX_PRELOAD_MODE,
+        )
+        service_parser.add_argument(
+            "--startup-structured-output-check",
+            choices=["none", "openviking-router"],
+            default=DEFAULT_MLX_STARTUP_STRUCTURED_OUTPUT_CHECK,
+        )
+        service_parser.add_argument("--label", default=DEFAULT_MLX_SERVICE_LABEL)
+        service_parser.add_argument("--plist")
+        service_parser.add_argument("--timeout", type=float, default=DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
+        service_parser.add_argument("--dry-run", action="store_true")
+        service_parser.set_defaults(func=command_mlx_service)
+
+    mlx_service_install = mlx_service_sub.add_parser("install")
+    add_mlx_service_args(mlx_service_install)
+    mlx_service_install.add_argument("--force", action="store_true")
+    mlx_service_install.add_argument("--no-load", action="store_true")
+    for action_name in ["status", "start", "stop", "restart", "uninstall"]:
+        action_parser = mlx_service_sub.add_parser(action_name)
+        add_mlx_service_args(action_parser)
+        if action_name == "restart":
+            action_parser.add_argument("--force", action="store_true")
+            action_parser.add_argument("--no-load", action="store_true")
+
+    mlx_server = mlx_sub.add_parser("server")
+    mlx_server.add_argument("--home", default=str(DEFAULT_MLX_HOME))
+    mlx_server.add_argument("--python-bin")
+    mlx_server.add_argument("--server-script", default=str(DEFAULT_MLX_SERVER_SCRIPT))
+    mlx_server.add_argument("--host", default="127.0.0.1")
+    mlx_server.add_argument("--port", type=int, default=DEFAULT_MLX_PORT)
+    mlx_server.add_argument("--chat-model", default=DEFAULT_MLX_CHAT_MODEL)
+    mlx_server.add_argument("--embedding-model", default=DEFAULT_MLX_EMBEDDING_MODEL)
+    mlx_server.add_argument("--unload-idle-seconds", type=int, default=DEFAULT_MLX_UNLOAD_IDLE_SECONDS)
+    mlx_server.add_argument(
+        "--preload-models",
+        choices=["none", "chat", "embedding", "all"],
+        default=DEFAULT_MLX_PRELOAD_MODE,
+    )
+    mlx_server.add_argument(
+        "--startup-structured-output-check",
+        choices=["none", "openviking-router"],
+        default=DEFAULT_MLX_STARTUP_STRUCTURED_OUTPUT_CHECK,
+    )
+    mlx_server.add_argument("--dry-run", action="store_true")
+    mlx_server.set_defaults(func=command_mlx_server)
+
+    mlx_bootstrap = mlx_sub.add_parser("bootstrap")
+    mlx_bootstrap.add_argument("--base-url", default=DEFAULT_MLX_BASE)
+    mlx_bootstrap.add_argument("--home", default=str(DEFAULT_MLX_HOME))
+    mlx_bootstrap.add_argument("--python", default=DEFAULT_MLX_PYTHON)
+    mlx_bootstrap.add_argument("--package", action="append")
+    mlx_bootstrap.add_argument("--chat-model", default=DEFAULT_MLX_CHAT_MODEL)
+    mlx_bootstrap.add_argument("--embedding-model", default=DEFAULT_MLX_EMBEDDING_MODEL)
+    mlx_bootstrap.add_argument("--model", action="append")
+    mlx_bootstrap.add_argument("--host", default="127.0.0.1")
+    mlx_bootstrap.add_argument("--port", type=int, default=DEFAULT_MLX_PORT)
+    mlx_bootstrap.add_argument("--label", default=DEFAULT_MLX_SERVICE_LABEL)
+    mlx_bootstrap.add_argument("--plist")
+    mlx_bootstrap.add_argument("--server-script", default=str(DEFAULT_MLX_SERVER_SCRIPT))
+    mlx_bootstrap.add_argument("--source")
+    mlx_bootstrap.add_argument("--install", choices=["auto", "always", "never"], default="auto")
+    mlx_bootstrap.add_argument("--pull", choices=["auto", "always", "never"], default="auto")
+    mlx_bootstrap.add_argument("--service", choices=["auto", "always", "never"], default="auto")
+    mlx_bootstrap.add_argument("--min-memory-gb", type=float, default=DEFAULT_MLX_MIN_MEMORY_GB)
+    mlx_bootstrap.add_argument("--allow-non-macos", action="store_true")
+    mlx_bootstrap.add_argument("--force-hardware", action="store_true")
+    mlx_bootstrap.add_argument("--force-install", action="store_true")
+    mlx_bootstrap.add_argument("--force-server", action="store_true")
+    mlx_bootstrap.add_argument("--force-service", action="store_true")
+    mlx_bootstrap.add_argument("--no-load", action="store_true")
+    mlx_bootstrap.add_argument("--unload-idle-seconds", type=int, default=DEFAULT_MLX_UNLOAD_IDLE_SECONDS)
+    mlx_bootstrap.add_argument(
+        "--preload-models",
+        choices=["none", "chat", "embedding", "all"],
+        default=DEFAULT_MLX_PRELOAD_MODE,
+    )
+    mlx_bootstrap.add_argument(
+        "--startup-structured-output-check",
+        choices=["none", "openviking-router"],
+        default=DEFAULT_MLX_STARTUP_STRUCTURED_OUTPUT_CHECK,
+    )
+    mlx_bootstrap.add_argument("--timeout", type=float, default=5)
+    mlx_bootstrap.add_argument("--service-timeout", type=float, default=DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
+    mlx_bootstrap.add_argument("--wait-server-seconds", type=float, default=15)
+    mlx_bootstrap.add_argument("--best-effort", action="store_true")
+    mlx_bootstrap.add_argument("--dry-run", action="store_true")
+    mlx_bootstrap.set_defaults(func=command_mlx_bootstrap)
 
     ollama = subparsers.add_parser("ollama")
     ollama_sub = ollama.add_subparsers(dest="ollama_command", required=True)
     ollama_status = ollama_sub.add_parser("status")
     ollama_status.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
-    ollama_status.add_argument("--model", default=DEFAULT_CHAT_MODEL)
-    ollama_status.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    ollama_status.add_argument("--model", default=DEFAULT_OLLAMA_CHAT_MODEL)
+    ollama_status.add_argument("--embedding-model", default=DEFAULT_OLLAMA_EMBEDDING_MODEL)
     ollama_status.add_argument("--timeout", type=float, default=5)
     ollama_status.set_defaults(func=command_ollama_status)
 
     ollama_bootstrap = ollama_sub.add_parser("bootstrap")
     ollama_bootstrap.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
-    ollama_bootstrap.add_argument("--model", default=DEFAULT_CHAT_MODEL)
-    ollama_bootstrap.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    ollama_bootstrap.add_argument("--model", default=DEFAULT_OLLAMA_CHAT_MODEL)
+    ollama_bootstrap.add_argument("--embedding-model", default=DEFAULT_OLLAMA_EMBEDDING_MODEL)
     ollama_bootstrap.add_argument("--pull-model", action="append", default=[])
     ollama_bootstrap.add_argument("--install", choices=["auto", "always", "never"], default="auto")
     ollama_bootstrap.add_argument("--pull", choices=["auto", "always", "never"], default="auto")
@@ -4836,8 +5819,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     ollama_pull = ollama_sub.add_parser("pull")
     ollama_pull.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
-    ollama_pull.add_argument("--model", default=DEFAULT_CHAT_MODEL)
-    ollama_pull.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    ollama_pull.add_argument("--model", default=DEFAULT_OLLAMA_CHAT_MODEL)
+    ollama_pull.add_argument("--embedding-model", default=DEFAULT_OLLAMA_EMBEDDING_MODEL)
     ollama_pull.add_argument("--pull-model", action="append", default=[])
     ollama_pull.add_argument("--timeout", type=float, default=5)
     ollama_pull.add_argument("--dry-run", action="store_true")
