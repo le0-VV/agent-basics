@@ -26,7 +26,7 @@ Agents 做长线工作很容易掉链子，本质上还是 context 限制。Cont
 
 ## 它怎么工作
 
-它使用 OpenViking 作为记忆和检索后端，而 OpenViking 本身需要通过 API 访问一个 LLM 和一个 embedding 模型，用来生成结构化记忆和做语义检索。`agent-basics` 负责仓库侧的 instructions、setup、upgrade、MCP 接线、git hooks，以及安全的 markdown 冲突处理。它也会管理一个用户级 OpenViking 安装，并把 Ollama 配成默认的本地 OpenAI-compatible runtime。
+它使用 OpenViking 作为记忆和检索后端，而 OpenViking 本身需要通过 API 访问一个 LLM 和一个 embedding 模型，用来生成结构化记忆和做语义检索。`agent-basics` 负责仓库侧的 instructions、setup、upgrade、MCP 接线、git hooks，以及安全的 markdown 冲突处理。它也会管理一个用户级 OpenViking 安装，并在 Apple Silicon 上把 agent-basics MLX runtime 配成默认的本地 OpenAI-compatible runtime。
 
 ## 它提供什么
 
@@ -45,7 +45,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。默认会把 OpenViking 指向 Ollama 的 `http://127.0.0.1:11434/v1`，chat/VLM routing 用 `gemma4:e2b`，embedding 用 `embeddinggemma:latest`。
+Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。默认会把 OpenViking 指向 agent-basics MLX runtime 的 `http://127.0.0.1:18080/v1`，chat/VLM routing 用 `mlx-community/gemma-4-e2b-it-4bit`，embedding 用 `mlx-community/embeddinggemma-300m-4bit`。MLX LaunchAgent 会在启动后预加载这两个模型，并跑一个小的 OpenViking structured-output 检查。
 
 验证命令：
 
@@ -82,7 +82,7 @@ OpenViking 目前是必需的，并且会在 Homebrew 安装时自动 bootstrap�
 
 ```bash
 agent-basics ov bootstrap-system
-agent-basics ollama bootstrap
+agent-basics mlx bootstrap
 agent-basics ov doctor
 ```
 
@@ -173,9 +173,17 @@ setup 之后，一个项目通常会有：
 - `.agents/skills/` 和 `Skills.md`：给 agents 使用的可复用工作流。
 - `.agents/TODO.md`：当前工作 checklist；被 git 忽略。
 
-## Ollama
+## 本地 Runtime
 
-默认本地设置期望 Ollama 暴露 OpenAI-compatible API，供 chat/VLM model 和 embedding model 使用。默认模型是 `gemma4:e2b` 和 `embeddinggemma:latest`。
+默认本地设置会在 Apple Silicon 上使用 agent-basics 管理的 MLX server。它会给 OpenViking 暴露 OpenAI-compatible API，随 macOS 用户会话启动，预加载 chat/VLM model 和 embedding model，让模型保持 warm，并在每次请求后清理临时 MLX runtime cache。
+
+```bash
+agent-basics mlx status
+agent-basics mlx bootstrap
+agent-basics mlx pull --dry-run
+```
+
+Ollama 仍然可以作为 fallback provider：
 
 ```bash
 agent-basics ollama status

@@ -6,7 +6,7 @@ The project should not grow into a second memory engine. OpenViking should own m
 
 ## Product Direction
 
-- `agent-basics` is the one-command Rust binary entry point.
+- `agent-basics` is one user-facing command entry point. Rust binary packaging is optional future work, not a required product constraint.
 - OpenViking is the required memory and context backend.
 - `agent-basics` installs, verifies, configures, and wraps one user-level OpenViking installation, normally under `~/.openviking`.
 - Repository-specific OpenViking metadata, migration manifests, and locks live under `.agents/`; the OpenViking package and workspace do not live inside each repository by default.
@@ -25,8 +25,8 @@ This section separates shipped behavior from target architecture.
 Implemented and verified in this repository:
 
 - User-level OpenViking is installed under `~/.openviking`.
-- Homebrew install runs `agent-basics ov bootstrap-system` to install/configure OpenViking, attempt macOS LaunchAgent setup, and run best-effort Ollama verification/model setup.
-- OpenViking is configured for the local Ollama chat/VLM and embedding endpoints.
+- Homebrew install runs `agent-basics ov bootstrap-system` to install/configure OpenViking, attempt macOS LaunchAgent setup, and run best-effort MLX runtime/model setup.
+- OpenViking is configured for the local agent-basics MLX chat/VLM and embedding endpoints.
 - `.agents/memory/` is preserved as the repo-owned OpenViking source store.
 - `.agents/openviking/migration-manifest.json` records migration/adaptation state.
 - `.agents/openviking/import-state.json` records import hashes, targets, and status.
@@ -35,7 +35,7 @@ Implemented and verified in this repository:
 - Direct `ov read` and semantic `ov find` were verified against imported repo memory.
 - `agent-basics ov search`, `read`, `record`, `add-resource`, `add-skill`, `ingest-changed`, `server`, and `status` are implemented as repo-aware OpenViking wrappers.
 - `agent-basics mcp` is implemented as a repo-aware OpenViking-backed stdio MCP server.
-- Ollama is the default local runtime; LM Studio setup helpers remain as an optional legacy provider path.
+- MLX is the default local runtime on Apple Silicon; Ollama and LM Studio setup helpers remain optional fallback/legacy provider paths.
 - Setup/upgrade creates the modern source-store structure, verifies or installs user-level OpenViking, writes `.agents/config.toml`, generates a Codex-style MCP snippet, creates `Skills.md` plus `.agents/skills/`, and creates first-class markdown merge sessions for conflicts.
 - Managed OpenViking hooks refresh source-store changes before commits.
 - Fast dogfood coverage exercises fresh setup and existing-repo upgrade with fake user-level OpenViking.
@@ -44,7 +44,7 @@ Still transitional or incomplete:
 
 - The custom mini-RAG still exists as fallback compatibility under `compat/memory-rag/`.
 - Decision: keep checked-in compatibility source outside `.agents/memory/` so the active source store stays OpenViking-native. Fresh setup must not install the mini-RAG into target repos unless `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` is set.
-- Broader live dogfood against real OpenViking/Ollama should continue, especially for large ingests and model/provider edge cases.
+- Broader live dogfood against real OpenViking/MLX should continue, especially for large ingests and model/provider edge cases.
 
 ## What agent-basics Is
 
@@ -241,6 +241,12 @@ agent-basics commit
 
 instead of approving many small command variations.
 
+## Distribution Packaging
+
+Near-term distribution should prefer the smallest reliable command surface that works on a normal macOS developer machine. A shell/Python command wrapper is acceptable if it avoids forcing users to download Rust, LLVM, and a full native build toolchain during installation.
+
+Rust can remain potential future work if it improves distribution or runtime reliability without increasing install friction. If Rust packaging is revived, prefer prebuilt release artifacts or maintainer-only build steps so end users are not required to build the binary locally.
+
 ## Setup Flow
 
 `agent-basics setup [directory]` should:
@@ -307,7 +313,8 @@ Core commands:
 | `agent-basics doctor [--online]` | Partial | Needs stronger OV/provider/repo-state checks. |
 | `agent-basics mcp` | Implemented | Repo-aware OpenViking-backed MCP server with search, read, record, add-resource, add-skill, ingest, status, and doctor tools. |
 | `agent-basics ov <command>` | Implemented | Repo-aware setup/import/search/read/record/resource/skill/server/status wrappers exist; polish remains for setup integration. |
-| `agent-basics ollama <command>` | Implemented | Default local runtime status/bootstrap/pull checks for Ollama chat and embedding models. |
+| `agent-basics mlx <command>` | In progress | Default local Apple Silicon runtime status/install/pull/service/server/bootstrap for MLX chat/VLM and embedding models. |
+| `agent-basics ollama <command>` | Implemented fallback | Local runtime status/bootstrap/pull checks for Ollama chat and embedding models. Ollama is no longer the default because of high resident memory use on the test host. |
 | `agent-basics lmstudio <command>` | Legacy optional | Hardware-gated bootstrap, service setup, REST/OpenAI-compatible management, and route tests exist, but LM Studio is no longer the default runtime path. |
 | `agent-basics migrate memory-to-openviking` | Implemented | Inventories/adapts legacy memory into OV-native categories and manifest state. |
 | `agent-basics memory <command>` | Implemented | Transitional mini-RAG compatibility only. |
@@ -321,7 +328,7 @@ OpenViking wrapper commands:
 | `agent-basics ov doctor` | Partial | Should become the full OV install/config/provider/repo-state doctor. |
 | `agent-basics ov install-system` | Implemented | Installs OpenViking under user-level home. |
 | `agent-basics ov bootstrap-system` | Implemented | Idempotently installs OpenViking when missing, writes default user-level config, and installs the macOS service when available. |
-| `agent-basics ov write-default-config` | Implemented | Writes Ollama-backed `ov.conf` plus `ovcli.conf` with long local HTTP timeouts. |
+| `agent-basics ov write-default-config` | Implemented | Writes provider-backed `ov.conf` plus `ovcli.conf` with long local HTTP timeouts. MLX is the default provider target. |
 | `agent-basics ov server` | Implemented | Starts the configured user-level OpenViking HTTP server in the foreground. |
 | `agent-basics ov import-repo-memory` | Implemented | Writes OV-native memories directly and ingests source-store resources/skills. |
 | `agent-basics ov search <query>` | Implemented | Repo-scoped semantic search wrapper. |
@@ -333,7 +340,19 @@ OpenViking wrapper commands:
 | `agent-basics ov install-hooks` | Implemented | Installs managed `pre-commit` and `post-merge` hooks that run repo-scoped OpenViking ingest for source-store changes. |
 | `agent-basics ov status` | Implemented | Repo-scoped import, source-store, namespace, and OpenViking status. |
 
-Ollama commands:
+MLX runtime commands:
+
+| Command | Status | Notes |
+| --- | --- | --- |
+| `agent-basics mlx status` | In progress | Checks the agent-basics MLX OpenAI-compatible server and configured model ids. |
+| `agent-basics mlx install` | In progress | Creates a user-level MLX Python environment under `~/.agent-basics/mlx`. |
+| `agent-basics mlx write-server` | In progress | Installs the agent-basics OpenAI-compatible MLX server wrapper. |
+| `agent-basics mlx pull` | In progress | Downloads configured Hugging Face MLX model snapshots. |
+| `agent-basics mlx service` | In progress | Installs and manages a macOS LaunchAgent for the MLX runtime. |
+| `agent-basics mlx server` | In progress | Runs the MLX runtime foreground server for debugging. |
+| `agent-basics mlx bootstrap` | In progress | Orchestrates install, server wrapper, model download, service setup, and health checks. |
+
+Ollama fallback commands:
 
 | Command | Status | Notes |
 | --- | --- | --- |
@@ -370,15 +389,14 @@ Compatibility commands:
 
 ## Model Runtime
 
-The local runtime target is Ollama first, with other OpenAI-compatible providers allowed.
+The local runtime target is the agent-basics MLX server first on Apple Silicon, with other OpenAI-compatible providers allowed as fallbacks.
 
 `agent-basics` should be able to:
 
-- Detect available Ollama models.
-- Install Ollama through Homebrew when the default local runtime is missing.
-- Pull configured chat and embedding models and verify that `/v1/models` exposes them.
+- Install a user-level MLX runtime under `~/.agent-basics/mlx`.
+- Download configured Hugging Face MLX model snapshots and verify that `/v1/models` exposes them.
 - Verify OpenAI-compatible chat and embedding endpoints.
-- Launch OpenViking with localhost proxy bypass variables so local Ollama requests do not get intercepted by system HTTP proxies.
+- Launch OpenViking with localhost proxy bypass variables so local runtime requests do not get intercepted by system HTTP proxies.
 - Configure OpenViking with the selected chat/VLM model and embedding model.
 - Keep model/provider settings in config files, not scattered environment variables.
 - Store only secret environment variable names, never raw secret values.
@@ -386,9 +404,10 @@ The local runtime target is Ollama first, with other OpenAI-compatible providers
 
 Known local setup:
 
-- Chat/VLM: `gemma4:e2b`
-- Embeddings: `embeddinggemma:latest`
-- Ollama base URL: `http://127.0.0.1:11434`
+- Chat/VLM: `mlx-community/gemma-4-e2b-it-4bit`
+- Embeddings: `mlx-community/embeddinggemma-300m-4bit`
+- MLX base URL: `http://127.0.0.1:18080`
+- Ollama fallback URL: `http://127.0.0.1:11434`
 
 Gemma 4 E2B should be used with shallow structured-output schemas for routing and setup helpers. Deterministic code must validate and apply the result. OpenViking should send request-time prompt/schema settings instead of relying on provider UI defaults.
 
@@ -396,7 +415,7 @@ Gemma 4 E2B should be used with shallow structured-output schemas for routing an
 
 The next unlock is hardening the now-usable OpenViking-backed harness:
 
-1. Run longer live dogfood passes against real OpenViking/Ollama on messy existing repositories.
+1. Run longer live dogfood passes against real OpenViking/MLX on messy existing repositories.
 2. Decide whether `compat/memory-rag/` should be retired completely or split into a separate legacy package after old-repo fallback support has a stable distribution path.
 3. Add CI examples that run `agent-basics verify` plus `agent-basics ov status --offline`.
 4. Measure whether `Skills.md` plus stable command prefixes actually reduce approval prompts in sample project work.

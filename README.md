@@ -26,7 +26,7 @@ The repo keeps human-reviewable source files under `.agents/memory/`; OpenViking
 
 ## How It Works
 
-It uses OpenViking as the memory and retrieval backend, which itself needs access to an LLM and an embedding model API for generating structured memory and semantic retrieval. `agent-basics` handles the repo instructions, setup, upgrade, MCP wiring, git hooks, and safe markdown conflict handling. It also manages a user-level OpenViking installation and configures Ollama as the default local OpenAI-compatible runtime.
+It uses OpenViking as the memory and retrieval backend, which itself needs access to an LLM and an embedding model API for generating structured memory and semantic retrieval. `agent-basics` handles the repo instructions, setup, upgrade, MCP wiring, git hooks, and safe markdown conflict handling. It also manages a user-level OpenViking installation and configures an agent-basics MLX runtime as the default local OpenAI-compatible runtime on Apple Silicon.
 
 ## What It Gives You
 
@@ -45,7 +45,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, writes default config when missing, and attempts to install the macOS LaunchAgent. It configures OpenViking for Ollama at `http://127.0.0.1:11434/v1`, with `gemma4:e2b` for chat/VLM routing and `embeddinggemma:latest` for embeddings.
+The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, writes default config when missing, and attempts to install the macOS LaunchAgent. It configures OpenViking for the agent-basics MLX runtime at `http://127.0.0.1:18080/v1`, with `mlx-community/gemma-4-e2b-it-4bit` for chat/VLM routing and `mlx-community/embeddinggemma-300m-4bit` for embeddings. The MLX LaunchAgent preloads both models after startup and runs a small OpenViking structured-output check.
 
 Verify the command:
 
@@ -76,7 +76,7 @@ OpenViking is required (for now) and is bootstrapped during Homebrew install. To
 
 ```bash
 agent-basics ov bootstrap-system
-agent-basics ollama bootstrap
+agent-basics mlx bootstrap
 agent-basics ov doctor
 ```
 
@@ -167,9 +167,17 @@ Key files:
 - `.agents/skills/` and `Skills.md`: repeatable workflows for agents.
 - `.agents/TODO.md`: current work checklist; ignored by git.
 
-## Ollama
+## Local Runtime
 
-The default local setup expects Ollama to expose an OpenAI-compatible API for the chat/VLM model and embedding model. The default models are `gemma4:e2b` and `embeddinggemma:latest`.
+The default local setup uses an agent-basics-managed MLX server on Apple Silicon. It exposes an OpenAI-compatible API for OpenViking, starts with macOS, preloads the chat/VLM and embedding models, keeps them warm, and clears transient MLX runtime cache after each request.
+
+```bash
+agent-basics mlx status
+agent-basics mlx bootstrap
+agent-basics mlx pull --dry-run
+```
+
+Ollama remains available as a fallback provider:
 
 ```bash
 agent-basics ollama status

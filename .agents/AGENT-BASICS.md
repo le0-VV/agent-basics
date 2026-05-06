@@ -20,10 +20,11 @@ The target agent-facing surfaces are:
 - `agent-basics mcp`: repo-aware MCP server for OpenViking-backed tools.
 - `agent-basics ov doctor`: check OpenViking installation, repo config, providers, ingest status, and health.
 - `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, write default config, and install the macOS LaunchAgent when available.
-- `agent-basics ollama bootstrap`: verify Ollama, pull the configured chat/embedding models when needed, and check the local OpenAI-compatible API.
+- `agent-basics mlx bootstrap`: install the lightweight MLX runtime, pull the configured Hugging Face chat/embedding models when needed, and check the local OpenAI-compatible API.
+- `agent-basics ollama bootstrap`: optional fallback provider path.
 - `agent-basics lmstudio bootstrap`: legacy optional LM Studio provider path.
 - `agent-basics ov install-system`: low-level repair command for only the OpenViking package installation.
-- `agent-basics ov write-default-config`: low-level repair command for default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for Ollama Gemma 4 E2B plus EmbeddingGemma.
+- `agent-basics ov write-default-config`: low-level repair command for default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for the configured local provider.
 - `agent-basics ov service install`: install and load the configured user-level OpenViking HTTP server as a macOS LaunchAgent.
 - `agent-basics ov server`: start the configured user-level OpenViking HTTP server in the foreground for debugging.
 - `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
@@ -84,10 +85,10 @@ Compatibility files are not the long-term architecture. Useful compatibility mem
 - Environment variables are allowed for secrets, compatibility inputs, and one-off overrides.
 - Never commit raw provider API keys or local-only secrets.
 - Local provider defaults currently being tested are:
-  - Ollama base URL: `http://127.0.0.1:11434`
-  - Chat/VLM model: `gemma4:e2b`
-  - Embedding model: `embeddinggemma:latest`
-- Ollama is the default local runtime. LM Studio commands remain available only as a legacy optional provider.
+  - MLX base URL: `http://127.0.0.1:18080`
+  - Chat/VLM model: `mlx-community/gemma-4-e2b-it-4bit`
+  - Embedding model: `mlx-community/embeddinggemma-300m-4bit`
+- MLX is the default local runtime on Apple Silicon. Ollama and LM Studio commands remain available only as fallback or legacy optional providers.
 
 ## Long-Horizon Work
 
