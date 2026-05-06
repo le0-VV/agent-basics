@@ -190,6 +190,16 @@
       "skipped": true,
       "target": "viking://user/default/memories/preferences/projects/agent-basics/1778045839-prefer-lightweight-command-wrapper-over-mandatory-rust-binary-build.md"
     },
+    ".agents/memory/memories/preferences/1778110158-keep-mlx-runtime-generic-and-move-ov-behavior-to-agent-basics.md": {
+      "imported_at": 1778110174,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/preferences/1778110158-keep-mlx-runtime-generic-and-move-ov-behavior-to-agent-basics.md",
+      "sha256": "035a576d1fc96a0d9366507a30b33081e6aac4bf3b731c66b4e9c7206f2f8ad2",
+      "skipped": true,
+      "target": "viking://user/default/memories/preferences/projects/agent-basics/1778110158-keep-mlx-runtime-generic-and-move-ov-behavior-to-agent-basics.md"
+    },
     ".agents/memory/memories/tools/1777935030-openviking-cli-http-timeout-lives-in-ovcli-conf.md": {
       "imported_at": 1777935377,
       "kind": "memory",
@@ -211,10 +221,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778104773,
+  "last_import": 1778110429,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778104773,
+  "updated": 1778110429,
   "version": 1
 }
