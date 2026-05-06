@@ -66,9 +66,8 @@
       "method": "write",
       "ok": true,
       "path": ".agents/memory/memories/events/1778035397-ollama-default-runtime-migration.md",
-      "returncode": 0,
       "sha256": "f112d158735c354e8b057583c627d2ed0935ab76ff0b961b13e91c60a287393c",
-      "skipped": false,
+      "skipped": true,
       "target": "viking://user/default/memories/events/projects/agent-basics/1778035397-ollama-default-runtime-migration.md"
     },
     ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md": {
@@ -142,10 +141,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778035873,
+  "last_import": 1778035978,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778035873,
+  "updated": 1778035978,
   "version": 1
 }
