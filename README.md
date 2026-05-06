@@ -169,11 +169,12 @@ Key files:
 
 ## Local Runtime
 
-The default local setup uses an agent-basics-managed MLX server on Apple Silicon. It exposes an OpenAI-compatible API for OpenViking, starts with macOS, preloads the chat/VLM and embedding models, keeps them warm, and clears transient MLX runtime cache after each request.
+The default local setup uses `agent-basics-mlx`, an agent-basics-managed MLX process on Apple Silicon. It exposes an OpenAI-compatible API for OpenViking, starts with macOS, preloads the chat/VLM and embedding models, keeps them warm, and clears transient MLX runtime cache after each request.
 
 ```bash
 agent-basics mlx status
 agent-basics mlx bootstrap
+agent-basics-mlx --version
 agent-basics mlx pull --dry-run
 ```
 

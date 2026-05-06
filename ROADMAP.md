@@ -346,10 +346,10 @@ MLX runtime commands:
 | --- | --- | --- |
 | `agent-basics mlx status` | In progress | Checks the agent-basics MLX OpenAI-compatible server and configured model ids. |
 | `agent-basics mlx install` | In progress | Creates a user-level MLX Python environment under `~/.agent-basics/mlx`. |
-| `agent-basics mlx write-server` | In progress | Installs the agent-basics OpenAI-compatible MLX server wrapper. |
+| `agent-basics mlx write-server` | In progress | Installs the `agent-basics-mlx` OpenAI-compatible MLX process. |
 | `agent-basics mlx pull` | In progress | Downloads configured Hugging Face MLX model snapshots. |
 | `agent-basics mlx service` | In progress | Installs and manages a macOS LaunchAgent for the MLX runtime. |
-| `agent-basics mlx server` | In progress | Runs the MLX runtime foreground server for debugging. |
+| `agent-basics mlx server` | In progress | Runs `agent-basics-mlx` in the foreground for debugging. |
 | `agent-basics mlx bootstrap` | In progress | Orchestrates install, server wrapper, model download, service setup, and health checks. |
 
 Ollama fallback commands:
@@ -394,6 +394,7 @@ The local runtime target is the agent-basics MLX server first on Apple Silicon, 
 `agent-basics` should be able to:
 
 - Install a user-level MLX runtime under `~/.agent-basics/mlx`.
+- Package and run the local server as the `agent-basics-mlx` process.
 - Download configured Hugging Face MLX model snapshots and verify that `/v1/models` exposes them.
 - Verify OpenAI-compatible chat and embedding endpoints.
 - Launch OpenViking with localhost proxy bypass variables so local runtime requests do not get intercepted by system HTTP proxies.

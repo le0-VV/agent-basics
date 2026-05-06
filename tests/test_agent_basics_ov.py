@@ -58,11 +58,10 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "mlx"
             python_bin = home / "venv" / "bin" / "python"
-            server = home / "agent-basics-mlx-server.py"
+            server = home / "agent-basics-mlx"
             payload = agent_basics_ov.mlx_service_plist_payload(
                 label="com.agent-basics.test.mlx",
                 home=home,
-                python_bin=python_bin,
                 server_script=server,
                 host="127.0.0.1",
                 port=18080,
@@ -75,14 +74,40 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
                 startup_structured_output_check="openviking-router",
             )
 
-        self.assertEqual(payload["ProgramArguments"][:2], [str(python_bin), str(server)])
+        self.assertEqual(payload["ProgramArguments"][0], str(server))
+        self.assertNotIn(str(python_bin), payload["ProgramArguments"])
         self.assertIn("--chat-model", payload["ProgramArguments"])
         self.assertIn("mlx-community/gemma-4-e2b-it-4bit", payload["ProgramArguments"])
         self.assertIn("--preload-models", payload["ProgramArguments"])
         self.assertIn("all", payload["ProgramArguments"])
         self.assertIn("--startup-structured-output-check", payload["ProgramArguments"])
         self.assertIn("openviking-router", payload["ProgramArguments"])
+        self.assertEqual(payload["EnvironmentVariables"]["AGENT_BASICS_MLX_HOME"], str(home))
+        self.assertEqual(payload["EnvironmentVariables"]["AGENT_BASICS_MLX_PYTHON"], str(python_bin))
         self.assertEqual(payload["EnvironmentVariables"]["HF_HOME"], str(home / "huggingface"))
+
+    def test_mlx_write_server_installs_agent_basics_mlx_process_with_venv_shebang(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "mlx"
+            source = Path(tmp) / "agent-basics-mlx-source"
+            target = home / "agent-basics-mlx"
+            source.write_text("#!/usr/bin/env python3\nprint('ok')\n", encoding="utf-8")
+            payload = agent_basics_ov.mlx_write_server_payload(
+                SimpleNamespace(
+                    home=str(home),
+                    server_script=str(target),
+                    source=str(source),
+                    force=False,
+                    dry_run=False,
+                )
+            )
+            installed_first_line = target.read_text(encoding="utf-8").splitlines()[0]
+            installed_mode = target.stat().st_mode
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["changed"])
+        self.assertEqual(installed_first_line, f"#!{home / 'venv' / 'bin' / 'python'}")
+        self.assertTrue(installed_mode & 0o111)
 
     def test_mlx_bootstrap_dry_run_plans_runtime_server_models_and_service(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -112,7 +137,7 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
                             port=18080,
                             label="com.agent-basics.test.mlx",
                             plist=str(Path(tmp) / "com.agent-basics.test.mlx.plist"),
-                            server_script=str(home / "agent-basics-mlx-server.py"),
+                            server_script=str(home / "agent-basics-mlx"),
                             source=str(server_source),
                             install="auto",
                             pull="auto",

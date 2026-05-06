@@ -26,6 +26,8 @@ class AgentBasics < Formula
   test do
     require "json"
 
+    system bin/"agent-basics-mlx", "--version"
+
     project_dir = testpath/"demo-project"
     system bin/"agent-basics", "setup", project_dir
 

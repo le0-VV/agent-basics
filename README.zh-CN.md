@@ -175,11 +175,12 @@ setup 之后，一个项目通常会有：
 
 ## 本地 Runtime
 
-默认本地设置会在 Apple Silicon 上使用 agent-basics 管理的 MLX server。它会给 OpenViking 暴露 OpenAI-compatible API，随 macOS 用户会话启动，预加载 chat/VLM model 和 embedding model，让模型保持 warm，并在每次请求后清理临时 MLX runtime cache。
+默认本地设置会在 Apple Silicon 上使用 agent-basics 管理的 `agent-basics-mlx` 进程。它会给 OpenViking 暴露 OpenAI-compatible API，随 macOS 用户会话启动，预加载 chat/VLM model 和 embedding model，让模型保持 warm，并在每次请求后清理临时 MLX runtime cache。
 
 ```bash
 agent-basics mlx status
 agent-basics mlx bootstrap
+agent-basics-mlx --version
 agent-basics mlx pull --dry-run
 ```
 

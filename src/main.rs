@@ -37,6 +37,8 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let runtime = ensure_runtime()?;
     let dispatcher = runtime.root.join("agent-basics");
+    let mlx_server = sibling_executable("agent-basics-mlx")
+        .unwrap_or_else(|| runtime.root.join("agent-basics-mlx"));
     let status = Command::new(&dispatcher)
         .args(args)
         .env(
@@ -55,10 +57,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             "AGENT_BASICS_OV_HELPER",
             runtime.root.join("agent-basics-ov.py"),
         )
-        .env(
-            "AGENT_BASICS_MLX_SERVER",
-            runtime.root.join("agent-basics-mlx-server.py"),
-        )
+        .env("AGENT_BASICS_MLX_SERVER", mlx_server)
         .env("AGENT_BASICS_LICENSE", runtime.root.join("LICENSE"))
         .env(
             "AGENT_BASICS_THIRD_PARTY_NOTICES",
@@ -88,6 +87,7 @@ fn ensure_runtime() -> Result<Runtime, Box<dyn Error>> {
     write_executable(&root.join("agent-memory.py"), MEMORY_CLI)?;
     write_executable(&root.join("memory-mcp.py"), MEMORY_MCP)?;
     write_executable(&root.join("agent-basics-ov.py"), OV_HELPER)?;
+    write_executable(&root.join("agent-basics-mlx"), MLX_SERVER)?;
     write_executable(&root.join("agent-basics-mlx-server.py"), MLX_SERVER)?;
     fs::write(root.join("LICENSE"), LICENSE)?;
     fs::write(root.join("THIRD-PARTY-NOTICES.md"), THIRD_PARTY_NOTICES)?;
@@ -110,6 +110,16 @@ fn runtime_root() -> Result<PathBuf, Box<dyn Error>> {
         metadata.len()
     );
     Ok(env::temp_dir().join(stamp))
+}
+
+fn sibling_executable(name: &str) -> Option<PathBuf> {
+    let current = env::current_exe().ok()?;
+    let candidate = current.parent()?.join(name);
+    if candidate.is_file() {
+        Some(candidate)
+    } else {
+        None
+    }
 }
 
 fn write_executable(path: &Path, content: &[u8]) -> Result<(), Box<dyn Error>> {

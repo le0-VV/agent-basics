@@ -27,7 +27,8 @@ DEFAULT_MLX_BASE = "http://127.0.0.1:18080"
 DEFAULT_MLX_API_KEY = "agent-basics"
 DEFAULT_MLX_HOME = Path.home() / ".agent-basics" / "mlx"
 DEFAULT_MLX_VENV = DEFAULT_MLX_HOME / "venv"
-DEFAULT_MLX_SERVER_SCRIPT = DEFAULT_MLX_HOME / "agent-basics-mlx-server.py"
+DEFAULT_MLX_PROCESS = DEFAULT_MLX_HOME / "agent-basics-mlx"
+DEFAULT_MLX_SERVER_SCRIPT = DEFAULT_MLX_PROCESS
 DEFAULT_MLX_CHAT_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
 DEFAULT_MLX_EMBEDDING_MODEL = "mlx-community/embeddinggemma-300m-4bit"
 DEFAULT_MLX_PORT = 18080
@@ -3053,6 +3054,10 @@ def mlx_python(home: Path) -> Path:
     return home / "venv" / "bin" / "python"
 
 
+def mlx_process(home: Path) -> Path:
+    return home / "agent-basics-mlx"
+
+
 def mlx_models_from_args(args: argparse.Namespace) -> list[str]:
     values = list(getattr(args, "model", None) or [])
     if values:
@@ -3073,6 +3078,7 @@ def mlx_source_server_script(override: str | None = None) -> Path | None:
     helper = Path(__file__).resolve()
     candidates.extend(
         [
+            helper.with_name("agent-basics-mlx"),
             helper.with_name("agent_basics_mlx_server.py"),
             helper.with_name("agent-basics-mlx-server.py"),
             helper.parent.parent / "scripts" / "agent_basics_mlx_server.py",
@@ -3183,26 +3189,37 @@ def command_mlx_install(args: argparse.Namespace) -> int:
 def mlx_write_server_payload(args: argparse.Namespace) -> dict[str, Any]:
     home = Path(getattr(args, "home", DEFAULT_MLX_HOME)).expanduser()
     target = Path(getattr(args, "server_script", DEFAULT_MLX_SERVER_SCRIPT)).expanduser()
+    python_bin = mlx_python(home)
     source = mlx_source_server_script(getattr(args, "source", None))
     payload: dict[str, Any] = {
         "ok": True,
         "home": str(home),
         "target": str(target),
         "source": str(source) if source else None,
+        "python": str(python_bin),
     }
     if source is None:
         payload.update({"ok": False, "changed": False, "error": "agent-basics MLX server source script was not found"})
         return payload
-    source_text = source.read_text(encoding="utf-8")
-    current_text = target.read_text(encoding="utf-8") if target.exists() else None
-    changed = bool(getattr(args, "force", False) or current_text != source_text)
+    source_bytes = source.read_bytes()
+    if source_bytes.startswith(b"#!"):
+        try:
+            source_text = source_bytes.decode("utf-8")
+            lines = source_text.splitlines()
+            if lines and lines[0].startswith("#!"):
+                lines[0] = f"#!{python_bin}"
+                source_bytes = ("\n".join(lines) + ("\n" if source_text.endswith("\n") else "")).encode("utf-8")
+        except UnicodeDecodeError:
+            pass
+    current_bytes = target.read_bytes() if target.exists() else None
+    changed = bool(getattr(args, "force", False) or current_bytes != source_bytes)
     payload["changed"] = changed
     if getattr(args, "dry_run", False):
         payload["dry_run"] = True
         return payload
     target.parent.mkdir(parents=True, exist_ok=True)
     if changed:
-        target.write_text(source_text, encoding="utf-8")
+        target.write_bytes(source_bytes)
         target.chmod(0o755)
     return payload
 
@@ -3268,7 +3285,6 @@ def mlx_service_plist_payload(
     *,
     label: str,
     home: Path,
-    python_bin: Path,
     server_script: Path,
     host: str,
     port: int,
@@ -3284,7 +3300,6 @@ def mlx_service_plist_payload(
     return {
         "Label": label,
         "ProgramArguments": [
-            str(python_bin),
             str(server_script),
             "--host",
             host,
@@ -3308,6 +3323,8 @@ def mlx_service_plist_payload(
         "StandardOutPath": str(logs / "mlx-runtime.out.log"),
         "StandardErrorPath": str(logs / "mlx-runtime.err.log"),
         "EnvironmentVariables": {
+            "AGENT_BASICS_MLX_HOME": str(home),
+            "AGENT_BASICS_MLX_PYTHON": str(home / "venv" / "bin" / "python"),
             "HF_HOME": str(hf_home),
             "NO_PROXY": no_proxy,
             "no_proxy": no_proxy,
@@ -3320,7 +3337,7 @@ def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
     home = Path(getattr(args, "home", DEFAULT_MLX_HOME)).expanduser()
     label = getattr(args, "label", DEFAULT_MLX_SERVICE_LABEL) or DEFAULT_MLX_SERVICE_LABEL
     python_bin = Path(getattr(args, "python_bin", None) or mlx_python(home)).expanduser()
-    server_script = Path(getattr(args, "server_script", DEFAULT_MLX_SERVER_SCRIPT)).expanduser()
+    server_script = Path(getattr(args, "server_script", None) or mlx_process(home)).expanduser()
     host = getattr(args, "host", "127.0.0.1")
     port = int(getattr(args, "port", DEFAULT_MLX_PORT))
     chat_model = getattr(args, "chat_model", DEFAULT_MLX_CHAT_MODEL)
@@ -3338,7 +3355,6 @@ def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
     plist_payload = mlx_service_plist_payload(
         label=label,
         home=home,
-        python_bin=python_bin,
         server_script=server_script,
         host=host,
         port=port,
@@ -3368,7 +3384,7 @@ def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
         "target": target,
         "plist": str(plist_path),
         "python": str(python_bin),
-        "server_script": str(server_script),
+        "server_process": str(server_script),
         "base_url": f"http://{host}:{port}",
         "chat_model": chat_model,
         "embedding_model": embedding_model,
@@ -3438,7 +3454,7 @@ def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
         payload.update({"ok": False, "error": "MLX runtime Python is not executable"})
         return payload
     if not server_script.exists() or not os.access(server_script, os.X_OK):
-        payload.update({"ok": False, "error": "agent-basics MLX server script is not executable"})
+        payload.update({"ok": False, "error": "agent-basics-mlx process is not executable"})
         return payload
 
     backup = None
@@ -3567,7 +3583,7 @@ def command_mlx_bootstrap(args: argparse.Namespace) -> int:
         mlx_write_server_payload(
             argparse.Namespace(
                 home=str(home),
-                server_script=getattr(args, "server_script", str(DEFAULT_MLX_SERVER_SCRIPT)),
+                server_script=getattr(args, "server_script", None) or str(mlx_process(home)),
                 source=getattr(args, "source", None),
                 force=getattr(args, "force_server", False),
                 dry_run=dry_run,
@@ -3588,7 +3604,7 @@ def command_mlx_bootstrap(args: argparse.Namespace) -> int:
                     service_action="install",
                     home=str(home),
                     python_bin=str(mlx_python(home)),
-                    server_script=getattr(args, "server_script", str(DEFAULT_MLX_SERVER_SCRIPT)),
+                    server_script=getattr(args, "server_script", None) or str(mlx_process(home)),
                     host=getattr(args, "host", "127.0.0.1"),
                     port=getattr(args, "port", DEFAULT_MLX_PORT),
                     chat_model=getattr(args, "chat_model", DEFAULT_MLX_CHAT_MODEL),
@@ -3640,10 +3656,9 @@ def command_mlx_bootstrap(args: argparse.Namespace) -> int:
 
 def command_mlx_server(args: argparse.Namespace) -> int:
     home = Path(getattr(args, "home", DEFAULT_MLX_HOME)).expanduser()
-    server_script = Path(getattr(args, "server_script", DEFAULT_MLX_SERVER_SCRIPT)).expanduser()
+    server_script = Path(getattr(args, "server_script", None) or mlx_process(home)).expanduser()
     python_bin = Path(getattr(args, "python_bin", None) or mlx_python(home)).expanduser()
     command = [
-        str(python_bin),
         str(server_script),
         "--host",
         args.host,
@@ -3664,7 +3679,7 @@ def command_mlx_server(args: argparse.Namespace) -> int:
         "ok": True,
         "command": command,
         "home": str(home),
-        "server_script": str(server_script),
+        "server_process": str(server_script),
         "python": str(python_bin),
         "foreground": True,
     }
@@ -3676,13 +3691,15 @@ def command_mlx_server(args: argparse.Namespace) -> int:
         print_json({"ok": False, "python": str(python_bin), "error": "MLX runtime Python is not executable"})
         return 1
     if not server_script.exists() or not os.access(server_script, os.X_OK):
-        print_json({"ok": False, "server_script": str(server_script), "error": "agent-basics MLX server script is not executable"})
+        print_json({"ok": False, "server_process": str(server_script), "error": "agent-basics-mlx process is not executable"})
         return 1
     env = dict(os.environ)
+    env["AGENT_BASICS_MLX_HOME"] = str(home)
+    env["AGENT_BASICS_MLX_PYTHON"] = str(python_bin)
     env.setdefault("HF_HOME", str(home / "huggingface"))
     env["NO_PROXY"] = merge_no_proxy(env.get("NO_PROXY") or env.get("no_proxy", ""))
     env["no_proxy"] = env["NO_PROXY"]
-    os.execve(str(python_bin), command, env)
+    os.execve(str(server_script), command, env)
     return 1
 
 

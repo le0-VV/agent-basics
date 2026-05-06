@@ -19,6 +19,7 @@ class HomebrewFormulaTest(unittest.TestCase):
         self.assertIn('"--service-best-effort"', text)
         self.assertIn('"--runtime", "mlx"', text)
         self.assertIn('"--runtime-best-effort"', text)
+        self.assertIn('bin/"agent-basics-mlx"', text)
 
 
 if __name__ == "__main__":

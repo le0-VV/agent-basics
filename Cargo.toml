@@ -8,3 +8,7 @@ license = "MIT"
 [[bin]]
 name = "agent-basics"
 path = "src/main.rs"
+
+[[bin]]
+name = "agent-basics-mlx"
+path = "src/bin/agent-basics-mlx.rs"
