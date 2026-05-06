@@ -335,10 +335,10 @@ The target agent-facing surfaces are:
 - `agent-basics mcp`: repo-aware MCP server for OpenViking-backed tools.
 - `agent-basics ov doctor`: check the user-level OpenViking installation, repo config, providers, ingest status, and health.
 - `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, write default config, and install the macOS LaunchAgent when available.
-- `agent-basics lmstudio bootstrap`: when host hardware is suitable, install LM Studio through Homebrew, install its macOS LaunchAgent, configure model defaults, download the configured chat/embedding models, and verify JIT model availability.
-- `agent-basics lmstudio service`: manage the user-level LM Studio server LaunchAgent.
+- `agent-basics ollama bootstrap`: verify Ollama, pull the configured chat/embedding models when needed, and check the local OpenAI-compatible API.
+- `agent-basics lmstudio bootstrap`: legacy optional LM Studio provider path.
 - `agent-basics ov install-system`: low-level repair command for only the OpenViking package installation.
-- `agent-basics ov write-default-config`: low-level repair command for default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
+- `agent-basics ov write-default-config`: low-level repair command for default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for Ollama Gemma 4 E2B plus EmbeddingGemma.
 - `agent-basics ov service install`: install and load the configured user-level OpenViking HTTP server as a macOS LaunchAgent.
 - `agent-basics ov server`: start the configured user-level OpenViking HTTP server in the foreground for debugging.
 - `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
@@ -399,10 +399,10 @@ Compatibility files are not the long-term architecture. Useful compatibility mem
 - Environment variables are allowed for secrets, compatibility inputs, and one-off overrides.
 - Never commit raw provider API keys or local-only secrets.
 - Local provider defaults currently being tested are:
-  - LM Studio base URL: `http://127.0.0.1:1234`
-  - Chat/VLM model: `google/gemma-4-e2b`
-  - Embedding model: `text-embedding-embeddinggemma-300m-qat`
-- LM Studio model management should use REST/OpenAI-compatible HTTP. `agent-basics lmstudio bootstrap` may install a LaunchAgent that runs `lms server start`, but agents should not call interactive `lms` commands directly from Codex.
+  - Ollama base URL: `http://127.0.0.1:11434`
+  - Chat/VLM model: `gemma4:e2b`
+  - Embedding model: `embeddinggemma:latest`
+- Ollama is the default local runtime. LM Studio commands remain available only as a legacy optional provider.
 
 ## Long-Horizon Work
 
@@ -1065,10 +1065,10 @@ summary: Source URLs used by agent-basics setup, packaging, embedding API, Rust 
 - Ruby documentation: https://www.ruby-lang.org/en/documentation/
 - Rust standard library documentation: https://doc.rust-lang.org/std/
 - The Cargo Book: https://doc.rust-lang.org/cargo/
-- LM Studio OpenAI-compatible embeddings API: https://lmstudio.ai/docs/developer/openai-compat/embeddings
-- LM Studio REST API model management: https://lmstudio.ai/docs/developer/rest
-- LM Studio structured output API: https://lmstudio.ai/docs/app/api/structured-output
-- LM Studio `lms load` CLI: https://lmstudio.ai/docs/cli/local-models/load
+- Ollama OpenAI compatibility: https://docs.ollama.com/openai
+- Ollama embeddings: https://docs.ollama.com/capabilities/embeddings
+- Ollama structured outputs: https://docs.ollama.com/capabilities/structured-outputs
+- Ollama macOS setup: https://docs.ollama.com/macos
 - SentenceTransformers documentation: https://sbert.net/
 - FastAPI documentation: https://fastapi.tiangolo.com/
 - MCP 2025-11-25 lifecycle specification: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle
@@ -2308,11 +2308,11 @@ install_or_repair_user_openviking() {
   if ! dispatcher="$(find_agent_basics_dispatcher)"; then
     echo "Error: user-level OpenViking $mode is required, but no executable agent-basics dispatcher was found." >&2
     echo "Expected an executable dispatcher next to setup-macos.sh or on PATH as: agent-basics" >&2
-    echo "Install or repair agent-basics, then run: agent-basics ov bootstrap-system --home \"$ov_home\" --service-best-effort --lmstudio-best-effort" >&2
+    echo "Install or repair agent-basics, then run: agent-basics ov bootstrap-system --home \"$ov_home\" --service-best-effort --runtime ollama --runtime-best-effort" >&2
     exit 1
   fi
 
-  install_args=(ov bootstrap-system --home "$ov_home" --service-best-effort --lmstudio-best-effort)
+  install_args=(ov bootstrap-system --home "$ov_home" --service-best-effort --runtime ollama --runtime-best-effort)
   if [[ "$mode" == "repair" ]]; then
     install_args+=(--force-install)
   fi
@@ -2324,11 +2324,11 @@ install_or_repair_user_openviking() {
       echo "Error: user-level OpenViking $mode is required, but setup is not running interactively." >&2
       echo "Expected executable: $ov_bin" >&2
       echo "Run setup in an interactive terminal, or run this first:" >&2
-      echo "  $dispatcher ov bootstrap-system --home \"$ov_home\" --service-best-effort --lmstudio-best-effort" >&2
+      echo "  $dispatcher ov bootstrap-system --home \"$ov_home\" --service-best-effort --runtime ollama --runtime-best-effort" >&2
       exit 1
     fi
 
-    printf "User-level OpenViking %s is required at %s. Run '%s ov bootstrap-system --home \"%s\" --service-best-effort --lmstudio-best-effort' now? [y/N]: " \
+    printf "User-level OpenViking %s is required at %s. Run '%s ov bootstrap-system --home \"%s\" --service-best-effort --runtime ollama --runtime-best-effort' now? [y/N]: " \
       "$mode" "$ov_bin" "$dispatcher" "$ov_home" >&2
     read -r choice
     case "$choice" in
@@ -2336,7 +2336,7 @@ install_or_repair_user_openviking() {
         ;;
       *)
         echo "Error: user-level OpenViking $mode was declined." >&2
-        echo "Install or repair OpenViking with: $dispatcher ov bootstrap-system --home \"$ov_home\" --service-best-effort --lmstudio-best-effort" >&2
+        echo "Install or repair OpenViking with: $dispatcher ov bootstrap-system --home \"$ov_home\" --service-best-effort --runtime ollama --runtime-best-effort" >&2
         exit 1
         ;;
     esac
@@ -2426,13 +2426,13 @@ ensure_user_openviking_config() {
 
   if ! dispatcher="$(find_agent_basics_dispatcher)"; then
     echo "Error: user-level OpenViking configuration is missing, but no executable agent-basics dispatcher was found." >&2
-    echo "Run: agent-basics ov bootstrap-system --home \"$ov_home\" --service-best-effort --lmstudio-best-effort" >&2
+    echo "Run: agent-basics ov bootstrap-system --home \"$ov_home\" --service-best-effort --runtime ollama --runtime-best-effort" >&2
     exit 1
   fi
 
   if ! "$dispatcher" ov write-default-config --home "$ov_home" --config "$ov_config" --cli-config "$ovcli_config"; then
     echo "Error: failed to write user-level OpenViking configuration." >&2
-    echo "Run manually: $dispatcher ov bootstrap-system --home \"$ov_home\" --service-best-effort --lmstudio-best-effort" >&2
+    echo "Run manually: $dispatcher ov bootstrap-system --home \"$ov_home\" --service-best-effort --runtime ollama --runtime-best-effort" >&2
     exit 1
   fi
 
@@ -2995,7 +2995,7 @@ configure_existing_embedding_api() {
   local dimensions
 
   if [[ -z "$base_url" ]]; then
-    base_url="$(read_with_default "Embedding API base URL" "http://127.0.0.1:1234/v1")"
+    base_url="$(read_with_default "Embedding API base URL" "http://127.0.0.1:11434/v1")"
   fi
 
   if [[ -z "$model" ]]; then

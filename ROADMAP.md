@@ -25,8 +25,8 @@ This section separates shipped behavior from target architecture.
 Implemented and verified in this repository:
 
 - User-level OpenViking is installed under `~/.openviking`.
-- Homebrew install runs `agent-basics ov bootstrap-system` to install/configure OpenViking, attempt macOS LaunchAgent setup, and run best-effort LM Studio bootstrap on suitable hardware.
-- OpenViking is configured for the local LM Studio chat/VLM and embedding endpoints.
+- Homebrew install runs `agent-basics ov bootstrap-system` to install/configure OpenViking, attempt macOS LaunchAgent setup, and run best-effort Ollama verification/model setup.
+- OpenViking is configured for the local Ollama chat/VLM and embedding endpoints.
 - `.agents/memory/` is preserved as the repo-owned OpenViking source store.
 - `.agents/openviking/migration-manifest.json` records migration/adaptation state.
 - `.agents/openviking/import-state.json` records import hashes, targets, and status.
@@ -35,7 +35,7 @@ Implemented and verified in this repository:
 - Direct `ov read` and semantic `ov find` were verified against imported repo memory.
 - `agent-basics ov search`, `read`, `record`, `add-resource`, `add-skill`, `ingest-changed`, `server`, and `status` are implemented as repo-aware OpenViking wrappers.
 - `agent-basics mcp` is implemented as a repo-aware OpenViking-backed stdio MCP server.
-- LM Studio setup helpers avoid direct interactive `lms` CLI use, clear stale persisted routing prompt/schema defaults by default, and can install a LaunchAgent that runs the LM Studio server outside the agent process.
+- Ollama is the default local runtime; LM Studio setup helpers remain as an optional legacy provider path.
 - Setup/upgrade creates the modern source-store structure, verifies or installs user-level OpenViking, writes `.agents/config.toml`, generates a Codex-style MCP snippet, creates `Skills.md` plus `.agents/skills/`, and creates first-class markdown merge sessions for conflicts.
 - Managed OpenViking hooks refresh source-store changes before commits.
 - Fast dogfood coverage exercises fresh setup and existing-repo upgrade with fake user-level OpenViking.
@@ -44,7 +44,7 @@ Still transitional or incomplete:
 
 - The custom mini-RAG still exists as fallback compatibility under `compat/memory-rag/`.
 - Decision: keep checked-in compatibility source outside `.agents/memory/` so the active source store stays OpenViking-native. Fresh setup must not install the mini-RAG into target repos unless `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` is set.
-- Broader live dogfood against real OpenViking/LM Studio should continue, especially for large ingests and model/provider edge cases.
+- Broader live dogfood against real OpenViking/Ollama should continue, especially for large ingests and model/provider edge cases.
 
 ## What agent-basics Is
 
@@ -307,7 +307,8 @@ Core commands:
 | `agent-basics doctor [--online]` | Partial | Needs stronger OV/provider/repo-state checks. |
 | `agent-basics mcp` | Implemented | Repo-aware OpenViking-backed MCP server with search, read, record, add-resource, add-skill, ingest, status, and doctor tools. |
 | `agent-basics ov <command>` | Implemented | Repo-aware setup/import/search/read/record/resource/skill/server/status wrappers exist; polish remains for setup integration. |
-| `agent-basics lmstudio <command>` | Implemented | Hardware-gated bootstrap, service setup, REST/OpenAI-compatible management, and route tests exist; LM Studio API coverage still limits some load/inference settings. |
+| `agent-basics ollama <command>` | Implemented | Default local runtime status/bootstrap/pull checks for Ollama chat and embedding models. |
+| `agent-basics lmstudio <command>` | Legacy optional | Hardware-gated bootstrap, service setup, REST/OpenAI-compatible management, and route tests exist, but LM Studio is no longer the default runtime path. |
 | `agent-basics migrate memory-to-openviking` | Implemented | Inventories/adapts legacy memory into OV-native categories and manifest state. |
 | `agent-basics memory <command>` | Implemented | Transitional mini-RAG compatibility only. |
 | `agent-basics verify` | Implemented | Runs unit tests, Cargo tests, shell syntax, formula syntax, and offline OV status when available. |
@@ -320,7 +321,7 @@ OpenViking wrapper commands:
 | `agent-basics ov doctor` | Partial | Should become the full OV install/config/provider/repo-state doctor. |
 | `agent-basics ov install-system` | Implemented | Installs OpenViking under user-level home. |
 | `agent-basics ov bootstrap-system` | Implemented | Idempotently installs OpenViking when missing, writes default user-level config, and installs the macOS service when available. |
-| `agent-basics ov write-default-config` | Implemented | Writes LM Studio-backed `ov.conf` plus `ovcli.conf` with long local HTTP timeouts. |
+| `agent-basics ov write-default-config` | Implemented | Writes Ollama-backed `ov.conf` plus `ovcli.conf` with long local HTTP timeouts. |
 | `agent-basics ov server` | Implemented | Starts the configured user-level OpenViking HTTP server in the foreground. |
 | `agent-basics ov import-repo-memory` | Implemented | Writes OV-native memories directly and ingests source-store resources/skills. |
 | `agent-basics ov search <query>` | Implemented | Repo-scoped semantic search wrapper. |
@@ -332,7 +333,15 @@ OpenViking wrapper commands:
 | `agent-basics ov install-hooks` | Implemented | Installs managed `pre-commit` and `post-merge` hooks that run repo-scoped OpenViking ingest for source-store changes. |
 | `agent-basics ov status` | Implemented | Repo-scoped import, source-store, namespace, and OpenViking status. |
 
-LM Studio commands:
+Ollama commands:
+
+| Command | Status | Notes |
+| --- | --- | --- |
+| `agent-basics ollama status` | Implemented | Checks the local Ollama native and OpenAI-compatible model lists. |
+| `agent-basics ollama bootstrap` | Implemented | Verifies the Ollama command/server and pulls configured models when needed. |
+| `agent-basics ollama pull` | Implemented | Pulls the configured chat/embedding models, with dry-run support. |
+
+LM Studio legacy commands:
 
 | Command | Status | Notes |
 | --- | --- | --- |
@@ -361,40 +370,33 @@ Compatibility commands:
 
 ## Model Runtime
 
-The local runtime target is LM Studio first, with other OpenAI-compatible providers allowed.
+The local runtime target is Ollama first, with other OpenAI-compatible providers allowed.
 
 `agent-basics` should be able to:
 
-- Detect available LM Studio models.
-- Detect LM Studio installation and user config locations.
-- Install LM Studio with Homebrew on suitable Apple Silicon hosts.
-- Install a user LaunchAgent for the LM Studio server and avoid direct interactive `lms` calls from Codex.
-- Download configured chat and embedding models and verify that `/v1/models` exposes them for JIT loading.
-- Write backed-up LM Studio persisted model defaults for known local models.
-- Load and unload models through LM Studio's native REST API when the user allows it.
-- Avoid the `lms` CLI from Codex on macOS because it can launch the LM Studio Electron app and crash during AppKit registration.
+- Detect available Ollama models.
+- Install Ollama through Homebrew when the default local runtime is missing.
+- Pull configured chat and embedding models and verify that `/v1/models` exposes them.
 - Verify OpenAI-compatible chat and embedding endpoints.
-- Launch OpenViking with localhost proxy bypass variables so local LM Studio requests do not get intercepted by system HTTP proxies.
+- Launch OpenViking with localhost proxy bypass variables so local Ollama requests do not get intercepted by system HTTP proxies.
 - Configure OpenViking with the selected chat/VLM model and embedding model.
 - Keep model/provider settings in config files, not scattered environment variables.
 - Store only secret environment variable names, never raw secret values.
-- Assess host hardware with stable macOS system APIs, then produce a deterministic load plan.
+- Assess host hardware with stable macOS system APIs when choosing larger local models.
 
 Known local setup:
 
-- Chat/VLM: `google/gemma-4-e2b`
-- Embeddings: `text-embedding-embeddinggemma-300m-qat`
-- LM Studio base URL: `http://127.0.0.1:1234`
+- Chat/VLM: `gemma4:e2b`
+- Embeddings: `embeddinggemma:latest`
+- Ollama base URL: `http://127.0.0.1:11434`
 
-Gemma 4 E2B should be used with shallow structured-output schemas for routing and setup helpers. Deterministic code must validate and apply the result. The default load plan is max context, max GPU offload, concurrency 1, KV cache quantization `q4_0`, flash attention enabled, and temperature 0 for routing tests.
-
-`agent-basics lmstudio configure` should own the persistent LM Studio defaults that are not exposed through the current REST load endpoint, including CPU thread pool size, concurrent sessions, context length, GPU offload ratio, KV cache quantization, and temperature. It should clear stale persisted routing system-prompt and structured-output defaults by default because OpenViking sends its own request-time grammar. REST/OpenAI-compatible routing tests should still send request-time settings explicitly.
+Gemma 4 E2B should be used with shallow structured-output schemas for routing and setup helpers. Deterministic code must validate and apply the result. OpenViking should send request-time prompt/schema settings instead of relying on provider UI defaults.
 
 ## Immediate Next Work
 
 The next unlock is hardening the now-usable OpenViking-backed harness:
 
-1. Run longer live dogfood passes against real OpenViking/LM Studio on messy existing repositories.
+1. Run longer live dogfood passes against real OpenViking/Ollama on messy existing repositories.
 2. Decide whether `compat/memory-rag/` should be retired completely or split into a separate legacy package after old-repo fallback support has a stable distribution path.
 3. Add CI examples that run `agent-basics verify` plus `agent-basics ov status --offline`.
 4. Measure whether `Skills.md` plus stable command prefixes actually reduce approval prompts in sample project work.
@@ -418,7 +420,7 @@ Status: complete for this repository.
 
 - Install and configure OpenViking through `agent-basics`.
 - Create repo-local OpenViking metadata under `.agents/openviking/`.
-- Verify LM Studio chat/VLM and embedding providers.
+- Verify Ollama chat/VLM and embedding providers.
 - Ingest this repo's current agent instructions and documentation.
 - Prove search/record through a repo-aware wrapper.
 

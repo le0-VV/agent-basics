@@ -993,7 +993,11 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
                     config=str(config_path),
                     cli_config=str(cli_config_path),
                     home=str(Path(tmp) / "openviking"),
-                    lmstudio_base="http://127.0.0.1:1234",
+                    provider="ollama",
+                    base_url=agent_basics_ov.DEFAULT_OLLAMA_BASE,
+                    provider_base=None,
+                    lmstudio_base=None,
+                    api_key=None,
                     chat_model=agent_basics_ov.DEFAULT_CHAT_MODEL,
                     embedding_model=agent_basics_ov.DEFAULT_EMBEDDING_MODEL,
                     embedding_dimension=768,
@@ -1010,6 +1014,9 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         assert payload is not None
         assert cli_payload is not None
         self.assertGreater(payload["vlm"]["timeout"], 0)
+        self.assertEqual(payload["vlm"]["api_base"], "http://127.0.0.1:11434/v1")
+        self.assertEqual(payload["vlm"]["model"], "gemma4:e2b")
+        self.assertEqual(payload["embedding"]["dense"]["model"], "embeddinggemma:latest")
         self.assertEqual(cli_payload["timeout"], agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS)
 
     def test_merge_no_proxy_preserves_existing_and_adds_localhost_bypass(self) -> None:
@@ -1286,7 +1293,7 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertTrue(payload["service_enabled"])
         self.assertEqual(
             [step["name"] for step in payload["steps"]],
-            ["install-system", "write-default-config", "service install", "lmstudio bootstrap"],
+            ["install-system", "write-default-config", "service install", "runtime bootstrap"],
         )
         self.assertTrue(payload["steps"][3]["payload"]["skipped"])
         self.assertEqual(commands[0], ["/tmp/uv", "venv", "--python", "3.12", str(home / "venv")])

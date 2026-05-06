@@ -32,7 +32,7 @@ class LicensingTest(unittest.TestCase):
         for token in [
             "openviking",
             "agpl-3.0",
-            "lm studio",
+            "ollama",
             "gemma",
             "embeddinggemma",
             "uv",

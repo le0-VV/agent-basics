@@ -20,9 +20,14 @@ from pathlib import Path
 from typing import Any
 
 
+DEFAULT_OLLAMA_BASE = "http://127.0.0.1:11434"
+DEFAULT_OLLAMA_API_KEY = "ollama"
 DEFAULT_LM_STUDIO_BASE = "http://127.0.0.1:1234"
-DEFAULT_CHAT_MODEL = "google/gemma-4-e2b"
-DEFAULT_EMBEDDING_MODEL = "text-embedding-embeddinggemma-300m-qat"
+DEFAULT_CHAT_MODEL = "gemma4:e2b"
+DEFAULT_EMBEDDING_MODEL = "embeddinggemma:latest"
+DEFAULT_RUNTIME_PROVIDER = "ollama"
+DEFAULT_LMSTUDIO_CHAT_MODEL = "google/gemma-4-e2b"
+DEFAULT_LMSTUDIO_EMBEDDING_MODEL = "text-embedding-embeddinggemma-300m-qat"
 DEFAULT_OV_HOME = Path.home() / ".openviking"
 DEFAULT_OV_BIN = DEFAULT_OV_HOME / "venv" / "bin" / "ov"
 DEFAULT_OV_CONFIG = DEFAULT_OV_HOME / "ov.conf"
@@ -44,16 +49,16 @@ DEFAULT_LMSTUDIO_PORT = 1234
 DEFAULT_LMSTUDIO_SERVICE_LABEL = "com.agent-basics.lmstudio"
 DEFAULT_LMSTUDIO_SERVICE_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{DEFAULT_LMSTUDIO_SERVICE_LABEL}.plist"
 DEFAULT_LMSTUDIO_MIN_MEMORY_GB = 16.0
-DEFAULT_LMSTUDIO_CHAT_DOWNLOAD = DEFAULT_CHAT_MODEL
-DEFAULT_LMSTUDIO_EMBEDDING_DOWNLOAD = DEFAULT_EMBEDDING_MODEL
+DEFAULT_LMSTUDIO_CHAT_DOWNLOAD = DEFAULT_LMSTUDIO_CHAT_MODEL
+DEFAULT_LMSTUDIO_EMBEDDING_DOWNLOAD = DEFAULT_LMSTUDIO_EMBEDDING_MODEL
 LMSTUDIO_DEFAULT_CONFIG_ROOT = Path(".internal") / "user-concrete-model-default-config"
 GEMMA_LLM_KEYS = {"google/gemma-4-e2b", "google/gemma-4-e4b"}
 LMSTUDIO_KNOWN_CONFIG_PATHS = {
-    DEFAULT_CHAT_MODEL: [
+    DEFAULT_LMSTUDIO_CHAT_MODEL: [
         Path("google") / "gemma-4-e2b.json",
         Path("lmstudio-community") / "gemma-4-E2B-it-GGUF" / "gemma-4-E2B-it-Q4_K_M.gguf.json",
     ],
-    DEFAULT_EMBEDDING_MODEL: [
+    DEFAULT_LMSTUDIO_EMBEDDING_MODEL: [
         Path("lmstudio-community") / "embeddinggemma-300m-qat-GGUF" / "embeddinggemma-300m-qat-Q4_0.gguf.json",
     ],
 }
@@ -677,6 +682,7 @@ def command_ov_doctor(args: argparse.Namespace) -> int:
         repo,
         online=args.online,
         providers=args.providers,
+        provider=getattr(args, "provider", DEFAULT_RUNTIME_PROVIDER),
         base_url=args.base_url,
     )
     payload["doctor"] = {
@@ -734,6 +740,14 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
     home = Path(args.home).expanduser()
     cli_config_path = Path(getattr(args, "cli_config", None) or home / "ovcli.conf").expanduser()
     server_url = getattr(args, "server_url", None) or "http://127.0.0.1:1933"
+    provider = getattr(args, "provider", DEFAULT_RUNTIME_PROVIDER)
+    base_url = (
+        getattr(args, "base_url", None)
+        or getattr(args, "provider_base", None)
+        or getattr(args, "lmstudio_base", None)
+        or (DEFAULT_LM_STUDIO_BASE if provider == "lmstudio" else DEFAULT_OLLAMA_BASE)
+    ).rstrip("/")
+    api_key = getattr(args, "api_key", None) or (DEFAULT_OLLAMA_API_KEY if provider == "ollama" else "lm-studio")
     config_payload = {
         "storage": {"workspace": str(Path(args.home).expanduser() / "workspace")},
         "log": {"level": "INFO", "output": "stdout"},
@@ -741,8 +755,8 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
             "dense": {
                 "provider": "openai",
                 "model": args.embedding_model,
-                "api_key": "lm-studio",
-                "api_base": f"{args.lmstudio_base.rstrip('/')}/v1",
+                "api_key": api_key,
+                "api_base": f"{base_url}/v1",
                 "dimension": args.embedding_dimension,
             },
             "max_concurrent": 1,
@@ -752,8 +766,8 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
         "vlm": {
             "provider": "openai",
             "model": args.chat_model,
-            "api_key": "lm-studio",
-            "api_base": f"{args.lmstudio_base.rstrip('/')}/v1",
+            "api_key": api_key,
+            "api_base": f"{base_url}/v1",
             "max_concurrent": 1,
             "timeout": args.vlm_timeout,
         },
@@ -834,8 +848,8 @@ def ov_bootstrap_lmstudio_args(args: argparse.Namespace, *, dry_run: bool) -> ar
     return argparse.Namespace(
         base_url=getattr(args, "lmstudio_base", DEFAULT_LM_STUDIO_BASE),
         lmstudio_home=str(DEFAULT_LMSTUDIO_HOME),
-        model=getattr(args, "chat_model", DEFAULT_CHAT_MODEL),
-        embedding_model=getattr(args, "embedding_model", DEFAULT_EMBEDDING_MODEL),
+        model=getattr(args, "lmstudio_chat_model", DEFAULT_LMSTUDIO_CHAT_MODEL),
+        embedding_model=getattr(args, "lmstudio_embedding_model", DEFAULT_LMSTUDIO_EMBEDDING_MODEL),
         download_model=[],
         min_memory_gb=getattr(args, "lmstudio_min_memory_gb", DEFAULT_LMSTUDIO_MIN_MEMORY_GB),
         allow_non_macos=False,
@@ -861,6 +875,32 @@ def ov_bootstrap_lmstudio_args(args: argparse.Namespace, *, dry_run: bool) -> ar
     )
 
 
+def ov_bootstrap_ollama_args(args: argparse.Namespace, *, dry_run: bool) -> argparse.Namespace:
+    return argparse.Namespace(
+        base_url=getattr(args, "base_url", None) or getattr(args, "provider_base", None) or DEFAULT_OLLAMA_BASE,
+        model=getattr(args, "chat_model", DEFAULT_CHAT_MODEL),
+        embedding_model=getattr(args, "embedding_model", DEFAULT_EMBEDDING_MODEL),
+        pull_model=[],
+        install=getattr(args, "ollama_install", "auto"),
+        pull=getattr(args, "ollama_pull", "auto"),
+        timeout=getattr(args, "ollama_timeout", 5),
+        dry_run=dry_run,
+    )
+
+
+def ov_runtime_plan_payload(args: argparse.Namespace, *, dry_run: bool) -> dict[str, Any]:
+    runtime = getattr(args, "runtime", "none")
+    if getattr(args, "lmstudio", "never") != "never":
+        runtime = "lmstudio"
+    if runtime == "none":
+        return {"ok": True, "changed": False, "skipped": True, "provider": "none"}
+    if runtime == "ollama":
+        return command_payload_from_handler(command_ollama_bootstrap, ov_bootstrap_ollama_args(args, dry_run=dry_run))
+    if runtime == "lmstudio":
+        return command_payload_from_handler(command_lmstudio_bootstrap, ov_bootstrap_lmstudio_args(args, dry_run=dry_run))
+    return {"ok": False, "changed": False, "error": f"unsupported runtime provider: {runtime}"}
+
+
 def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
     home = Path(args.home).expanduser()
     config = Path(args.config).expanduser() if args.config else home / "ov.conf"
@@ -871,12 +911,7 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
     )
 
     if args.dry_run:
-        lmstudio_mode = getattr(args, "lmstudio", "never")
-        lmstudio_plan = (
-            command_payload_from_handler(command_lmstudio_bootstrap, ov_bootstrap_lmstudio_args(args, dry_run=True))
-            if lmstudio_mode != "never"
-            else {"ok": True, "changed": False, "skipped": True, "mode": "never"}
-        )
+        runtime_plan = ov_runtime_plan_payload(args, dry_run=True)
         print_json(
             {
                 "ok": True,
@@ -897,7 +932,8 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
                     "best_effort": args.service_best_effort,
                     "skipped_reason": service_skipped_reason,
                 },
-                "lmstudio": lmstudio_plan,
+                "runtime": runtime_plan,
+                "lmstudio": runtime_plan if getattr(args, "lmstudio", "never") != "never" else {"ok": True, "changed": False, "skipped": True, "mode": "never"},
             }
         )
         return 0
@@ -923,7 +959,11 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
             config=str(config),
             cli_config=str(cli_config),
             home=str(home),
-            lmstudio_base=args.lmstudio_base,
+            provider=getattr(args, "provider", DEFAULT_RUNTIME_PROVIDER),
+            base_url=getattr(args, "base_url", None),
+            provider_base=getattr(args, "provider_base", None),
+            lmstudio_base=getattr(args, "lmstudio_base", None),
+            api_key=getattr(args, "api_key", None),
             chat_model=args.chat_model,
             embedding_model=args.embedding_model,
             embedding_dimension=args.embedding_dimension,
@@ -972,19 +1012,12 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
             }
         )
 
-    lmstudio_mode = getattr(args, "lmstudio", "never")
-    if lmstudio_mode != "never":
-        lmstudio_payload = command_payload_from_handler(command_lmstudio_bootstrap, ov_bootstrap_lmstudio_args(args, dry_run=False))
-        steps.append({"name": "lmstudio bootstrap", "payload": lmstudio_payload})
-        if not lmstudio_payload.get("ok"):
-            ok = bool(getattr(args, "lmstudio_best_effort", False))
-            steps[-1]["best_effort_ignored_failure"] = bool(getattr(args, "lmstudio_best_effort", False))
-    else:
-        steps.append(
-            {
-                "name": "lmstudio bootstrap",
-                "payload": {"ok": True, "changed": False, "skipped": True, "mode": "never"},
-            }
+    runtime_payload = ov_runtime_plan_payload(args, dry_run=False)
+    steps.append({"name": "runtime bootstrap", "payload": runtime_payload})
+    if not runtime_payload.get("ok"):
+        ok = bool(getattr(args, "runtime_best_effort", False) or getattr(args, "lmstudio_best_effort", False))
+        steps[-1]["best_effort_ignored_failure"] = bool(
+            getattr(args, "runtime_best_effort", False) or getattr(args, "lmstudio_best_effort", False)
         )
 
     print_json(
@@ -2167,7 +2200,14 @@ def ov_import_staleness(repo: Path) -> dict[str, Any]:
     }
 
 
-def ov_status_payload(repo: Path, *, online: bool = True, providers: bool = False, base_url: str = DEFAULT_LM_STUDIO_BASE) -> dict[str, Any]:
+def ov_status_payload(
+    repo: Path,
+    *,
+    online: bool = True,
+    providers: bool = False,
+    provider: str = DEFAULT_RUNTIME_PROVIDER,
+    base_url: str = DEFAULT_OLLAMA_BASE,
+) -> dict[str, Any]:
     ov_bin = find_ov_bin()
     ov_config = Path(os.environ.get("AGENT_BASICS_OV_CONFIG", str(DEFAULT_OV_CONFIG))).expanduser()
     ov_cli_config = Path(os.environ.get("AGENT_BASICS_OV_CLI_CONFIG", str(DEFAULT_OV_CLI_CONFIG))).expanduser()
@@ -2219,8 +2259,12 @@ def ov_status_payload(repo: Path, *, online: bool = True, providers: bool = Fals
             }
             payload["ok"] = bool(health.get("ok")) and bool(status.get("ok"))
     if providers:
-        payload["lmstudio"] = lmstudio_status_payload(base_url, timeout=5)
-        payload["ok"] = bool(payload["ok"]) and bool(payload["lmstudio"].get("ok"))
+        if provider == "lmstudio":
+            payload["lmstudio"] = lmstudio_status_payload(base_url, timeout=5)
+            payload["ok"] = bool(payload["ok"]) and bool(payload["lmstudio"].get("ok"))
+        else:
+            payload["ollama"] = ollama_status_payload(base_url, timeout=5)
+            payload["ok"] = bool(payload["ok"]) and bool(payload["ollama"].get("ok"))
     if not ov_bin:
         payload["recommendation"] = "Run `agent-basics ov install-system` or install OpenViking under ~/.openviking."
     return payload
@@ -2231,6 +2275,7 @@ def command_ov_status(args: argparse.Namespace) -> int:
         repo_root_from_args(args),
         online=not args.offline,
         providers=args.providers,
+        provider=getattr(args, "provider", DEFAULT_RUNTIME_PROVIDER),
         base_url=args.base_url,
     )
     print_json(payload)
@@ -2671,6 +2716,158 @@ def lmstudio_status_payload(base_url: str, timeout: float | None = 5) -> dict[st
         }
     )
     return payload
+
+
+def ollama_status_payload(
+    base_url: str,
+    *,
+    chat_model: str = DEFAULT_CHAT_MODEL,
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL,
+    timeout: float | None = 5,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "base_url": base_url,
+        "chat_model": chat_model,
+        "embedding_model": embedding_model,
+    }
+    try:
+        tags = http_json(base_url, "/api/tags", timeout=timeout)
+        openai_models = http_json(base_url, "/v1/models", timeout=timeout)
+    except Exception as exc:
+        payload.update({"ok": False, "error": str(exc)})
+        return payload
+    native_models = tags.get("models", [])
+    openai_model_items = openai_models.get("data", [])
+    model_ids = {
+        item.get("name") for item in native_models if isinstance(item, dict) and item.get("name")
+    } | {
+        item.get("id") for item in openai_model_items if isinstance(item, dict) and item.get("id")
+    }
+    payload.update(
+        {
+            "ok": True,
+            "models": native_models,
+            "openai_models": openai_model_items,
+            "model_ids": sorted(model_ids),
+            "chat_available": chat_model in model_ids,
+            "embedding_available": embedding_model in model_ids,
+        }
+    )
+    return payload
+
+
+def command_ollama_status(args: argparse.Namespace) -> int:
+    payload = ollama_status_payload(
+        args.base_url,
+        chat_model=args.model,
+        embedding_model=args.embedding_model,
+        timeout=args.timeout,
+    )
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def ollama_pull_payload(args: argparse.Namespace, *, status: dict[str, Any] | None = None) -> dict[str, Any]:
+    models = [args.model, args.embedding_model, *getattr(args, "pull_model", [])]
+    unique_models = list(dict.fromkeys(model for model in models if model))
+    payload: dict[str, Any] = {
+        "ok": True,
+        "changed": False,
+        "models": unique_models,
+        "dry_run": bool(getattr(args, "dry_run", False)),
+    }
+    ollama_bin = shutil_which("ollama")
+    if not ollama_bin:
+        payload.update({"ok": False, "error": "ollama command was not found"})
+        return payload
+    status = status or ollama_status_payload(
+        args.base_url,
+        chat_model=args.model,
+        embedding_model=args.embedding_model,
+        timeout=args.timeout,
+    )
+    existing = set(status.get("model_ids", []) or [])
+    results = []
+    for model in unique_models:
+        if model in existing:
+            results.append({"model": model, "ok": True, "changed": False, "already_present": True})
+            continue
+        if getattr(args, "dry_run", False):
+            results.append({"model": model, "ok": True, "changed": True, "command": [ollama_bin, "pull", model]})
+            payload["changed"] = True
+            continue
+        result = run_command([ollama_bin, "pull", model], timeout=None)
+        results.append({"model": model, "ok": result.get("ok"), "changed": result.get("ok"), "result": result})
+        payload["changed"] = bool(payload["changed"]) or bool(result.get("ok"))
+        payload["ok"] = bool(payload["ok"]) and bool(result.get("ok"))
+    payload["results"] = results
+    return payload
+
+
+def command_ollama_pull(args: argparse.Namespace) -> int:
+    payload = ollama_pull_payload(args)
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def command_ollama_bootstrap(args: argparse.Namespace) -> int:
+    ollama_bin = shutil_which("ollama")
+    install_mode = getattr(args, "install", "auto")
+    steps: list[dict[str, Any]] = []
+    ok = True
+
+    if not ollama_bin:
+        if install_mode == "never":
+            steps.append({"name": "install", "payload": {"ok": False, "changed": False, "error": "ollama command was not found"}})
+            ok = False
+        elif getattr(args, "dry_run", False):
+            steps.append({"name": "install", "payload": {"ok": True, "changed": True, "command": ["brew", "install", "ollama"]}})
+        else:
+            brew = shutil_which("brew")
+            if not brew:
+                steps.append({"name": "install", "payload": {"ok": False, "changed": False, "error": "brew is required to install Ollama automatically"}})
+                ok = False
+            else:
+                install_payload = run_command([brew, "install", "ollama"], timeout=None)
+                steps.append({"name": "install", "payload": install_payload})
+                ok = ok and bool(install_payload.get("ok"))
+                ollama_bin = shutil_which("ollama")
+    else:
+        steps.append({"name": "install", "payload": {"ok": True, "changed": False, "path": ollama_bin}})
+
+    status = ollama_status_payload(
+        args.base_url,
+        chat_model=args.model,
+        embedding_model=args.embedding_model,
+        timeout=args.timeout,
+    )
+    steps.append({"name": "status", "payload": status})
+    if not status.get("ok"):
+        ok = False
+        steps.append(
+            {
+                "name": "service",
+                "payload": {
+                    "ok": False,
+                    "changed": False,
+                    "error": "Ollama server is not reachable; start the Ollama app or run `ollama serve`.",
+                },
+            }
+        )
+    elif getattr(args, "pull", "auto") != "never":
+        pull_payload = ollama_pull_payload(args, status=status)
+        steps.append({"name": "pull models", "payload": pull_payload})
+        ok = ok and bool(pull_payload.get("ok"))
+
+    payload = {
+        "ok": ok,
+        "changed": any(bool(step["payload"].get("changed")) for step in steps),
+        "base_url": args.base_url,
+        "provider": "ollama",
+        "steps": steps,
+    }
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
 
 
 def command_lmstudio_status(args: argparse.Namespace) -> int:
@@ -4412,7 +4609,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = ov_sub.add_parser("doctor")
     doctor.add_argument("--online", action="store_true")
     doctor.add_argument("--providers", action="store_true")
-    doctor.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
+    doctor.add_argument("--provider", choices=["ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
+    doctor.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
     doctor.add_argument("--timeout", type=float, default=5)
     doctor.set_defaults(func=command_ov_doctor)
 
@@ -4429,7 +4627,13 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--package", default="openviking")
     bootstrap.add_argument("--config")
     bootstrap.add_argument("--cli-config")
-    bootstrap.add_argument("--lmstudio-base", default=DEFAULT_LM_STUDIO_BASE)
+    bootstrap.add_argument("--provider", choices=["ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
+    bootstrap.add_argument("--runtime", choices=["ollama", "lmstudio", "none"], default=DEFAULT_RUNTIME_PROVIDER)
+    bootstrap.add_argument("--runtime-best-effort", action="store_true")
+    bootstrap.add_argument("--base-url")
+    bootstrap.add_argument("--provider-base")
+    bootstrap.add_argument("--api-key")
+    bootstrap.add_argument("--lmstudio-base", default=None)
     bootstrap.add_argument("--chat-model", default=DEFAULT_CHAT_MODEL)
     bootstrap.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
     bootstrap.add_argument("--embedding-dimension", type=int, default=768)
@@ -4438,7 +4642,10 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--cli-timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
     bootstrap.add_argument("--service", choices=["auto", "always", "never"], default="auto")
     bootstrap.add_argument("--service-best-effort", action="store_true")
-    bootstrap.add_argument("--lmstudio", choices=["auto", "always", "never"], default="auto")
+    bootstrap.add_argument("--ollama-install", choices=["auto", "always", "never"], default="auto")
+    bootstrap.add_argument("--ollama-pull", choices=["auto", "always", "never"], default="auto")
+    bootstrap.add_argument("--ollama-timeout", type=float, default=5)
+    bootstrap.add_argument("--lmstudio", choices=["auto", "always", "never"], default="never")
     bootstrap.add_argument("--lmstudio-best-effort", action="store_true")
     bootstrap.add_argument("--lmstudio-min-memory-gb", type=float, default=DEFAULT_LMSTUDIO_MIN_MEMORY_GB)
     bootstrap.add_argument("--lmstudio-cask", default=DEFAULT_LMSTUDIO_CASK)
@@ -4460,7 +4667,11 @@ def build_parser() -> argparse.ArgumentParser:
     config.add_argument("--config", default=str(DEFAULT_OV_CONFIG))
     config.add_argument("--cli-config", default=str(DEFAULT_OV_CLI_CONFIG))
     config.add_argument("--home", default=str(DEFAULT_OV_HOME))
-    config.add_argument("--lmstudio-base", default=DEFAULT_LM_STUDIO_BASE)
+    config.add_argument("--provider", choices=["ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
+    config.add_argument("--base-url")
+    config.add_argument("--provider-base")
+    config.add_argument("--api-key")
+    config.add_argument("--lmstudio-base", default=None)
     config.add_argument("--chat-model", default=DEFAULT_CHAT_MODEL)
     config.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
     config.add_argument("--embedding-dimension", type=int, default=768)
@@ -4599,8 +4810,38 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = ov_sub.add_parser("status")
     status_parser.add_argument("--offline", action="store_true")
     status_parser.add_argument("--providers", action="store_true")
-    status_parser.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
+    status_parser.add_argument("--provider", choices=["ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
+    status_parser.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
     status_parser.set_defaults(func=command_ov_status)
+
+    ollama = subparsers.add_parser("ollama")
+    ollama_sub = ollama.add_subparsers(dest="ollama_command", required=True)
+    ollama_status = ollama_sub.add_parser("status")
+    ollama_status.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
+    ollama_status.add_argument("--model", default=DEFAULT_CHAT_MODEL)
+    ollama_status.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    ollama_status.add_argument("--timeout", type=float, default=5)
+    ollama_status.set_defaults(func=command_ollama_status)
+
+    ollama_bootstrap = ollama_sub.add_parser("bootstrap")
+    ollama_bootstrap.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
+    ollama_bootstrap.add_argument("--model", default=DEFAULT_CHAT_MODEL)
+    ollama_bootstrap.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    ollama_bootstrap.add_argument("--pull-model", action="append", default=[])
+    ollama_bootstrap.add_argument("--install", choices=["auto", "always", "never"], default="auto")
+    ollama_bootstrap.add_argument("--pull", choices=["auto", "always", "never"], default="auto")
+    ollama_bootstrap.add_argument("--timeout", type=float, default=5)
+    ollama_bootstrap.add_argument("--dry-run", action="store_true")
+    ollama_bootstrap.set_defaults(func=command_ollama_bootstrap)
+
+    ollama_pull = ollama_sub.add_parser("pull")
+    ollama_pull.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
+    ollama_pull.add_argument("--model", default=DEFAULT_CHAT_MODEL)
+    ollama_pull.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    ollama_pull.add_argument("--pull-model", action="append", default=[])
+    ollama_pull.add_argument("--timeout", type=float, default=5)
+    ollama_pull.add_argument("--dry-run", action="store_true")
+    ollama_pull.set_defaults(func=command_ollama_pull)
 
     lm = subparsers.add_parser("lmstudio")
     lm_sub = lm.add_subparsers(dest="lmstudio_command", required=True)
@@ -4615,8 +4856,8 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap_lm = lm_sub.add_parser("bootstrap")
     bootstrap_lm.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
     bootstrap_lm.add_argument("--lmstudio-home", default=str(DEFAULT_LMSTUDIO_HOME))
-    bootstrap_lm.add_argument("--model", default=DEFAULT_CHAT_MODEL)
-    bootstrap_lm.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    bootstrap_lm.add_argument("--model", default=DEFAULT_LMSTUDIO_CHAT_MODEL)
+    bootstrap_lm.add_argument("--embedding-model", default=DEFAULT_LMSTUDIO_EMBEDDING_MODEL)
     bootstrap_lm.add_argument("--download-model", action="append", default=[])
     bootstrap_lm.add_argument("--min-memory-gb", type=float, default=DEFAULT_LMSTUDIO_MIN_MEMORY_GB)
     bootstrap_lm.add_argument("--allow-non-macos", action="store_true")
@@ -4656,8 +4897,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     plan = lm_sub.add_parser("plan")
     plan.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
-    plan.add_argument("--model", default=DEFAULT_CHAT_MODEL)
-    plan.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    plan.add_argument("--model", default=DEFAULT_LMSTUDIO_CHAT_MODEL)
+    plan.add_argument("--embedding-model", default=DEFAULT_LMSTUDIO_EMBEDDING_MODEL)
     plan.add_argument("--max-tokens", type=int, default=2200)
     plan.add_argument("--timeout", type=float, default=5)
     plan.set_defaults(func=command_lmstudio_plan)
@@ -4665,8 +4906,8 @@ def build_parser() -> argparse.ArgumentParser:
     configure = lm_sub.add_parser("configure")
     configure.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
     configure.add_argument("--lmstudio-home", default=str(DEFAULT_LMSTUDIO_HOME))
-    configure.add_argument("--model", default=DEFAULT_CHAT_MODEL)
-    configure.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    configure.add_argument("--model", default=DEFAULT_LMSTUDIO_CHAT_MODEL)
+    configure.add_argument("--embedding-model", default=DEFAULT_LMSTUDIO_EMBEDDING_MODEL)
     configure.add_argument("--cpu-threads", type=int, default=0)
     configure.add_argument("--parallel", type=int, default=1)
     configure.add_argument("--context-length", type=int, default=0)
@@ -4684,8 +4925,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     load = lm_sub.add_parser("load")
     load.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
-    load.add_argument("--model", default=DEFAULT_CHAT_MODEL)
-    load.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    load.add_argument("--model", default=DEFAULT_LMSTUDIO_CHAT_MODEL)
+    load.add_argument("--embedding-model", default=DEFAULT_LMSTUDIO_EMBEDDING_MODEL)
     load.add_argument("--max-tokens", type=int, default=2200)
     load.add_argument("--timeout", type=float, default=5)
     load.add_argument("--dry-run", action="store_true")
@@ -4694,7 +4935,7 @@ def build_parser() -> argparse.ArgumentParser:
     load.set_defaults(func=command_lmstudio_load)
 
     unload = lm_sub.add_parser("unload")
-    unload.add_argument("identifier", nargs="?", default=DEFAULT_CHAT_MODEL)
+    unload.add_argument("identifier", nargs="?", default=DEFAULT_LMSTUDIO_CHAT_MODEL)
     unload.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
     unload.add_argument("--timeout", type=float, default=5)
     unload.add_argument("--all", action="store_true")
@@ -4702,7 +4943,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     route_test = lm_sub.add_parser("route-test")
     route_test.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
-    route_test.add_argument("--model", default=DEFAULT_CHAT_MODEL)
+    route_test.add_argument("--model", default=DEFAULT_LMSTUDIO_CHAT_MODEL)
     route_test.add_argument("--max-tokens", type=int, default=2200)
     route_test.set_defaults(func=command_lmstudio_route_test)
 

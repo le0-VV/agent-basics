@@ -26,7 +26,7 @@ The repo keeps human-reviewable source files under `.agents/memory/`; OpenViking
 
 ## How It Works
 
-It uses OpenViking as the memory and retrieval backend, which itself needs access to an LLM and an embedding model API for generating structured memory and semantic retrieval. `agent-basics` handles the repo instructions, setup, upgrade, MCP wiring, git hooks, and safe markdown conflict handling. It will also manage a user-level OpenViking installation and, if the hardware allows it, an LM Studio installation via Homebrew for a local LLM and embedding model API.
+It uses OpenViking as the memory and retrieval backend, which itself needs access to an LLM and an embedding model API for generating structured memory and semantic retrieval. `agent-basics` handles the repo instructions, setup, upgrade, MCP wiring, git hooks, and safe markdown conflict handling. It also manages a user-level OpenViking installation and configures Ollama as the default local OpenAI-compatible runtime.
 
 ## What It Gives You
 
@@ -45,7 +45,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, writes default config when missing, and attempts to install the macOS LaunchAgent. On suitable Apple Silicon hosts, it also attempts best-effort LM Studio setup: install the `lm-studio` cask, install a user LaunchAgent for the LM Studio server, write model defaults, download the configured chat/embedding models, and leave models available for JIT loading.
+The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, writes default config when missing, and attempts to install the macOS LaunchAgent. It configures OpenViking for Ollama at `http://127.0.0.1:11434/v1`, with `gemma4:e2b` for chat/VLM routing and `embeddinggemma:latest` for embeddings.
 
 Verify the command:
 
@@ -76,7 +76,7 @@ OpenViking is required (for now) and is bootstrapped during Homebrew install. To
 
 ```bash
 agent-basics ov bootstrap-system
-agent-basics lmstudio bootstrap
+agent-basics ollama bootstrap
 agent-basics ov doctor
 ```
 
@@ -167,20 +167,17 @@ Key files:
 - `.agents/skills/` and `Skills.md`: repeatable workflows for agents.
 - `.agents/TODO.md`: current work checklist; ignored by git.
 
-## LM Studio
+## Ollama
 
-The default local setup expects LM Studio to expose an OpenAI-compatible API for the chat/VLM model and embedding model. Agents should use HTTP commands through `agent-basics lmstudio` for model management; bootstrap may install a LaunchAgent that runs `lms server start` outside the agent process.
+The default local setup expects Ollama to expose an OpenAI-compatible API for the chat/VLM model and embedding model. The default models are `gemma4:e2b` and `embeddinggemma:latest`.
 
 ```bash
-agent-basics lmstudio bootstrap --dry-run
-agent-basics lmstudio service status
-agent-basics lmstudio status
-agent-basics lmstudio hardware
-agent-basics lmstudio plan
-agent-basics lmstudio configure --write
-agent-basics lmstudio load --dry-run
-agent-basics lmstudio route-test
+agent-basics ollama status
+agent-basics ollama bootstrap
+agent-basics ollama pull --dry-run
 ```
+
+LM Studio commands remain available as a legacy optional provider, but they are not the default runtime path.
 
 ## If you need any help
 

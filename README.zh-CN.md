@@ -26,7 +26,7 @@ Agents 做长线工作很容易掉链子，本质上还是 context 限制。Cont
 
 ## 它怎么工作
 
-它使用 OpenViking 作为记忆和检索后端，而 OpenViking 本身需要通过 API 访问一个 LLM 和一个 embedding 模型，用来生成结构化记忆和做语义检索。`agent-basics` 负责仓库侧的 instructions、setup、upgrade、MCP 接线、git hooks，以及安全的 markdown 冲突处理。它也会管理一个用户级 OpenViking 安装；如果设备条件允许，还会通过 Homebrew 安装设置 LM Studio，用作本地 LLM 和 embedding model API。
+它使用 OpenViking 作为记忆和检索后端，而 OpenViking 本身需要通过 API 访问一个 LLM 和一个 embedding 模型，用来生成结构化记忆和做语义检索。`agent-basics` 负责仓库侧的 instructions、setup、upgrade、MCP 接线、git hooks，以及安全的 markdown 冲突处理。它也会管理一个用户级 OpenViking 安装，并把 Ollama 配成默认的本地 OpenAI-compatible runtime。
 
 ## 它提供什么
 
@@ -45,7 +45,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。在合适的 Apple Silicon 设备上，它也会尝试设置 LM Studio：安装 `lm-studio` Homebrew cask、安装用户级 LM Studio server LaunchAgent、写入模型默认配置、下载配置好的 chat/embedding 模型，并让模型以 JIT 方式按需加载。
+Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。默认会把 OpenViking 指向 Ollama 的 `http://127.0.0.1:11434/v1`，chat/VLM routing 用 `gemma4:e2b`，embedding 用 `embeddinggemma:latest`。
 
 验证命令：
 
@@ -82,7 +82,7 @@ OpenViking 目前是必需的，并且会在 Homebrew 安装时自动 bootstrap�
 
 ```bash
 agent-basics ov bootstrap-system
-agent-basics lmstudio bootstrap
+agent-basics ollama bootstrap
 agent-basics ov doctor
 ```
 
@@ -173,20 +173,17 @@ setup 之后，一个项目通常会有：
 - `.agents/skills/` 和 `Skills.md`：给 agents 使用的可复用工作流。
 - `.agents/TODO.md`：当前工作 checklist；被 git 忽略。
 
-## LM Studio
+## Ollama
 
-默认本地设置期望 LM Studio 暴露 OpenAI-compatible API，供 chat/VLM model 和 embedding model 使用。agents 应该通过 `agent-basics lmstudio` 的 HTTP 命令管理模型；bootstrap 可以安装一个在 agent 进程之外运行 `lms server start` 的 LaunchAgent。
+默认本地设置期望 Ollama 暴露 OpenAI-compatible API，供 chat/VLM model 和 embedding model 使用。默认模型是 `gemma4:e2b` 和 `embeddinggemma:latest`。
 
 ```bash
-agent-basics lmstudio bootstrap --dry-run
-agent-basics lmstudio service status
-agent-basics lmstudio status
-agent-basics lmstudio hardware
-agent-basics lmstudio plan
-agent-basics lmstudio configure --write
-agent-basics lmstudio load --dry-run
-agent-basics lmstudio route-test
+agent-basics ollama status
+agent-basics ollama bootstrap
+agent-basics ollama pull --dry-run
 ```
+
+LM Studio 命令还保留为 legacy optional provider，但已经不是默认 runtime 路径。
 
 ## 需要帮助的话
 

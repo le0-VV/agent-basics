@@ -13,10 +13,11 @@ class HomebrewFormulaTest(unittest.TestCase):
         text = FORMULA.read_text(encoding="utf-8")
 
         self.assertIn("def post_install", text)
+        self.assertIn('depends_on "ollama"', text)
         self.assertIn('"ov", "bootstrap-system"', text)
         self.assertIn('"--service-best-effort"', text)
-        self.assertIn('"--lmstudio", "auto"', text)
-        self.assertIn('"--lmstudio-best-effort"', text)
+        self.assertIn('"--runtime", "ollama"', text)
+        self.assertIn('"--runtime-best-effort"', text)
 
 
 if __name__ == "__main__":
