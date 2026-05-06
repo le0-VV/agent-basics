@@ -70,6 +70,66 @@
       "skipped": true,
       "target": "viking://user/default/memories/events/projects/agent-basics/1778035397-ollama-default-runtime-migration.md"
     },
+    ".agents/memory/memories/events/1778042554-use-mlx-runtime-provider-for-local-openviking-setup.md": {
+      "imported_at": 1778048252,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778042554-use-mlx-runtime-provider-for-local-openviking-setup.md",
+      "sha256": "86c89338b297e3b05bd2511bb08adf59557c9a71e91b50b92c8b4ac58544260b",
+      "skipped": true,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778042554-use-mlx-runtime-provider-for-local-openviking-setup.md"
+    },
+    ".agents/memory/memories/events/1778048030-patched-mlx-server-response-format-and-idle-timer-after-live-openviking-test.md": {
+      "imported_at": 1778048252,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778048030-patched-mlx-server-response-format-and-idle-timer-after-live-openviking-test.md",
+      "sha256": "4020a44682cbb5dbc19136d53eea6b6ac9074d908a4fd27dc75b8073920305d8",
+      "skipped": true,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778048030-patched-mlx-server-response-format-and-idle-timer-after-live-openviking-test.md"
+    },
+    ".agents/memory/memories/events/1778050894-mlx-max-context-stress-test-passed.md": {
+      "imported_at": 1778053948,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778050894-mlx-max-context-stress-test-passed.md",
+      "sha256": "5efb115baa31f68c614473886928aa084828f39c0db5c48de1af0f22e7b1e98c",
+      "skipped": true,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778050894-mlx-max-context-stress-test-passed.md"
+    },
+    ".agents/memory/memories/events/1778053637-mlx-service-preloads-models-at-login.md": {
+      "imported_at": 1778053948,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778053637-mlx-service-preloads-models-at-login.md",
+      "sha256": "be6b0dda296bb986d72b805deb48e4e7e762ea3c38f026d21b8029173f62d54a",
+      "skipped": true,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778053637-mlx-service-preloads-models-at-login.md"
+    },
+    ".agents/memory/memories/events/1778053988-openviking-record-state-repair-validation.md": {
+      "imported_at": 1778054001,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778053988-openviking-record-state-repair-validation.md",
+      "sha256": "cc4fbce7c0c89b2595d8ed9fbdc8aaf47d34489ad705d2eb8b77421640377cab",
+      "skipped": true,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778053988-openviking-record-state-repair-validation.md"
+    },
+    ".agents/memory/memories/events/1778054435-ollama-removed-from-local-host.md": {
+      "imported_at": 1778054447,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778054435-ollama-removed-from-local-host.md",
+      "sha256": "37e6756148fa01fd54c8c6d63b08b2d62fd3410d29e1de96b08fc867043ecea1",
+      "skipped": true,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778054435-ollama-removed-from-local-host.md"
+    },
     ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -120,6 +180,16 @@
       "skipped": true,
       "target": "viking://user/default/memories/preferences/projects/agent-basics/1777947901-lmstudio-bootstrap-on-suitable-hardware.md"
     },
+    ".agents/memory/memories/preferences/1778045839-prefer-lightweight-command-wrapper-over-mandatory-rust-binary-build.md": {
+      "imported_at": 1778048252,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/preferences/1778045839-prefer-lightweight-command-wrapper-over-mandatory-rust-binary-build.md",
+      "sha256": "27b3c8ee127b7ab4a69c94bb86425275eacd9987a4dfacddf6f9821cce1eeb0c",
+      "skipped": true,
+      "target": "viking://user/default/memories/preferences/projects/agent-basics/1778045839-prefer-lightweight-command-wrapper-over-mandatory-rust-binary-build.md"
+    },
     ".agents/memory/memories/tools/1777935030-openviking-cli-http-timeout-lives-in-ovcli-conf.md": {
       "imported_at": 1777935377,
       "kind": "memory",
@@ -141,10 +211,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778035978,
+  "last_import": 1778104773,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778035978,
+  "updated": 1778104773,
   "version": 1
 }
