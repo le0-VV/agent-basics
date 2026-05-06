@@ -20,10 +20,10 @@ The target agent-facing surfaces are:
 - `agent-basics mcp`: repo-aware MCP server for OpenViking-backed tools.
 - `agent-basics ov doctor`: check OpenViking installation, repo config, providers, ingest status, and health.
 - `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, write default config, and install the macOS LaunchAgent when available.
-- `agent-basics lmstudio bootstrap`: when host hardware is suitable, install LM Studio through Homebrew, install its macOS LaunchAgent, configure model defaults, download the configured chat/embedding models, and verify JIT model availability.
-- `agent-basics lmstudio service`: manage the user-level LM Studio server LaunchAgent.
+- `agent-basics ollama bootstrap`: verify Ollama, pull the configured chat/embedding models when needed, and check the local OpenAI-compatible API.
+- `agent-basics lmstudio bootstrap`: legacy optional LM Studio provider path.
 - `agent-basics ov install-system`: low-level repair command for only the OpenViking package installation.
-- `agent-basics ov write-default-config`: low-level repair command for default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for LM Studio Gemma 4 E2B plus EmbeddingGemma.
+- `agent-basics ov write-default-config`: low-level repair command for default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for Ollama Gemma 4 E2B plus EmbeddingGemma.
 - `agent-basics ov service install`: install and load the configured user-level OpenViking HTTP server as a macOS LaunchAgent.
 - `agent-basics ov server`: start the configured user-level OpenViking HTTP server in the foreground for debugging.
 - `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
@@ -84,10 +84,10 @@ Compatibility files are not the long-term architecture. Useful compatibility mem
 - Environment variables are allowed for secrets, compatibility inputs, and one-off overrides.
 - Never commit raw provider API keys or local-only secrets.
 - Local provider defaults currently being tested are:
-  - LM Studio base URL: `http://127.0.0.1:1234`
-  - Chat/VLM model: `google/gemma-4-e2b`
-  - Embedding model: `text-embedding-embeddinggemma-300m-qat`
-- LM Studio model management should use REST/OpenAI-compatible HTTP. `agent-basics lmstudio bootstrap` may install a LaunchAgent that runs `lms server start`, but agents should not call interactive `lms` commands directly from Codex.
+  - Ollama base URL: `http://127.0.0.1:11434`
+  - Chat/VLM model: `gemma4:e2b`
+  - Embedding model: `embeddinggemma:latest`
+- Ollama is the default local runtime. LM Studio commands remain available only as a legacy optional provider.
 
 ## Long-Horizon Work
 
