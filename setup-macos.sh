@@ -336,7 +336,7 @@ The target agent-facing surfaces are:
 - `agent-basics ov doctor`: check the user-level OpenViking installation, repo config, providers, ingest status, and health.
 - `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, package the server as `~/.openviking/openviking`, write default config, and install the macOS LaunchAgent when available.
 - `agent-basics ov package-server`: build the OpenViking server entrypoint into a one-file `openviking` executable so macOS process listings do not show the long-running service as `python3.12`.
-- `agent-basics mlx bootstrap`: install the lightweight MLX runtime, pull the configured Hugging Face chat/embedding models when needed, and check the local OpenAI-compatible API.
+- `agent-basics mlx bootstrap`: on Apple Silicon Macs with at least 16 GB unified memory, install the lightweight MLX runtime, pull the configured Hugging Face chat/embedding models when needed, and check the local OpenAI-compatible API.
 - `agent-basics ov write-default-config --provider custom`: point OpenViking at a user-supplied OpenAI-compatible API provider.
 - `agent-basics ov install-system`: low-level repair command for only the OpenViking package installation.
 - `agent-basics ov write-default-config`: low-level repair command for default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for the configured local provider.
@@ -404,7 +404,8 @@ Compatibility files are not the long-term architecture. Useful compatibility mem
   - Chat/VLM model: `mlx-community/gemma-4-e2b-it-4bit`
   - Embedding model: `mlx-community/embeddinggemma-300m-4bit`
 - The MLX LaunchAgent should preload both configured models after startup, run the OpenViking router structured-output warmup check, keep model weights warm, and clear transient MLX runtime cache after each request.
-- MLX is the default local runtime on Apple Silicon. Non-MLX inference should be configured as a custom OpenAI-compatible API provider through OpenViking config, not through provider-specific agent-basics commands.
+- For the first release, the bundled local MLX runtime requires an Apple Silicon Mac with at least 16 GB unified memory. Unsupported hosts should use `agent-basics ov write-default-config --provider custom` with a user-supplied OpenAI-compatible API.
+- MLX is the default local runtime on supported Apple Silicon hosts. Non-MLX inference should be configured as a custom OpenAI-compatible API provider through OpenViking config, not through provider-specific agent-basics commands.
 
 ## Long-Horizon Work
 

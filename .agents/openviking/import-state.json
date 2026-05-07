@@ -200,6 +200,16 @@
       "skipped": true,
       "target": "viking://user/default/memories/events/projects/agent-basics/1778118781-packaged-openviking-server-executable.md"
     },
+    ".agents/memory/memories/events/1778128274-first-release-local-mlx-requires-apple-silicon-16gb.md": {
+      "imported_at": 1778128290,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778128274-first-release-local-mlx-requires-apple-silicon-16gb.md",
+      "sha256": "ebce6707e5713fbe030278277280b7d0fba1f21e084f0673343322481fe52450",
+      "skipped": true,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778128274-first-release-local-mlx-requires-apple-silicon-16gb.md"
+    },
     ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -321,10 +331,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778127581,
+  "last_import": 1778128743,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778127581,
+  "updated": 1778128743,
   "version": 1
 }

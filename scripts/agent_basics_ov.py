@@ -36,6 +36,7 @@ DEFAULT_MLX_PORT = 18080
 DEFAULT_MLX_SERVICE_LABEL = "com.agent-basics.mlx-runtime"
 DEFAULT_MLX_SERVICE_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{DEFAULT_MLX_SERVICE_LABEL}.plist"
 DEFAULT_MLX_MIN_MEMORY_GB = 16.0
+DEFAULT_MLX_HARDWARE_REQUIREMENT = "Apple Silicon Mac with at least 16 GB unified memory"
 DEFAULT_MLX_UNLOAD_IDLE_SECONDS = 0
 DEFAULT_MLX_PRELOAD_MODE = "all"
 DEFAULT_MLX_STARTUP_STRUCTURED_OUTPUT_CHECK = "openviking-router"
@@ -4171,7 +4172,7 @@ def mlx_wait_server_payload(base_url: str, *, timeout: float, wait_seconds: floa
 
 def command_mlx_bootstrap(args: argparse.Namespace) -> int:
     hardware = hardware_payload()
-    gate = lmstudio_hardware_gate_payload(
+    gate = mlx_hardware_gate_payload(
         hardware,
         min_memory_gb=float(getattr(args, "min_memory_gb", DEFAULT_MLX_MIN_MEMORY_GB)),
         require_macos=not getattr(args, "allow_non_macos", False),
@@ -4180,17 +4181,24 @@ def command_mlx_bootstrap(args: argparse.Namespace) -> int:
     dry_run = bool(getattr(args, "dry_run", False))
     best_effort = bool(getattr(args, "best_effort", False))
     if not gate["ok"] and not force_hardware:
+        ok = best_effort
         print_json(
             {
-                "ok": True,
+                "ok": ok,
                 "changed": False,
                 "skipped": True,
-                "reason": "host hardware is below the MLX local-runtime threshold",
+                "best_effort": best_effort,
+                "reason": "host hardware does not meet the required MLX local-runtime threshold",
+                "error": f"agent-basics MLX runtime requires an {DEFAULT_MLX_HARDWARE_REQUIREMENT}",
+                "recommendation": (
+                    "Use `agent-basics ov write-default-config --provider custom ...` with a "
+                    "user-supplied OpenAI-compatible provider on unsupported hosts."
+                ),
                 "hardware_gate": gate,
                 "hardware": hardware,
             }
         )
-        return 0
+        return 0 if ok else 1
 
     home = Path(getattr(args, "home", DEFAULT_MLX_HOME)).expanduser()
     base_url = getattr(args, "base_url", DEFAULT_MLX_BASE)
@@ -4438,6 +4446,35 @@ def lmstudio_hardware_gate_payload(
         reasons.append(f"requires at least {min_memory_gb:g} GB unified memory; detected {memory_gb:g} GB")
     return {
         "ok": not reasons,
+        "min_memory_gb": min_memory_gb,
+        "memory_gb": memory_gb,
+        "system": system,
+        "machine": machine,
+        "reasons": reasons,
+    }
+
+
+def mlx_hardware_gate_payload(
+    hardware: dict[str, Any],
+    *,
+    min_memory_gb: float = DEFAULT_MLX_MIN_MEMORY_GB,
+    require_macos: bool = True,
+) -> dict[str, Any]:
+    reasons = []
+    memory_gb = hardware.get("recommendation", {}).get("memory_gb")
+    system = hardware.get("system") or platform.system()
+    machine = hardware.get("machine") or platform.machine()
+    if require_macos and system != "Darwin":
+        reasons.append(f"requires macOS on Apple Silicon; detected {system or 'unknown'}")
+    if machine not in {"arm64", "aarch64"}:
+        reasons.append(f"requires Apple Silicon arm64; detected {machine or 'unknown'}")
+    if memory_gb is None:
+        reasons.append("could not determine unified memory")
+    elif float(memory_gb) < min_memory_gb:
+        reasons.append(f"requires at least {min_memory_gb:g} GB unified memory; detected {memory_gb:g} GB")
+    return {
+        "ok": not reasons,
+        "requirement": DEFAULT_MLX_HARDWARE_REQUIREMENT,
         "min_memory_gb": min_memory_gb,
         "memory_gb": memory_gb,
         "system": system,

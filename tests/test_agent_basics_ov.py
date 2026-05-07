@@ -397,6 +397,79 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
             "mlx-community/embeddinggemma-300m-4bit",
         ])
 
+    def test_mlx_hardware_gate_requires_apple_silicon_and_memory(self) -> None:
+        hardware = {
+            "system": "Darwin",
+            "machine": "x86_64",
+            "recommendation": {"memory_gb": 8.0},
+        }
+
+        payload = agent_basics_ov.mlx_hardware_gate_payload(hardware, min_memory_gb=16)
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["requirement"], "Apple Silicon Mac with at least 16 GB unified memory")
+        self.assertIn("requires Apple Silicon arm64", payload["reasons"][0])
+        self.assertIn("requires at least 16 GB", payload["reasons"][1])
+
+    def test_mlx_bootstrap_fails_unsupported_hardware_by_default(self) -> None:
+        original_hardware_payload = agent_basics_ov.hardware_payload
+        try:
+            agent_basics_ov.hardware_payload = lambda: {
+                "ok": True,
+                "system": "Darwin",
+                "machine": "x86_64",
+                "recommendation": {"memory_gb": 8.0},
+            }
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = agent_basics_ov.command_mlx_bootstrap(
+                    SimpleNamespace(
+                        min_memory_gb=16,
+                        allow_non_macos=False,
+                        force_hardware=False,
+                        best_effort=False,
+                        dry_run=True,
+                    )
+                )
+        finally:
+            agent_basics_ov.hardware_payload = original_hardware_payload
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 1)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["skipped"])
+        self.assertIn("requires an Apple Silicon Mac with at least 16 GB unified memory", payload["error"])
+        self.assertIn("--provider custom", payload["recommendation"])
+
+    def test_mlx_bootstrap_best_effort_skips_unsupported_hardware(self) -> None:
+        original_hardware_payload = agent_basics_ov.hardware_payload
+        try:
+            agent_basics_ov.hardware_payload = lambda: {
+                "ok": True,
+                "system": "Darwin",
+                "machine": "arm64",
+                "recommendation": {"memory_gb": 8.0},
+            }
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = agent_basics_ov.command_mlx_bootstrap(
+                    SimpleNamespace(
+                        min_memory_gb=16,
+                        allow_non_macos=False,
+                        force_hardware=False,
+                        best_effort=True,
+                        dry_run=True,
+                    )
+                )
+        finally:
+            agent_basics_ov.hardware_payload = original_hardware_payload
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["skipped"])
+        self.assertTrue(payload["best_effort"])
+
     def test_preingest_splits_and_hints_ownership_statements(self) -> None:
         candidates = agent_basics_ov.preingest_candidates(
             "harness_direction",
@@ -1688,6 +1761,9 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
                             package="openviking",
                             config=None,
                             cli_config=None,
+                            provider="mlx",
+                            runtime="none",
+                            runtime_best_effort=False,
                             lmstudio_base="http://127.0.0.1:1234",
                             chat_model=agent_basics_ov.DEFAULT_CHAT_MODEL,
                             embedding_model=agent_basics_ov.DEFAULT_EMBEDDING_MODEL,

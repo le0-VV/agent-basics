@@ -374,7 +374,7 @@ Compatibility commands:
 
 ## Model Runtime
 
-The local runtime target is the agent-basics MLX server first on Apple Silicon, with other OpenAI-compatible providers allowed as fallbacks.
+The local runtime target is the agent-basics MLX server first on supported Apple Silicon Macs, with other OpenAI-compatible providers allowed as fallbacks. For the first release, bundled local MLX support requires an Apple Silicon Mac with at least 16 GB unified memory.
 
 `agent-basics` should be able to:
 
@@ -393,6 +393,7 @@ Known local setup:
 - Chat/VLM: `mlx-community/gemma-4-e2b-it-4bit`
 - Embeddings: `mlx-community/embeddinggemma-300m-4bit`
 - MLX base URL: `http://127.0.0.1:18080`
+- First-release local MLX hardware floor: Apple Silicon Mac with at least 16 GB unified memory
 - Custom API providers must expose OpenAI-compatible `/v1/chat/completions`, `/v1/embeddings`, and `/v1/models` endpoints.
 
 Gemma 4 E2B should be used with shallow structured-output schemas for routing and setup helpers. Deterministic code must validate and apply the result. OpenViking should send request-time prompt/schema settings instead of relying on provider UI defaults.

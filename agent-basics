@@ -113,12 +113,14 @@ Use `agent-basics ov bootstrap-system` to install or repair the user-level
 OpenViking package, package the server as `~/.openviking/openviking`, default config, and macOS LaunchAgent. Use
 `agent-basics ov server` for foreground debugging.
 
-MLX is the default local OpenAI-compatible runtime on Apple Silicon. The
-default models are `mlx-community/gemma-4-e2b-it-4bit` for chat/VLM routing and
+MLX is the default local OpenAI-compatible runtime for supported Apple Silicon
+Macs. For the first release, the bundled local MLX runtime requires an Apple
+Silicon Mac with at least 16 GB unified memory. The default models are
+`mlx-community/gemma-4-e2b-it-4bit` for chat/VLM routing and
 `mlx-community/embeddinggemma-300m-4bit` for embeddings. Bootstrap packages the
 MLX server as a standalone `agent-basics-mlx` executable before installing the
-LaunchAgent. External OpenAI-compatible APIs can be configured as a custom
-provider through `agent-basics ov write-default-config --provider custom`.
+LaunchAgent. Unsupported hosts should use an external OpenAI-compatible API as a
+custom provider through `agent-basics ov write-default-config --provider custom`.
 
 MCP clients should use:
   command: agent-basics
