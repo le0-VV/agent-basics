@@ -8,8 +8,10 @@ The project should not grow into a second memory engine. OpenViking should own m
 
 - `agent-basics` is one user-facing command entry point. Rust binary packaging is optional future work, not a required product constraint.
 - OpenViking is the required memory and context backend.
-- `agent-basics` installs, verifies, configures, and wraps one user-level OpenViking installation, normally under `~/.openviking`.
-- Repository-specific OpenViking metadata, migration manifests, and locks live under `.agents/`; the OpenViking package and workspace do not live inside each repository by default.
+- `agent-basics` installs, verifies, configures, and wraps one system-wide/user-level OpenViking executable and Python environment, normally under `~/.openviking`.
+- Every configured repository owns its own OpenViking config, workspace, database, vector index, queue state, source store, import state, and repo metadata under `.agents/openviking/` and `.agents/memory/`.
+- The OpenViking package/runtime environment should not live inside each repository. OpenViking data for a repository should live with that repository as generated repo-local state, not in a hidden global `~/.openviking/workspace` database.
+- The repo-local OpenViking workspace is a cache/build artifact generated from repo-owned source files. It should be ignored by git unless a future use case explicitly requires committing selected derived state.
 - Agents access OpenViking through `agent-basics mcp` or stable `agent-basics ov ...` commands, not by ad hoc shell commands.
 - Root `Agents.md` remains the universal agent entrypoint.
 - `.agents/AGENT-BASICS.md` contains the agent-basics operating contract that root `Agents.md` points to.
@@ -25,8 +27,8 @@ This section separates shipped behavior from target architecture.
 Implemented and verified in this repository:
 
 - User-level OpenViking is installed under `~/.openviking`.
-- Homebrew install runs `agent-basics ov bootstrap-system` to install/configure OpenViking, package the OpenViking server as `~/.openviking/openviking`, attempt macOS LaunchAgent setup, and run best-effort MLX runtime/model setup.
-- OpenViking is configured for the local agent-basics MLX chat/VLM and embedding endpoints.
+- Homebrew install runs `agent-basics ov bootstrap-system` to install/configure the shared OpenViking executable, package the OpenViking server as `~/.openviking/openviking`, attempt macOS LaunchAgent setup, and run best-effort MLX runtime/model setup.
+- OpenViking is configured for the local agent-basics MLX chat/VLM and embedding endpoints, but current generated config still points at a global `~/.openviking/workspace`. This is transitional and should be migrated to repo-local workspaces.
 - `.agents/memory/` is preserved as the repo-owned OpenViking source store.
 - `.agents/openviking/migration-manifest.json` records migration/adaptation state.
 - `.agents/openviking/import-state.json` records import hashes, targets, and status.
@@ -36,12 +38,13 @@ Implemented and verified in this repository:
 - `agent-basics ov search`, `read`, `record`, `add-resource`, `add-skill`, `ingest-changed`, `server`, and `status` are implemented as repo-aware OpenViking wrappers.
 - `agent-basics mcp` is implemented as a repo-aware OpenViking-backed stdio MCP server.
 - MLX is the bundled local runtime on Apple Silicon; non-MLX providers are configured as custom OpenAI-compatible APIs instead of provider-specific command families.
-- Setup/upgrade creates the modern source-store structure, verifies or installs user-level OpenViking, writes `.agents/config.toml`, generates a Codex-style MCP snippet, creates `Skills.md` plus `.agents/skills/`, and creates first-class markdown merge sessions for conflicts.
+- Setup/upgrade creates the modern source-store structure, verifies or installs the shared OpenViking executable, writes `.agents/config.toml` plus repo-local `.agents/openviking/` config/state, generates a Codex-style MCP snippet, creates `Skills.md` plus `.agents/skills/`, and creates first-class markdown merge sessions for conflicts.
 - Managed OpenViking hooks refresh source-store changes before commits.
 - Fast dogfood coverage exercises fresh setup and existing-repo upgrade with fake user-level OpenViking.
 
 Still transitional or incomplete:
 
+- The OpenViking workspace/data plane currently lives under `~/.openviking/workspace` in live installs. Target architecture is repo-local OpenViking config/workspace/index/state under `.agents/openviking/`, with only the executable/runtime shared system-wide.
 - The custom mini-RAG still exists as fallback compatibility under `compat/memory-rag/`.
 - Decision: keep checked-in compatibility source outside `.agents/memory/` so the active source store stays OpenViking-native. Fresh setup must not install the mini-RAG into target repos unless `AGENT_BASICS_INSTALL_COMPAT_MEMORY=1` is set.
 - Broader live dogfood against real OpenViking/MLX should continue, especially for large ingests and model/provider edge cases.
@@ -82,31 +85,36 @@ Agent client
   -> root Agents.md
   -> agent-basics MCP or CLI
   -> repo-aware OpenViking gateway
-  -> user-level OpenViking plus repo metadata under .agents/
+  -> shared OpenViking executable
+  -> repo-local OpenViking config/workspace/index under .agents/openviking/
 ```
 
 `agent-basics` should provide a repo-aware gateway instead of asking every agent to call OpenViking directly.
 
-One OpenViking server should handle many repositories. Repository isolation should come from repo-scoped URI namespaces and repo metadata, not from one OpenViking installation per repo:
+The OpenViking executable and Python environment should be shared system-wide, but OpenViking storage should be repo-local. The MCP server can remain system-wide and directory-agnostic: each repo-scoped tool call passes or infers `repo_path`, then the gateway invokes the shared OpenViking executable with that repository's `.agents/openviking/` config and workspace.
+
+Repository isolation should come from repo-local OpenViking homes/workspaces plus repo-scoped URI namespaces:
 
 ```text
 viking://user/default/memories/<category>/projects/<repo-slug>/<file>.md
 viking://resources/projects/<repo-slug>/...
 ```
 
+This keeps the inevitable OpenViking-owned copy, vector DB, queue, locks, and generated summaries inside the repository's ignored `.agents/openviking/workspace/` instead of `~/.openviking/workspace`. Git remains the source of truth for reviewed source files, while the repo-local OpenViking workspace is derived runtime state.
+
 The gateway should infer the repository from `cwd` by default, allow an explicit `repo_path` for MCP clients that cannot set `cwd`, and scope search/write operations to the current repository unless the caller explicitly requests wider search.
 
 Responsibilities:
 
-- Detect whether user-level OpenViking is installed.
+- Detect whether the shared user-level OpenViking executable/runtime is installed.
 - Install or guide installation when it is missing.
-- Create repo-local OpenViking metadata and lock paths under `.agents/`.
-- Keep OpenViking runtime data outside repositories unless the user explicitly chooses another user-level home.
+- Create repo-local OpenViking config, namespace metadata, source-store state, workspace, and lock paths under `.agents/openviking/`.
+- Keep OpenViking package/runtime files outside repositories while keeping repository OpenViking data inside `.agents/openviking/`.
 - Verify the configured LLM/VLM and embedding providers.
 - Configure OpenViking for the bundled MLX server or a user-supplied custom OpenAI-compatible API.
 - Run OpenViking doctor/health checks.
 - Expose agent-safe MCP tools for search, record, resource add, skill add, ingest, and doctor.
-- Keep raw OpenViking executable/config details out of normal agent workflows.
+- Keep raw OpenViking executable/config details out of normal agent workflows by routing all calls through repo-aware `agent-basics` commands or MCP tools.
 
 OpenViking should own:
 
@@ -122,6 +130,7 @@ OpenViking should own:
 - Instruction files.
 - Workflow rules.
 - MCP wrapper.
+- Repo-local OpenViking config/workspace lifecycle.
 - Git hooks and validation.
 - Long-horizon task state.
 - Merge UI and conflict safety.
@@ -141,8 +150,12 @@ Target layout:
     ├── TODO.md
     ├── config.toml
     ├── openviking/
+    │   ├── config.toml
+    │   ├── namespaces.toml
     │   ├── repo.json
     │   ├── migration-manifest.json
+    │   ├── import-state.json
+    │   ├── workspace/        # ignored generated OV data/cache
     │   ├── legacy-memory/
     │   └── locks/
     ├── memory/
@@ -162,6 +175,26 @@ Target layout:
 ```
 
 `.agents/memory/` remains important permanently as the repo-owned OpenViking source store. The roadmap target is to adapt old custom mini-RAG memory into OV-native `memories/`, `resources/`, and `skills/` files, preserve legacy snapshots under `.agents/openviking/legacy-memory/`, and keep custom RAG code isolated as fallback support under `compat/memory-rag/` until it is retired or split out.
+
+Commit these repo-local OpenViking files when useful:
+
+- `.agents/openviking/config.toml`
+- `.agents/openviking/namespaces.toml`
+- `.agents/openviking/repo.json`
+- `.agents/openviking/migration-manifest.json`
+- `.agents/openviking/import-state.json`
+- `.agents/memory/**` OV-native source files
+
+Do not commit generated runtime state:
+
+- `.agents/openviking/workspace/`
+- vector DB files
+- queue DB files
+- locks
+- temp uploads
+- generated OpenViking runtime metadata
+
+The repo-local workspace still contains OpenViking-owned copies and indexes. The difference from the previous global-workspace approach is that the copy is local, inspectable, disposable, and tied to the repo checkout instead of hidden in `~/.openviking/workspace`.
 
 Fresh setup should create only the OpenViking source-store shape under `.agents/memory/`. Existing legacy mini-RAG trees should be copied to `.agents/openviking/legacy-memory/<unix-timestamp>/` as migration input, not reinstalled into new projects unless the user explicitly enables compatibility fallback.
 
@@ -255,7 +288,7 @@ Rust can remain potential future work if it improves distribution or runtime rel
 2. Detect existing `Agents.md`, `.agents/AGENT-BASICS.md`, legacy `.agents/INSTRUCTIONS.md`, `.agents/memory/`, and existing OpenViking state.
 3. Check whether OpenViking is installed.
 4. Install OpenViking or stop with clear instructions when installation is not allowed.
-5. Configure repo-local OpenViking metadata under `.agents/openviking/`.
+5. Configure repo-local OpenViking config, namespace metadata, source store state, ignored workspace, database, queue, vector index, and locks under `.agents/openviking/`.
 6. Configure LLM/VLM and embedding providers.
 7. Verify providers with a doctor check.
 8. Write or merge root `Agents.md`.
@@ -265,7 +298,7 @@ Rust can remain potential future work if it improves distribution or runtime rel
 12. Configure `agent-basics mcp` for the repository where possible.
 13. Install git hooks.
 14. Snapshot any existing legacy `.agents/memory/{templates,memory,documentations,rag}` material before adaptation.
-15. Ingest initial project instructions and selected documentation into OpenViking.
+15. Ingest initial project instructions and selected documentation into the repo-local OpenViking workspace.
 16. Report final paths, health, and next agent actions.
 
 `agent-basics upgrade [directory]` should perform the same checks but treat every existing file as user-owned unless the user explicitly accepts a merge or replacement.
@@ -308,7 +341,7 @@ Core commands:
 
 | Command | Status | Notes |
 | --- | --- | --- |
-| `agent-basics setup [directory]` | Implemented | Creates the modern source-store shape, verifies or installs user-level OV, writes repo config, emits MCP snippets, creates skills, and opens or records merge UI sessions for markdown conflicts. |
+| `agent-basics setup [directory]` | Partial | Creates the modern source-store shape, verifies or installs the shared OV executable/runtime, writes repo config, emits MCP snippets, creates skills, and opens or records merge UI sessions for markdown conflicts. It still needs migration from global OV workspace config to repo-local `.agents/openviking/` workspace config. |
 | `agent-basics upgrade [directory]` | Implemented | Uses the setup path for existing repos; existing user files stay user-owned unless a safe merge/replace/append/save path is selected. |
 | `agent-basics doctor [--online]` | Partial | Needs stronger OV/provider/repo-state checks. |
 | `agent-basics mcp` | Implemented | Repo-aware OpenViking-backed MCP server with search, read, record, add-resource, add-skill, ingest, status, and doctor tools. |
@@ -325,9 +358,9 @@ OpenViking wrapper commands:
 | --- | --- | --- |
 | `agent-basics ov doctor` | Partial | Should become the full OV install/config/provider/repo-state doctor. |
 | `agent-basics ov install-system` | Implemented | Installs OpenViking under user-level home. |
-| `agent-basics ov bootstrap-system` | Implemented | Idempotently installs OpenViking when missing, writes default user-level config, and installs the macOS service when available. |
-| `agent-basics ov write-default-config` | Implemented | Writes provider-backed `ov.conf` plus `ovcli.conf` with long local HTTP timeouts. MLX is the default provider target. |
-| `agent-basics ov server` | Implemented | Starts the configured user-level OpenViking HTTP server in the foreground. |
+| `agent-basics ov bootstrap-system` | Partial | Idempotently installs the shared OpenViking executable/runtime when missing and installs service helpers when available. It should stop treating global `~/.openviking/workspace` as the normal data plane. |
+| `agent-basics ov write-default-config` | Partial | Writes provider-backed config with long local HTTP timeouts. It should target repo-local `.agents/openviking/config.toml` during setup and keep only shared executable/runtime config globally. |
+| `agent-basics ov server` | Partial | Starts OpenViking in the foreground. It should start with the current repo's `.agents/openviking/` config/workspace rather than the global workspace. |
 | `agent-basics ov import-repo-memory` | Implemented | Writes OV-native memories directly and ingests source-store resources/skills. |
 | `agent-basics ov search <query>` | Implemented | Repo-scoped semantic search wrapper. |
 | `agent-basics ov read <uri>` | Implemented | Exact read wrapper for URIs returned by search. |
@@ -356,8 +389,8 @@ OpenViking runtime commands:
 | Command | Status | Notes |
 | --- | --- | --- |
 | `agent-basics ov package-server` | In progress | Builds the OpenViking server entrypoint into a one-file `openviking` executable with PyInstaller so macOS process listings do not show the service as `python3.12`. |
-| `agent-basics ov service` | Implemented | Installs and manages a macOS LaunchAgent that prefers the packaged `~/.openviking/openviking` server executable. |
-| `agent-basics ov bootstrap-system` | Implemented | Orchestrates OpenViking install, server packaging, config, service setup, and bundled runtime setup. |
+| `agent-basics ov service` | Partial | Installs and manages macOS LaunchAgent support for the packaged `~/.openviking/openviking` executable. It needs repo-local workspace semantics: global service helpers are fine, but repo data must not default to `~/.openviking/workspace`. |
+| `agent-basics ov bootstrap-system` | Partial | Orchestrates shared OpenViking executable install, server packaging, service helpers, and bundled runtime setup. Repo-local config/workspace creation belongs in setup/upgrade. |
 
 `agent-basics ov import-repo-memory` should write OV-native memory source files directly into `viking://user/default/memories/<category>/projects/<repo>/` and use OpenViking resource/skill ingestion only for resources and skills. Repo source memory should not depend on `ov add-memory` extraction to rediscover already-structured records. Memory writes should retry when OpenViking reports a busy memory tree because previous extraction or indexing jobs may still hold locks.
 
@@ -402,11 +435,12 @@ Gemma 4 E2B should be used with shallow structured-output schemas for routing an
 
 The next unlock is hardening the now-usable OpenViking-backed harness:
 
-1. Run longer live dogfood passes against real OpenViking/MLX on messy existing repositories.
-2. Decide whether `compat/memory-rag/` should be retired completely or split into a separate legacy package after old-repo fallback support has a stable distribution path.
-3. Add CI examples that run `agent-basics verify` plus `agent-basics ov status --offline`.
-4. Measure whether `Skills.md` plus stable command prefixes actually reduce approval prompts in sample project work.
-5. Defer a full agent runner until hooks, MCP, skills, and command workflows show a concrete gap.
+1. Migrate setup, MCP, hooks, and `agent-basics ov ...` wrappers from global `~/.openviking/workspace` storage to repo-local `.agents/openviking/` config/workspace/index/state while keeping only the OpenViking executable/runtime shared system-wide.
+2. Run longer live dogfood passes against real OpenViking/MLX on messy existing repositories.
+3. Decide whether `compat/memory-rag/` should be retired completely or split into a separate legacy package after old-repo fallback support has a stable distribution path.
+4. Add CI examples that run `agent-basics verify` plus `agent-basics ov status --offline`.
+5. Measure whether `Skills.md` plus stable command prefixes actually reduce approval prompts in sample project work.
+6. Defer a full agent runner until hooks, MCP, skills, and command workflows show a concrete gap.
 
 ## Milestones
 
@@ -422,17 +456,17 @@ Status: complete.
 
 Milestone 2: OpenViking setup proof.
 
-Status: complete for this repository.
+Status: reopened for repo-local workspace migration.
 
 - Install and configure OpenViking through `agent-basics`.
-- Create repo-local OpenViking metadata under `.agents/openviking/`.
+- Create repo-local OpenViking config, workspace, database, vector index, queue state, locks, metadata, and import state under `.agents/openviking/`.
 - Verify bundled MLX chat/VLM and embedding providers.
-- Ingest this repo's current agent instructions and documentation.
+- Ingest this repo's current agent instructions and documentation into the repo-local OpenViking workspace.
 - Prove search/record through a repo-aware wrapper.
 
 Acceptance criteria:
 
-- A fresh repo can install or verify user-level OpenViking without placing the OpenViking package/workspace in the repo.
+- A fresh repo can install or verify the shared OpenViking executable/runtime without placing the OpenViking package or Python environment in the repo, while creating repo-local `.agents/openviking/` config and ignored workspace/cache for that repo.
 - `agent-basics ov import-repo-memory --write` imports reviewed OV-native memory/resources/skills and records import state.
 - `agent-basics ov search` and `agent-basics ov read` can retrieve imported repo context without raw `ov` calls.
 
@@ -453,7 +487,7 @@ Acceptance criteria:
 - Search defaults to the current repo namespace and can optionally include wider context.
 - Record writes to the correct `viking://user/default/memories/<category>/projects/<repo-slug>/` namespace.
 - Add-resource writes to the correct `viking://resources/projects/<repo-slug>/` namespace; add-skill uses OpenViking's skill registration surface and includes repo attribution in source content.
-- Tests cover at least two repositories sharing one mocked OpenViking command layer; a live shared-server test is still desirable.
+- Tests cover at least two repositories using the same shared OpenViking executable through separate repo-local configs/workspaces; a live multi-repo repo-local workspace test is still desirable.
 
 Milestone 4: command-backed long-horizon workflow.
 
