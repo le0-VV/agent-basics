@@ -3623,8 +3623,10 @@ def mlx_install_payload(args: argparse.Namespace) -> dict[str, Any]:
         return payload
     uv = shutil_which("uv")
     if not uv:
-        payload.update({"ok": False, "error": "uv is required to install the MLX runtime"})
-        return payload
+        if not dry_run:
+            payload.update({"ok": False, "error": "uv is required to install the MLX runtime"})
+            return payload
+        uv = "uv"
     commands = [
         [uv, "venv", "--python", getattr(args, "python", DEFAULT_MLX_PYTHON), str(venv)],
         [uv, "pip", "install", "--python", str(python_bin), *packages],

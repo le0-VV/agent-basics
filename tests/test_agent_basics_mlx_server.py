@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
+import tempfile
+import threading
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,14 +105,19 @@ class AgentBasicsMlxServerTest(unittest.TestCase):
     def test_routes_refresh_idle_timer_after_slow_inference(self) -> None:
         source = SERVER.read_text(encoding="utf-8")
 
-        self.assertIn("data = vectors.tolist()\n            state.touch()", source)
-        self.assertIn("text = normalize_response_text(text, request.response_format)\n            state.touch()", source)
+        self.assertIn("data = vectors.tolist()\n                state.touch()", source)
+        self.assertIn("text = normalize_response_text(text, request.response_format)\n                state.touch()", source)
 
     def test_routes_clear_runtime_cache_after_inference(self) -> None:
         source = SERVER.read_text(encoding="utf-8")
 
         self.assertIn("def clear_runtime_cache(self) -> None:", source)
-        self.assertEqual(source.count("finally:\n            state.clear_runtime_cache()"), 2)
+        self.assertEqual(source.count("finally:\n                state.clear_runtime_cache()"), 2)
+
+    def test_generation_disables_padding_for_single_prompt_requests(self) -> None:
+        source = SERVER.read_text(encoding="utf-8")
+
+        self.assertIn('"padding": False', source)
 
     def test_startup_preloads_models_and_checks_router_schema(self) -> None:
         source = SERVER.read_text(encoding="utf-8")
@@ -117,7 +126,7 @@ class AgentBasicsMlxServerTest(unittest.TestCase):
         self.assertIn("def startup_router_prompt(response_format: dict[str, Any]) -> str:", source)
         self.assertIn("def validate_router_payload(payload: Any, *, require_items: bool)", source)
         self.assertIn("def preload(self, mode: str, structured_output_check: str)", source)
-        self.assertIn("Thread(\n            target=state.preload", source)
+        self.assertIn("target=lambda: state.run_mlx(lambda: state.preload(", source)
         self.assertIn("--preload-models", source)
         self.assertIn("--startup-structured-output-check", source)
 
@@ -162,6 +171,33 @@ class AgentBasicsMlxServerTest(unittest.TestCase):
 
         self.assertIn("async def embeddings(request: EmbeddingRequest)", source)
         self.assertIn("async def chat_completions(request: ChatCompletionRequest)", source)
+        self.assertIn("async def run_mlx_async(state: RuntimeState, func: Callable[[], Any])", source)
+        self.assertIn("data = await run_mlx_async(state, compute_embeddings)", source)
+        self.assertIn("text = await run_mlx_async(state, compute_completion)", source)
+
+    def test_runtime_state_runs_submitted_mlx_work_on_one_worker_thread(self) -> None:
+        state = self.server.RuntimeState("chat", "embedding", 0)
+        try:
+            first = state.run_mlx(threading.get_ident)
+            second = state.run_mlx(threading.get_ident)
+
+            self.assertEqual(first, second)
+            self.assertNotEqual(first, threading.get_ident())
+            self.assertEqual(first, state.worker_thread_id)
+        finally:
+            state.close()
+
+    def test_cached_hf_snapshot_path_prefers_hf_home_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            hf_home = Path(tmp)
+            repo = hf_home / "hub" / "models--owner--model"
+            snapshot = repo / "snapshots" / "abc123"
+            snapshot.mkdir(parents=True)
+            (repo / "refs").mkdir()
+            (repo / "refs" / "main").write_text("abc123\n", encoding="utf-8")
+
+            with mock.patch.dict(os.environ, {"HF_HOME": str(hf_home)}, clear=False):
+                self.assertEqual(self.server.cached_hf_snapshot_path("owner/model"), str(snapshot))
 
 
 if __name__ == "__main__":

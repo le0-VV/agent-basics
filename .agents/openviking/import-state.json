@@ -60,6 +60,16 @@
       "skipped": true,
       "target": "viking://user/default/memories/cases/projects/agent-basics/1778110752-mlx-memory-pressure-can-hide-in-ioaccelerator-regions.md"
     },
+    ".agents/memory/memories/cases/1778124643-agent-basics-mlx-service-process-and-memory-accounting.md": {
+      "imported_at": 1778124655,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/cases/1778124643-agent-basics-mlx-service-process-and-memory-accounting.md",
+      "sha256": "b82532fc6ffda3546c02ba1d13f7c775e08074d6e6400697f527d3ec75328c23",
+      "skipped": true,
+      "target": "viking://user/default/memories/cases/projects/agent-basics/1778124643-agent-basics-mlx-service-process-and-memory-accounting.md"
+    },
     ".agents/memory/memories/events/1777901050-legacy-memory-snapshot-created.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -280,6 +290,16 @@
       "skipped": true,
       "target": "viking://user/default/memories/tools/projects/agent-basics/1777935030-openviking-cli-http-timeout-lives-in-ovcli-conf.md"
     },
+    ".agents/memory/memories/tools/1778124668-agent-basics-mlx-local-snapshot-and-worker-thread-rules.md": {
+      "imported_at": 1778124679,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/tools/1778124668-agent-basics-mlx-local-snapshot-and-worker-thread-rules.md",
+      "sha256": "998800afb035911df2b0502e27c20897dc6234536b394d4ae2cb7581d0e9dfca",
+      "skipped": true,
+      "target": "viking://user/default/memories/tools/projects/agent-basics/1778124668-agent-basics-mlx-local-snapshot-and-worker-thread-rules.md"
+    },
     ".agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md": {
       "imported_at": 1777948439,
       "kind": "resource",
@@ -291,10 +311,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778119067,
+  "last_import": 1778125096,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778119067,
+  "updated": 1778125096,
   "version": 1
 }

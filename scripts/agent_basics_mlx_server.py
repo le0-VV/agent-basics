@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import gc
 import json
+import os
+import queue
 import time
 import uuid
-from threading import Lock, Thread
-from typing import Any
+from pathlib import Path
+from threading import Event, Lock, Thread, get_ident
+from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -124,6 +128,39 @@ def router_response_format() -> dict[str, Any]:
 ROUTER_ITEM_REQUIRED_FIELDS = set(ROUTER_OUTPUT_SCHEMA["properties"]["items"]["items"]["required"])
 
 
+def cached_hf_snapshot_path(model: str) -> str:
+    model_path = Path(model).expanduser()
+    if model_path.exists():
+        return str(model_path)
+    if "/" not in model:
+        return model
+
+    cache_roots: list[Path] = []
+    hub_cache = os.environ.get("HUGGINGFACE_HUB_CACHE")
+    if hub_cache:
+        cache_roots.append(Path(hub_cache).expanduser())
+    hf_home = os.environ.get("HF_HOME")
+    if hf_home:
+        cache_roots.append(Path(hf_home).expanduser() / "hub")
+    cache_roots.append(Path.home() / ".cache" / "huggingface" / "hub")
+
+    repo_dir_name = f"models--{model.replace('/', '--')}"
+    for cache_root in cache_roots:
+        repo_dir = cache_root / repo_dir_name
+        ref = repo_dir / "refs" / "main"
+        if ref.is_file():
+            commit = ref.read_text(encoding="utf-8").strip()
+            snapshot = repo_dir / "snapshots" / commit
+            if snapshot.is_dir():
+                return str(snapshot)
+        snapshots = repo_dir / "snapshots"
+        if snapshots.is_dir():
+            candidates = [item for item in snapshots.iterdir() if item.is_dir()]
+            if candidates:
+                return str(max(candidates, key=lambda item: item.stat().st_mtime))
+    return model
+
+
 def preview_text(text: str, limit: int = 500) -> str:
     compact = " ".join(text.strip().split())
     if len(compact) <= limit:
@@ -209,6 +246,50 @@ class RuntimeState:
         self.embedding: tuple[Any, Any, Any] | None = None
         self.last_used = time.time()
         self.startup: dict[str, Any] = {"preload": "not_started"}
+        self.worker_thread_id: int | None = None
+        self.worker_queue: queue.Queue[
+            tuple[Callable[[], Any] | None, Event, dict[str, Any]]
+        ] = queue.Queue()
+        self.worker = Thread(target=self._worker_loop, name="agent-basics-mlx-runtime", daemon=True)
+        self.worker.start()
+
+    def _worker_loop(self) -> None:
+        self.worker_thread_id = get_ident()
+        while True:
+            func, done, box = self.worker_queue.get()
+            if func is None:
+                done.set()
+                return
+            try:
+                box["result"] = func()
+            except BaseException as exc:
+                box["error"] = exc
+            finally:
+                done.set()
+
+    def run_mlx(self, func: Callable[[], Any]) -> Any:
+        if get_ident() == self.worker_thread_id:
+            return func()
+        done = Event()
+        box: dict[str, Any] = {}
+        self.worker_queue.put((func, done, box))
+        done.wait()
+        if "error" in box:
+            raise box["error"]
+        return box.get("result")
+
+    def close(self) -> None:
+        if get_ident() == self.worker_thread_id:
+            return
+        done = Event()
+        self.worker_queue.put((None, done, {}))
+        done.wait(timeout=5)
+
+    def set_startup_phase(self, phase: str) -> None:
+        if self.startup.get("preload") != "running":
+            return
+        self.startup["phase"] = phase
+        self.startup["phase_started"] = int(time.time())
 
     def touch(self) -> None:
         self.last_used = time.time()
@@ -243,6 +324,7 @@ class RuntimeState:
             self.touch()
             if self.chat is not None:
                 return self.chat
+            self.set_startup_phase("importing_chat_runtime")
             from mlx_vlm import generate, load
             from mlx_vlm.prompt_utils import apply_chat_template
 
@@ -251,10 +333,15 @@ class RuntimeState:
             except Exception:
                 load_config = None
 
-            model, processor = load(self.chat_model_id)
+            self.set_startup_phase("loading_chat_model")
+            chat_model_path = cached_hf_snapshot_path(self.chat_model_id)
+            if self.startup.get("preload") == "running":
+                self.startup["chat_model_path"] = chat_model_path
+            model, processor = load(chat_model_path)
             config = getattr(model, "config", None)
             if config is None and load_config is not None:
-                config = load_config(self.chat_model_id)
+                self.set_startup_phase("loading_chat_config")
+                config = load_config(chat_model_path)
             self.chat = (model, processor, config, apply_chat_template, generate)
             return self.chat
 
@@ -264,13 +351,18 @@ class RuntimeState:
             self.touch()
             if self.embedding is not None:
                 return self.embedding
+            self.set_startup_phase("importing_embedding_runtime")
             try:
                 from mlx_embeddings import load
             except Exception:
                 from mlx_embeddings.utils import load
             import mlx.core as mx
 
-            model, tokenizer = load(self.embedding_model_id)
+            self.set_startup_phase("loading_embedding_model")
+            embedding_model_path = cached_hf_snapshot_path(self.embedding_model_id)
+            if self.startup.get("preload") == "running":
+                self.startup["embedding_model_path"] = embedding_model_path
+            model, tokenizer = load(embedding_model_path)
             self.embedding = (model, tokenizer, mx)
             return self.embedding
 
@@ -291,6 +383,7 @@ class RuntimeState:
                 model, processor, config, apply_chat_template, generate = self.load_chat()
                 payload["chat_loaded"] = True
                 if structured_output_check == "openviking-router":
+                    self.set_startup_phase("checking_openviking_router_schema")
                     response_format = router_response_format()
                     prompt = startup_router_prompt(response_format)
                     formatted_prompt = apply_template(processor, config, apply_chat_template, prompt, num_images=0)
@@ -321,9 +414,13 @@ class RuntimeState:
                 self.clear_runtime_cache()
             if structured_error:
                 raise RuntimeError(f"OpenViking router structured-output startup check failed: {structured_error}")
+            payload["phase"] = "complete"
+            payload["phase_started"] = int(time.time())
             payload["preload"] = "complete"
             payload["ok"] = True
         except Exception as exc:
+            payload["phase"] = "failed"
+            payload["phase_started"] = int(time.time())
             payload["preload"] = "failed"
             payload["ok"] = False
             payload["error"] = str(exc)
@@ -485,7 +582,12 @@ def generate_text(
     max_tokens: int,
     temperature: float,
 ) -> str:
-    kwargs = {"verbose": False, "max_tokens": max_tokens, "temperature": temperature}
+    kwargs = {
+        "verbose": False,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "padding": False,
+    }
     attempts = []
     if images:
         attempts.extend(
@@ -515,6 +617,11 @@ def generate_text(
     raise RuntimeError(str(last_error or "generation failed"))
 
 
+async def run_mlx_async(state: RuntimeState, func: Callable[[], Any]) -> Any:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, state.run_mlx, func)
+
+
 def make_app(
     chat_model: str,
     embedding_model: str,
@@ -531,16 +638,18 @@ def make_app(
             state.startup = {"preload": "disabled", "ok": True}
             return
         thread = Thread(
-            target=state.preload,
-            args=(preload_models, startup_structured_output_check),
+            target=lambda: state.run_mlx(lambda: state.preload(preload_models, startup_structured_output_check)),
             name="agent-basics-mlx-preload",
             daemon=True,
         )
         thread.start()
 
+    @app.on_event("shutdown")
+    def shutdown_runtime() -> None:
+        state.close()
+
     @app.get("/health")
     def health() -> dict[str, Any]:
-        state.maybe_unload()
         return {
             "ok": True,
             "provider": "agent-basics-mlx",
@@ -571,16 +680,25 @@ def make_app(
         if request.model != embedding_model:
             raise HTTPException(status_code=404, detail=f"embedding model is not configured: {request.model}")
         texts = normalize_text_input(request.input)
+
+        def compute_embeddings() -> list[list[float]]:
+            try:
+                model, tokenizer, mx = state.load_embedding()
+                encoded = tokenizer(texts, padding=True, truncation=True, return_tensors="mlx")
+                output = model(encoded["input_ids"], encoded["attention_mask"])
+                vectors = output.text_embeds
+                mx.eval(vectors)
+                data = vectors.tolist()
+                state.touch()
+                return data
+            finally:
+                state.clear_runtime_cache()
+
         try:
-            model, tokenizer, mx = state.load_embedding()
-            encoded = tokenizer(texts, padding=True, truncation=True, return_tensors="mlx")
-            output = model(encoded["input_ids"], encoded["attention_mask"])
-            vectors = output.text_embeds
-            mx.eval(vectors)
-            data = vectors.tolist()
-            state.touch()
-        finally:
-            state.clear_runtime_cache()
+            data = await run_mlx_async(state, compute_embeddings)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"MLX embedding failed: {exc}") from exc
+
         return {
             "object": "list",
             "data": [
@@ -603,10 +721,11 @@ def make_app(
         instruction = response_format_instruction(request.response_format)
         if instruction:
             prompt = f"system: {instruction}\n{prompt}"
-        try:
-            model, processor, config, apply_chat_template, generate = state.load_chat()
-            formatted_prompt = apply_template(processor, config, apply_chat_template, prompt, num_images=len(images))
+
+        def compute_completion() -> str:
             try:
+                model, processor, config, apply_chat_template, generate = state.load_chat()
+                formatted_prompt = apply_template(processor, config, apply_chat_template, prompt, num_images=len(images))
                 text = generate_text(
                     generate,
                     model,
@@ -616,12 +735,17 @@ def make_app(
                     max_tokens=request.max_tokens or 512,
                     temperature=request.temperature or 0,
                 )
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=f"MLX generation failed: {exc}") from exc
-            text = normalize_response_text(text, request.response_format)
-            state.touch()
-        finally:
-            state.clear_runtime_cache()
+                text = normalize_response_text(text, request.response_format)
+                state.touch()
+                return text
+            finally:
+                state.clear_runtime_cache()
+
+        try:
+            text = await run_mlx_async(state, compute_completion)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"MLX generation failed: {exc}") from exc
+
         created = int(time.time())
         return JSONResponse(
             {
