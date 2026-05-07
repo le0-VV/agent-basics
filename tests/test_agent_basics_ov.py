@@ -21,6 +21,33 @@ spec.loader.exec_module(agent_basics_ov)
 
 
 class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
+    def test_launchctl_bootstrap_retries_code_five(self) -> None:
+        calls = []
+        original_run_command = agent_basics_ov.run_command
+        original_sleep = agent_basics_ov.time.sleep
+
+        def fake_run_command(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+            calls.append((command, timeout))
+            if len(calls) == 1:
+                return {"ok": False, "command": command, "returncode": 5, "stdout": "", "stderr": "Bootstrap failed"}
+            return {"ok": True, "command": command, "returncode": 0, "stdout": "", "stderr": ""}
+
+        try:
+            agent_basics_ov.run_command = fake_run_command
+            agent_basics_ov.time.sleep = lambda _seconds: None
+            payload = agent_basics_ov.run_launchctl_bootstrap(
+                ["launchctl", "bootstrap", "gui/501", "/tmp/test.plist"],
+                timeout=1,
+            )
+        finally:
+            agent_basics_ov.run_command = original_run_command
+            agent_basics_ov.time.sleep = original_sleep
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["launchctl_bootstrap_retries"], 1)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][1], 1)
+
     def test_ov_default_config_uses_mlx_provider_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "ov"
@@ -109,6 +136,77 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(installed_first_line, f"#!{home / 'venv' / 'bin' / 'python'}")
         self.assertTrue(installed_mode & 0o111)
 
+    def test_mlx_package_dry_run_builds_standalone_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "mlx"
+            source = Path(tmp) / "agent-basics-mlx-source.py"
+            target = home / "agent-basics-mlx"
+            source.write_text("#!/usr/bin/env python3\nprint('ok')\n", encoding="utf-8")
+            payload = agent_basics_ov.mlx_package_payload(
+                SimpleNamespace(
+                    home=str(home),
+                    server_script=str(target),
+                    source=str(source),
+                    manifest=None,
+                    force=False,
+                    dry_run=True,
+                )
+            )
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["changed"])
+        self.assertTrue(payload["dry_run"])
+        self.assertEqual(payload["target"], str(target))
+        self.assertEqual(payload["packager"], "pyinstaller")
+        self.assertEqual(payload["mode"], "onefile")
+        self.assertEqual(payload["commands"]["package"][0], str(home / "venv" / "bin" / "python"))
+        self.assertIn("--onefile", payload["commands"]["package"])
+        self.assertIn("--collect-all", payload["commands"]["package"])
+
+    def test_mlx_package_allows_existing_pyinstaller_without_uv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "mlx"
+            python_bin = home / "venv" / "bin" / "python"
+            source = Path(tmp) / "agent-basics-mlx-source.py"
+            target = home / "agent-basics-mlx"
+            python_bin.parent.mkdir(parents=True)
+            python_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+            python_bin.chmod(0o755)
+            source.write_text("#!/usr/bin/env python3\nprint('ok')\n", encoding="utf-8")
+            original_run_command = agent_basics_ov.run_command
+            original_shutil_which = agent_basics_ov.shutil_which
+
+            def fake_run_command(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+                if "--distpath" in command:
+                    dist_path = Path(command[command.index("--distpath") + 1])
+                    dist_path.mkdir(parents=True, exist_ok=True)
+                    built = dist_path / "agent-basics-mlx"
+                    built.write_text("#!/bin/sh\n", encoding="utf-8")
+                    built.chmod(0o755)
+                return {"ok": True, "command": command, "returncode": 0, "stdout": "", "stderr": ""}
+
+            try:
+                agent_basics_ov.run_command = fake_run_command
+                agent_basics_ov.shutil_which = lambda _name: None
+                payload = agent_basics_ov.mlx_package_payload(
+                    SimpleNamespace(
+                        home=str(home),
+                        server_script=str(target),
+                        source=str(source),
+                        manifest=None,
+                        force=False,
+                        dry_run=False,
+                    )
+                )
+            finally:
+                agent_basics_ov.run_command = original_run_command
+                agent_basics_ov.shutil_which = original_shutil_which
+
+            self.assertTrue(payload["ok"])
+            self.assertTrue(payload["changed"])
+            self.assertTrue(target.exists())
+            self.assertEqual([step["name"] for step in payload["steps"]], ["check pyinstaller", "package executable"])
+
     def test_mlx_bootstrap_dry_run_plans_runtime_server_models_and_service(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "mlx"
@@ -140,12 +238,14 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
                             server_script=str(home / "agent-basics-mlx"),
                             source=str(server_source),
                             install="auto",
+                            package_server="auto",
                             pull="auto",
                             service="auto",
                             min_memory_gb=16,
                             allow_non_macos=False,
                             force_hardware=False,
                             force_install=False,
+                            force_package=False,
                             force_server=False,
                             force_service=False,
                             no_load=True,
@@ -168,7 +268,7 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(payload["provider"], "mlx")
         self.assertEqual(
             [step["name"] for step in payload["steps"]],
-            ["install runtime", "write server", "pull models", "service install"],
+            ["install runtime", "package server", "pull models", "service install"],
         )
         self.assertEqual(payload["steps"][2]["payload"]["models"], [
             "mlx-community/gemma-4-e2b-it-4bit",

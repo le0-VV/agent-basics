@@ -58,6 +58,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             runtime.root.join("agent-basics-ov.py"),
         )
         .env("AGENT_BASICS_MLX_SERVER", mlx_server)
+        .env(
+            "AGENT_BASICS_MLX_SERVER_SOURCE",
+            runtime.root.join("agent-basics-mlx-server.py"),
+        )
         .env("AGENT_BASICS_LICENSE", runtime.root.join("LICENSE"))
         .env(
             "AGENT_BASICS_THIRD_PARTY_NOTICES",

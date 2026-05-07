@@ -45,7 +45,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。默认会把 OpenViking 指向 agent-basics MLX runtime 的 `http://127.0.0.1:18080/v1`，chat/VLM routing 用 `mlx-community/gemma-4-e2b-it-4bit`，embedding 用 `mlx-community/embeddinggemma-300m-4bit`。MLX LaunchAgent 会在启动后预加载这两个模型，并跑一个小的 OpenViking structured-output 检查。
+Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。默认会把 OpenViking 指向 agent-basics MLX runtime 的 `http://127.0.0.1:18080/v1`，chat/VLM routing 用 `mlx-community/gemma-4-e2b-it-4bit`，embedding 用 `mlx-community/embeddinggemma-300m-4bit`。MLX bootstrap 会把 runtime server 打包成 `~/.agent-basics/mlx/agent-basics-mlx`；MLX LaunchAgent 会在启动后预加载这两个模型，并跑一个小的 OpenViking structured-output 检查。
 
 验证命令：
 
@@ -175,11 +175,12 @@ setup 之后，一个项目通常会有：
 
 ## 本地 Runtime
 
-默认本地设置会在 Apple Silicon 上使用 agent-basics 管理的 `agent-basics-mlx` 进程。它会给 OpenViking 暴露 OpenAI-compatible API，随 macOS 用户会话启动，预加载 chat/VLM model 和 embedding model，让模型保持 warm，并在每次请求后清理临时 MLX runtime cache。
+默认本地设置会在 Apple Silicon 上使用 agent-basics 管理的 `agent-basics-mlx` executable。Bootstrap 会用 PyInstaller 把 Python MLX server 打包成 one-file executable，让它随 macOS 用户会话启动，预加载 chat/VLM model 和 embedding model，保持模型 warm，并在每次请求后清理临时 MLX runtime cache。
 
 ```bash
 agent-basics mlx status
 agent-basics mlx bootstrap
+agent-basics mlx package --dry-run
 agent-basics-mlx --version
 agent-basics mlx pull --dry-run
 ```

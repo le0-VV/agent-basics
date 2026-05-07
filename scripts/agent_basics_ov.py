@@ -46,6 +46,34 @@ DEFAULT_MLX_PACKAGES = [
     "mlx-vlm",
     "mlx-embeddings",
 ]
+DEFAULT_MLX_PACKAGER_PACKAGES = ["pyinstaller"]
+PYINSTALLER_HIDDEN_IMPORTS = [
+    "mlx.core",
+    "mlx_embeddings",
+    "mlx_embeddings.utils",
+    "mlx_vlm",
+    "mlx_vlm.prompt_utils",
+    "mlx_vlm.utils",
+    "uvicorn.logging",
+    "uvicorn.loops",
+    "uvicorn.loops.auto",
+    "uvicorn.protocols",
+    "uvicorn.protocols.http",
+    "uvicorn.protocols.http.auto",
+    "uvicorn.protocols.websockets",
+    "uvicorn.protocols.websockets.auto",
+    "uvicorn.lifespan",
+    "uvicorn.lifespan.on",
+]
+PYINSTALLER_COLLECT_ALL = [
+    "fastapi",
+    "huggingface_hub",
+    "mlx",
+    "mlx_embeddings",
+    "mlx_vlm",
+    "pydantic",
+    "uvicorn",
+]
 DEFAULT_OLLAMA_CHAT_MODEL = "gemma4:e2b"
 DEFAULT_OLLAMA_EMBEDDING_MODEL = "embeddinggemma:latest"
 DEFAULT_CHAT_MODEL = DEFAULT_MLX_CHAT_MODEL
@@ -258,6 +286,24 @@ def run_command_retry_busy(command: list[str], *, retries: int, delay: float) ->
     if attempts:
         result["busy_retries"] = attempts
     return result
+
+
+def run_launchctl_bootstrap(command: list[str], *, timeout: float | None) -> dict[str, Any]:
+    result = run_command(command, timeout=timeout)
+    attempts = 0
+    while not result.get("ok") and result.get("returncode") == 5 and attempts < 3:
+        attempts += 1
+        time.sleep(1)
+        result = run_command(command, timeout=timeout)
+    if attempts:
+        result["launchctl_bootstrap_retries"] = attempts
+    return result
+
+
+def run_launchctl_install_command(command: list[str], *, timeout: float | None) -> dict[str, Any]:
+    if command[:2] == ["launchctl", "bootstrap"]:
+        return run_launchctl_bootstrap(command, timeout=timeout)
+    return run_command(command, timeout=timeout)
 
 
 def sha256_text(value: str) -> str:
@@ -974,12 +1020,14 @@ def ov_bootstrap_mlx_args(args: argparse.Namespace, *, dry_run: bool) -> argpars
         allow_non_macos=False,
         force_hardware=getattr(args, "mlx_force_hardware", False),
         install=getattr(args, "mlx_install", "auto"),
+        package_server=getattr(args, "mlx_package_server", "auto"),
         pull=getattr(args, "mlx_pull", "auto"),
         service=getattr(args, "mlx_service", "auto"),
         timeout=getattr(args, "mlx_timeout", 5),
         service_timeout=getattr(args, "service_timeout", DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS),
         wait_server_seconds=getattr(args, "mlx_wait_server_seconds", 15),
         force_install=False,
+        force_package=getattr(args, "mlx_force_package", False),
         force_server=False,
         force_service=False,
         no_load=getattr(args, "no_load", False),
@@ -1409,12 +1457,12 @@ def command_ov_service(args: argparse.Namespace) -> int:
                 bootout = run_command(["launchctl", "bootout", paths["target"]], timeout=service_timeout)
                 bootout["optional"] = True
                 steps.append(bootout)
-            steps.extend(run_command(command, timeout=service_timeout) for command in install_commands)
+            steps.extend(run_launchctl_install_command(command, timeout=service_timeout) for command in install_commands)
     else:
         bootout = run_command(["launchctl", "bootout", paths["target"]], timeout=service_timeout)
         bootout["optional"] = True
         steps.append(bootout)
-        steps.extend(run_command(command, timeout=service_timeout) for command in install_commands)
+        steps.extend(run_launchctl_install_command(command, timeout=service_timeout) for command in install_commands)
 
     required_steps = [step for step in steps if not step.get("optional")]
     payload["changed"] = changed
@@ -3058,6 +3106,10 @@ def mlx_process(home: Path) -> Path:
     return home / "agent-basics-mlx"
 
 
+def mlx_package_manifest(home: Path) -> Path:
+    return home / "package" / "agent-basics-mlx-manifest.json"
+
+
 def mlx_models_from_args(args: argparse.Namespace) -> list[str]:
     values = list(getattr(args, "model", None) or [])
     if values:
@@ -3086,6 +3138,27 @@ def mlx_source_server_script(override: str | None = None) -> Path | None:
     )
     for candidate in candidates:
         if candidate.is_file():
+            return candidate
+    return None
+
+
+def mlx_source_server_python_script(override: str | None = None) -> Path | None:
+    candidates = []
+    if override:
+        candidates.append(Path(override).expanduser())
+    env_value = os.environ.get("AGENT_BASICS_MLX_SERVER_SOURCE")
+    if env_value:
+        candidates.append(Path(env_value).expanduser())
+    helper = Path(__file__).resolve()
+    candidates.extend(
+        [
+            helper.with_name("agent_basics_mlx_server.py"),
+            helper.with_name("agent-basics-mlx-server.py"),
+            helper.parent.parent / "scripts" / "agent_basics_mlx_server.py",
+        ]
+    )
+    for candidate in candidates:
+        if candidate.is_file() and candidate.suffix == ".py":
             return candidate
     return None
 
@@ -3226,6 +3299,180 @@ def mlx_write_server_payload(args: argparse.Namespace) -> dict[str, Any]:
 
 def command_mlx_write_server(args: argparse.Namespace) -> int:
     payload = mlx_write_server_payload(args)
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def mlx_package_manifest_matches(manifest_path: Path, *, target: Path, source_digest: str) -> bool:
+    manifest = load_json_file(manifest_path)
+    if not isinstance(manifest, dict):
+        return False
+    return (
+        manifest.get("version") == 1
+        and manifest.get("packager") == "pyinstaller"
+        and manifest.get("mode") == "onefile"
+        and manifest.get("target") == str(target)
+        and manifest.get("source_sha256") == source_digest
+        and target.exists()
+        and os.access(target, os.X_OK)
+    )
+
+
+def mlx_pyinstaller_command(*, python_bin: Path, source: Path, dist_dir: Path, build_dir: Path, spec_dir: Path) -> list[str]:
+    command = [
+        str(python_bin),
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--clean",
+        "--onefile",
+        "--name",
+        "agent-basics-mlx",
+        "--distpath",
+        str(dist_dir),
+        "--workpath",
+        str(build_dir),
+        "--specpath",
+        str(spec_dir),
+    ]
+    for module in PYINSTALLER_HIDDEN_IMPORTS:
+        command.extend(["--hidden-import", module])
+    for module in PYINSTALLER_COLLECT_ALL:
+        command.extend(["--collect-all", module])
+    command.append(str(source))
+    return command
+
+
+def mlx_package_payload(args: argparse.Namespace) -> dict[str, Any]:
+    home = Path(getattr(args, "home", DEFAULT_MLX_HOME)).expanduser()
+    python_bin = mlx_python(home)
+    target = Path(getattr(args, "server_script", None) or mlx_process(home)).expanduser()
+    source = mlx_source_server_python_script(getattr(args, "source", None))
+    manifest_path = Path(getattr(args, "manifest", None)).expanduser() if getattr(args, "manifest", None) else mlx_package_manifest(home)
+    package_root = home / "package"
+    source_stage = package_root / "src" / "agent-basics-mlx-server.py"
+    dist_dir = package_root / "dist"
+    build_dir = package_root / "build"
+    spec_dir = package_root / "spec"
+    built_executable = dist_dir / "agent-basics-mlx"
+    dry_run = bool(getattr(args, "dry_run", False))
+    force = bool(getattr(args, "force", False))
+    payload: dict[str, Any] = {
+        "ok": True,
+        "changed": False,
+        "home": str(home),
+        "python": str(python_bin),
+        "source": str(source) if source else None,
+        "staged_source": str(source_stage),
+        "target": str(target),
+        "manifest": str(manifest_path),
+        "packager": "pyinstaller",
+        "mode": "onefile",
+    }
+    if source is None:
+        payload.update({"ok": False, "error": "agent-basics MLX server Python source was not found"})
+        return payload
+    if not dry_run and (not python_bin.exists() or not os.access(python_bin, os.X_OK)):
+        payload.update({"ok": False, "error": "MLX runtime Python is not executable"})
+        return payload
+
+    source_bytes = source.read_bytes()
+    source_digest = hashlib.sha256(source_bytes).hexdigest()
+    payload["source_sha256"] = source_digest
+    needed = force or not mlx_package_manifest_matches(manifest_path, target=target, source_digest=source_digest)
+    payload["needed"] = needed
+    if not needed:
+        payload["message"] = "standalone MLX executable is already packaged"
+        return payload
+
+    pyinstaller_check = [str(python_bin), "-c", "import PyInstaller"]
+    pyinstaller_install = []
+    uv = shutil_which("uv")
+    if uv:
+        pyinstaller_install = [uv, "pip", "install", "--python", str(python_bin), *DEFAULT_MLX_PACKAGER_PACKAGES]
+    package_command = mlx_pyinstaller_command(
+        python_bin=python_bin,
+        source=source_stage,
+        dist_dir=dist_dir,
+        build_dir=build_dir,
+        spec_dir=spec_dir,
+    )
+    payload["commands"] = {
+        "check_pyinstaller": pyinstaller_check,
+        "install_pyinstaller": pyinstaller_install,
+        "package": package_command,
+    }
+    if dry_run:
+        payload.update({"changed": True, "dry_run": True})
+        return payload
+
+    source_stage.parent.mkdir(parents=True, exist_ok=True)
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    build_dir.mkdir(parents=True, exist_ok=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    source_stage.write_bytes(source_bytes)
+
+    steps = []
+    check = run_command(pyinstaller_check, timeout=30)
+    steps.append({"name": "check pyinstaller", "payload": check})
+    if not check.get("ok"):
+        if not uv:
+            payload.update(
+                {
+                    "ok": False,
+                    "changed": False,
+                    "steps": steps,
+                    "error": "uv is required to install PyInstaller for MLX executable packaging",
+                }
+            )
+            return payload
+        install = run_command(pyinstaller_install, timeout=None)
+        steps.append({"name": "install pyinstaller", "payload": install})
+        if not install.get("ok"):
+            payload.update({"ok": False, "changed": False, "steps": steps})
+            return payload
+    build = run_command(package_command, timeout=None)
+    steps.append({"name": "package executable", "payload": build})
+    if not build.get("ok"):
+        payload.update({"ok": False, "changed": False, "steps": steps})
+        return payload
+    if not built_executable.exists():
+        payload.update(
+            {
+                "ok": False,
+                "changed": False,
+                "steps": steps,
+                "error": "PyInstaller completed but did not produce the expected executable",
+                "expected_executable": str(built_executable),
+            }
+        )
+        return payload
+
+    backup = None
+    if target.exists():
+        backup = target.with_name(f"{target.name}.bak.{int(time.time())}")
+        target.replace(backup)
+    built_executable.replace(target)
+    target.chmod(0o755)
+    manifest = {
+        "version": 1,
+        "created": int(time.time()),
+        "packager": "pyinstaller",
+        "mode": "onefile",
+        "source": str(source),
+        "source_sha256": source_digest,
+        "target": str(target),
+        "backup": str(backup) if backup else None,
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    payload.update({"changed": True, "backup": str(backup) if backup else None, "steps": steps})
+    return payload
+
+
+def command_mlx_package(args: argparse.Namespace) -> int:
+    payload = mlx_package_payload(args)
     print_json(payload)
     return 0 if payload.get("ok") else 1
 
@@ -3488,7 +3735,7 @@ def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
         bootout = run_command(["launchctl", "bootout", target], timeout=timeout)
         bootout["optional"] = True
         steps.append(bootout)
-        steps.extend(run_command(command, timeout=timeout) for command in install_commands)
+        steps.extend(run_launchctl_install_command(command, timeout=timeout) for command in install_commands)
     else:
         status = run_command(["launchctl", "print", target], timeout=timeout)
         status["optional"] = True
@@ -3500,7 +3747,7 @@ def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
                 bootout = run_command(["launchctl", "bootout", target], timeout=timeout)
                 bootout["optional"] = True
                 steps.append(bootout)
-            steps.extend(run_command(command, timeout=timeout) for command in install_commands)
+            steps.extend(run_launchctl_install_command(command, timeout=timeout) for command in install_commands)
 
     required_steps = [step for step in steps if not step.get("optional")]
     payload.update(
@@ -3560,6 +3807,8 @@ def command_mlx_bootstrap(args: argparse.Namespace) -> int:
     install_mode = getattr(args, "install", "auto")
     service_mode = getattr(args, "service", "auto")
     pull_mode = getattr(args, "pull", "auto")
+    package_mode = getattr(args, "package_server", "auto")
+    server_process = getattr(args, "server_script", None) or str(mlx_process(home))
     service_enabled = service_mode == "always" or (service_mode == "auto" and platform.system() == "Darwin")
     steps: list[dict[str, Any]] = []
     ok = True
@@ -3578,18 +3827,34 @@ def command_mlx_bootstrap(args: argparse.Namespace) -> int:
     else:
         steps.append({"name": "install runtime", "payload": {"ok": True, "changed": False, "skipped": True, "mode": install_mode}})
 
-    add_step(
-        "write server",
-        mlx_write_server_payload(
-            argparse.Namespace(
-                home=str(home),
-                server_script=getattr(args, "server_script", None) or str(mlx_process(home)),
-                source=getattr(args, "source", None),
-                force=getattr(args, "force_server", False),
-                dry_run=dry_run,
-            )
-        ),
-    )
+    if package_mode != "never":
+        add_step(
+            "package server",
+            mlx_package_payload(
+                argparse.Namespace(
+                    home=str(home),
+                    server_script=server_process,
+                    source=getattr(args, "source", None),
+                    manifest=None,
+                    force=getattr(args, "force_package", False),
+                    dry_run=dry_run,
+                )
+            ),
+        )
+    else:
+        steps.append({"name": "package server", "payload": {"ok": True, "changed": False, "skipped": True, "mode": package_mode}})
+        add_step(
+            "write server",
+            mlx_write_server_payload(
+                argparse.Namespace(
+                    home=str(home),
+                    server_script=server_process,
+                    source=getattr(args, "source", None),
+                    force=getattr(args, "force_server", False),
+                    dry_run=dry_run,
+                )
+            ),
+        )
 
     if mode_is_enabled(pull_mode, needed=True):
         add_step("pull models", mlx_pull_payload(args))
@@ -3604,7 +3869,7 @@ def command_mlx_bootstrap(args: argparse.Namespace) -> int:
                     service_action="install",
                     home=str(home),
                     python_bin=str(mlx_python(home)),
-                    server_script=getattr(args, "server_script", None) or str(mlx_process(home)),
+                    server_script=server_process,
                     host=getattr(args, "host", "127.0.0.1"),
                     port=getattr(args, "port", DEFAULT_MLX_PORT),
                     chat_model=getattr(args, "chat_model", DEFAULT_MLX_CHAT_MODEL),
@@ -4010,7 +4275,7 @@ def lmstudio_service_payload(args: argparse.Namespace) -> dict[str, Any]:
         bootout = run_command(["launchctl", "bootout", target], timeout=timeout)
         bootout["optional"] = True
         steps.append(bootout)
-        steps.extend(run_command(command, timeout=timeout) for command in install_commands)
+        steps.extend(run_launchctl_install_command(command, timeout=timeout) for command in install_commands)
     else:
         status = run_command(["launchctl", "print", target], timeout=timeout)
         status["optional"] = True
@@ -4022,7 +4287,7 @@ def lmstudio_service_payload(args: argparse.Namespace) -> dict[str, Any]:
                 bootout = run_command(["launchctl", "bootout", target], timeout=timeout)
                 bootout["optional"] = True
                 steps.append(bootout)
-            steps.extend(run_command(command, timeout=timeout) for command in install_commands)
+            steps.extend(run_launchctl_install_command(command, timeout=timeout) for command in install_commands)
 
     required_steps = [step for step in steps if not step.get("optional")]
     payload.update(
@@ -5485,6 +5750,7 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--mlx-python", default=DEFAULT_MLX_PYTHON)
     bootstrap.add_argument("--mlx-package", action="append")
     bootstrap.add_argument("--mlx-install", choices=["auto", "always", "never"], default="auto")
+    bootstrap.add_argument("--mlx-package-server", choices=["auto", "always", "never"], default="auto")
     bootstrap.add_argument("--mlx-pull", choices=["auto", "always", "never"], default="auto")
     bootstrap.add_argument("--mlx-service", choices=["auto", "always", "never"], default="auto")
     bootstrap.add_argument("--mlx-best-effort", action="store_true")
@@ -5522,6 +5788,7 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--service-timeout", type=float, default=DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
     bootstrap.add_argument("--force-install", action="store_true")
     bootstrap.add_argument("--force-config", action="store_true")
+    bootstrap.add_argument("--mlx-force-package", action="store_true")
     bootstrap.add_argument("--force-service", action="store_true")
     bootstrap.add_argument("--no-load", action="store_true")
     bootstrap.add_argument("--dry-run", action="store_true")
@@ -5703,6 +5970,15 @@ def build_parser() -> argparse.ArgumentParser:
     mlx_write.add_argument("--dry-run", action="store_true")
     mlx_write.set_defaults(func=command_mlx_write_server)
 
+    mlx_package = mlx_sub.add_parser("package")
+    mlx_package.add_argument("--home", default=str(DEFAULT_MLX_HOME))
+    mlx_package.add_argument("--server-script", default=str(DEFAULT_MLX_SERVER_SCRIPT))
+    mlx_package.add_argument("--source")
+    mlx_package.add_argument("--manifest")
+    mlx_package.add_argument("--force", action="store_true")
+    mlx_package.add_argument("--dry-run", action="store_true")
+    mlx_package.set_defaults(func=command_mlx_package)
+
     mlx_pull = mlx_sub.add_parser("pull")
     mlx_pull.add_argument("--home", default=str(DEFAULT_MLX_HOME))
     mlx_pull.add_argument("--chat-model", default=DEFAULT_MLX_CHAT_MODEL)
@@ -5787,12 +6063,14 @@ def build_parser() -> argparse.ArgumentParser:
     mlx_bootstrap.add_argument("--server-script", default=str(DEFAULT_MLX_SERVER_SCRIPT))
     mlx_bootstrap.add_argument("--source")
     mlx_bootstrap.add_argument("--install", choices=["auto", "always", "never"], default="auto")
+    mlx_bootstrap.add_argument("--package-server", choices=["auto", "always", "never"], default="auto")
     mlx_bootstrap.add_argument("--pull", choices=["auto", "always", "never"], default="auto")
     mlx_bootstrap.add_argument("--service", choices=["auto", "always", "never"], default="auto")
     mlx_bootstrap.add_argument("--min-memory-gb", type=float, default=DEFAULT_MLX_MIN_MEMORY_GB)
     mlx_bootstrap.add_argument("--allow-non-macos", action="store_true")
     mlx_bootstrap.add_argument("--force-hardware", action="store_true")
     mlx_bootstrap.add_argument("--force-install", action="store_true")
+    mlx_bootstrap.add_argument("--force-package", action="store_true")
     mlx_bootstrap.add_argument("--force-server", action="store_true")
     mlx_bootstrap.add_argument("--force-service", action="store_true")
     mlx_bootstrap.add_argument("--no-load", action="store_true")

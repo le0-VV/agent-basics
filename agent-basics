@@ -77,7 +77,7 @@ Usage:
   agent-basics [--repo DIR] memory <validate|rebuild|search|record|doctor|install-hooks> [...]
   agent-basics [--repo DIR] mcp
   agent-basics [--repo DIR] ov <doctor|status|search|read|record|add-resource|add-skill|ingest-changed|install-hooks|install-system|bootstrap-system|write-default-config|service|server|import-repo-memory> [...]
-  agent-basics [--repo DIR] mlx <status|install|write-server|pull|service|server|bootstrap> [...]
+  agent-basics [--repo DIR] mlx <status|install|write-server|package|pull|service|server|bootstrap> [...]
   agent-basics [--repo DIR] ollama <status|bootstrap|pull> [...]
   agent-basics [--repo DIR] lmstudio <status|hardware|bootstrap|service|plan|configure|load|unload|route-test> [...]
   agent-basics [--repo DIR] migrate memory-to-openviking [--write]
@@ -117,8 +117,10 @@ OpenViking package, default config, and macOS LaunchAgent. Use
 
 MLX is the default local OpenAI-compatible runtime on Apple Silicon. The
 default models are `mlx-community/gemma-4-e2b-it-4bit` for chat/VLM routing and
-`mlx-community/embeddinggemma-300m-4bit` for embeddings. Ollama and LM Studio
-commands remain available as fallback providers.
+`mlx-community/embeddinggemma-300m-4bit` for embeddings. Bootstrap packages the
+MLX server as a standalone `agent-basics-mlx` executable before installing the
+LaunchAgent. Ollama and LM Studio commands remain available as fallback
+providers.
 
 MCP clients should use:
   command: agent-basics

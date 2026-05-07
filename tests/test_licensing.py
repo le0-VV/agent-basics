@@ -36,6 +36,7 @@ class LicensingTest(unittest.TestCase):
             "mlx-vlm",
             "mlx-embeddings",
             "gpl-3.0",
+            "pyinstaller",
             "ollama",
             "gemma",
             "embeddinggemma",

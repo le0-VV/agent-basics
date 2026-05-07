@@ -160,6 +160,16 @@
       "skipped": true,
       "target": "viking://user/default/memories/events/projects/agent-basics/1778111562-agent-basics-mlx-packaged-process-introduced.md"
     },
+    ".agents/memory/memories/events/1778113817-packaged-mlx-server-as-standalone-executable.md": {
+      "imported_at": 1778113829,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778113817-packaged-mlx-server-as-standalone-executable.md",
+      "sha256": "4349150956d04fabb37ce4561e392e8641563540960f30576a2e4551405170cb",
+      "skipped": true,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778113817-packaged-mlx-server-as-standalone-executable.md"
+    },
     ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -251,10 +261,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778111638,
+  "last_import": 1778113980,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778111638,
+  "updated": 1778113980,
   "version": 1
 }
