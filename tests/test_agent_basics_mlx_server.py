@@ -130,6 +130,20 @@ class AgentBasicsMlxServerTest(unittest.TestCase):
         self.assertIn("--preload-models", source)
         self.assertIn("--startup-structured-output-check", source)
 
+    def test_startup_preload_runs_real_chat_and_embedding_warmups(self) -> None:
+        source = SERVER.read_text(encoding="utf-8")
+
+        self.assertIn("STARTUP_CHAT_WARMUP_PROMPT", source)
+        self.assertIn("STARTUP_EMBEDDING_WARMUP_TEXT", source)
+        self.assertIn("def warm_chat(", source)
+        self.assertIn("def warm_embedding(", source)
+        self.assertIn('"chat_warmed": False', source)
+        self.assertIn('"embedding_warmed": False', source)
+        self.assertIn('payload["chat_warmup"]', source)
+        self.assertIn('payload["embedding_warmup"] = self.warm_embedding', source)
+        self.assertIn('payload["embedding_warmed"] = True', source)
+        self.assertIn("mx.eval(vectors)", source)
+
     def test_startup_router_prompt_requires_top_level_items_object(self) -> None:
         prompt = self.server.startup_router_prompt(self.server.router_response_format())
 

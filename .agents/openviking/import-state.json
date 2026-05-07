@@ -300,6 +300,16 @@
       "skipped": true,
       "target": "viking://user/default/memories/tools/projects/agent-basics/1778124668-agent-basics-mlx-local-snapshot-and-worker-thread-rules.md"
     },
+    ".agents/memory/memories/tools/1778127426-mlx-startup-preload-must-run-real-warmup-inference.md": {
+      "imported_at": 1778127441,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/tools/1778127426-mlx-startup-preload-must-run-real-warmup-inference.md",
+      "sha256": "190db798b25434c6ebaed225296603cc330c81e1d07c9c873c364b35a36d6b33",
+      "skipped": true,
+      "target": "viking://user/default/memories/tools/projects/agent-basics/1778127426-mlx-startup-preload-must-run-real-warmup-inference.md"
+    },
     ".agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md": {
       "imported_at": 1777948439,
       "kind": "resource",
@@ -311,10 +321,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778125096,
+  "last_import": 1778127581,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778125096,
+  "updated": 1778127581,
   "version": 1
 }

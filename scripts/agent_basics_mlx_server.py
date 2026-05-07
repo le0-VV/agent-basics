@@ -22,6 +22,8 @@ DEFAULT_CHAT_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
 DEFAULT_EMBEDDING_MODEL = "mlx-community/embeddinggemma-300m-4bit"
 PRELOAD_MODES = {"none", "chat", "embedding", "all"}
 STARTUP_STRUCTURED_OUTPUT_CHECKS = {"none", "openviking-router"}
+STARTUP_CHAT_WARMUP_PROMPT = "user: Return exactly: ok"
+STARTUP_EMBEDDING_WARMUP_TEXT = "agent-basics mlx startup embedding warmup"
 
 OV_MEMORY_CATEGORIES = [
     "profile",
@@ -366,6 +368,52 @@ class RuntimeState:
             self.embedding = (model, tokenizer, mx)
             return self.embedding
 
+    def warm_chat(
+        self,
+        model: Any,
+        processor: Any,
+        config: Any,
+        apply_chat_template: Any,
+        generate: Any,
+    ) -> dict[str, Any]:
+        self.set_startup_phase("warming_chat_model")
+        formatted_prompt = apply_template(
+            processor,
+            config,
+            apply_chat_template,
+            STARTUP_CHAT_WARMUP_PROMPT,
+            num_images=0,
+        )
+        text = generate_text(
+            generate,
+            model,
+            processor,
+            formatted_prompt,
+            [],
+            max_tokens=8,
+            temperature=0,
+        )
+        self.touch()
+        return {"ok": True, "output_preview": preview_text(text, limit=80)}
+
+    def warm_embedding(self, model: Any, tokenizer: Any, mx: Any) -> dict[str, Any]:
+        self.set_startup_phase("warming_embedding_model")
+        encoded = tokenizer(
+            [STARTUP_EMBEDDING_WARMUP_TEXT],
+            padding=True,
+            truncation=True,
+            return_tensors="mlx",
+        )
+        output = model(encoded["input_ids"], encoded["attention_mask"])
+        vectors = output.text_embeds
+        mx.eval(vectors)
+        data = vectors.tolist()
+        dimensions = 0
+        if data and isinstance(data, list) and isinstance(data[0], list):
+            dimensions = len(data[0])
+        self.touch()
+        return {"ok": True, "inputs": 1, "dimensions": dimensions}
+
     def preload(self, mode: str, structured_output_check: str) -> dict[str, Any]:
         started = time.time()
         payload: dict[str, Any] = {
@@ -374,7 +422,9 @@ class RuntimeState:
             "structured_output_check": structured_output_check,
             "started": int(started),
             "chat_loaded": False,
+            "chat_warmed": False,
             "embedding_loaded": False,
+            "embedding_warmed": False,
         }
         self.startup = payload
         structured_error: str | None = None
@@ -407,10 +457,28 @@ class RuntimeState:
                         structured_error = error or "router payload failed validation"
                         payload["structured_output"]["error"] = structured_error
                         payload["structured_output"]["raw_preview"] = preview_text(normalized)
+                    else:
+                        payload["chat_warmup"] = {
+                            "ok": True,
+                            "kind": "openviking-router",
+                            "items": item_count,
+                        }
+                        payload["chat_warmed"] = True
+                else:
+                    payload["chat_warmup"] = self.warm_chat(
+                        model,
+                        processor,
+                        config,
+                        apply_chat_template,
+                        generate,
+                    )
+                    payload["chat_warmed"] = True
                 self.clear_runtime_cache()
             if mode in {"embedding", "all"}:
-                self.load_embedding()
+                model, tokenizer, mx = self.load_embedding()
                 payload["embedding_loaded"] = True
+                payload["embedding_warmup"] = self.warm_embedding(model, tokenizer, mx)
+                payload["embedding_warmed"] = True
                 self.clear_runtime_cache()
             if structured_error:
                 raise RuntimeError(f"OpenViking router structured-output startup check failed: {structured_error}")
