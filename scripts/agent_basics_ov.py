@@ -25,6 +25,7 @@ DEFAULT_OLLAMA_API_KEY = "ollama"
 DEFAULT_LM_STUDIO_BASE = "http://127.0.0.1:1234"
 DEFAULT_MLX_BASE = "http://127.0.0.1:18080"
 DEFAULT_MLX_API_KEY = "agent-basics"
+DEFAULT_CUSTOM_API_KEY = "agent-basics-custom"
 DEFAULT_MLX_HOME = Path.home() / ".agent-basics" / "mlx"
 DEFAULT_MLX_VENV = DEFAULT_MLX_HOME / "venv"
 DEFAULT_MLX_PROCESS = DEFAULT_MLX_HOME / "agent-basics-mlx"
@@ -79,6 +80,8 @@ DEFAULT_OLLAMA_EMBEDDING_MODEL = "embeddinggemma:latest"
 DEFAULT_CHAT_MODEL = DEFAULT_MLX_CHAT_MODEL
 DEFAULT_EMBEDDING_MODEL = DEFAULT_MLX_EMBEDDING_MODEL
 DEFAULT_RUNTIME_PROVIDER = "mlx"
+SUPPORTED_OV_PROVIDERS = ["mlx", "custom"]
+SUPPORTED_RUNTIME_PROVIDERS = ["auto", "mlx", "none"]
 DEFAULT_LMSTUDIO_CHAT_MODEL = "google/gemma-4-e2b"
 DEFAULT_LMSTUDIO_EMBEDDING_MODEL = "text-embedding-embeddinggemma-300m-qat"
 DEFAULT_OV_HOME = Path.home() / ".openviking"
@@ -809,40 +812,32 @@ def shutil_which(name: str) -> str | None:
 def provider_default_base(provider: str) -> str:
     if provider == "mlx":
         return DEFAULT_MLX_BASE
-    if provider == "ollama":
-        return DEFAULT_OLLAMA_BASE
-    if provider == "lmstudio":
-        return DEFAULT_LM_STUDIO_BASE
+    if provider == "custom":
+        return ""
     return DEFAULT_MLX_BASE
 
 
 def provider_default_api_key(provider: str) -> str:
     if provider == "mlx":
         return DEFAULT_MLX_API_KEY
-    if provider == "ollama":
-        return DEFAULT_OLLAMA_API_KEY
-    if provider == "lmstudio":
-        return "lm-studio"
+    if provider == "custom":
+        return DEFAULT_CUSTOM_API_KEY
     return DEFAULT_MLX_API_KEY
 
 
 def provider_default_chat_model(provider: str) -> str:
     if provider == "mlx":
         return DEFAULT_MLX_CHAT_MODEL
-    if provider == "ollama":
-        return DEFAULT_OLLAMA_CHAT_MODEL
-    if provider == "lmstudio":
-        return DEFAULT_LMSTUDIO_CHAT_MODEL
+    if provider == "custom":
+        return ""
     return DEFAULT_CHAT_MODEL
 
 
 def provider_default_embedding_model(provider: str) -> str:
     if provider == "mlx":
         return DEFAULT_MLX_EMBEDDING_MODEL
-    if provider == "ollama":
-        return DEFAULT_OLLAMA_EMBEDDING_MODEL
-    if provider == "lmstudio":
-        return DEFAULT_LMSTUDIO_EMBEDDING_MODEL
+    if provider == "custom":
+        return ""
     return DEFAULT_EMBEDDING_MODEL
 
 
@@ -852,15 +847,20 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
     cli_config_path = Path(getattr(args, "cli_config", None) or home / "ovcli.conf").expanduser()
     server_url = getattr(args, "server_url", None) or "http://127.0.0.1:1933"
     provider = getattr(args, "provider", DEFAULT_RUNTIME_PROVIDER)
-    base_url = (
-        getattr(args, "base_url", None)
-        or getattr(args, "provider_base", None)
-        or getattr(args, "lmstudio_base", None)
-        or provider_default_base(provider)
-    ).rstrip("/")
+    if provider not in SUPPORTED_OV_PROVIDERS:
+        print_json({"ok": False, "error": f"unsupported provider: {provider}", "supported": SUPPORTED_OV_PROVIDERS})
+        return 2
+    configured_base = getattr(args, "base_url", None) or getattr(args, "provider_base", None)
+    if provider == "custom" and not configured_base:
+        print_json({"ok": False, "error": "custom provider requires --base-url or --provider-base"})
+        return 2
+    base_url = (configured_base or provider_default_base(provider)).rstrip("/")
     api_key = getattr(args, "api_key", None) or provider_default_api_key(provider)
     chat_model = getattr(args, "chat_model", None) or provider_default_chat_model(provider)
     embedding_model = getattr(args, "embedding_model", None) or provider_default_embedding_model(provider)
+    if provider == "custom" and (not chat_model or not embedding_model):
+        print_json({"ok": False, "error": "custom provider requires --chat-model and --embedding-model"})
+        return 2
     config_payload = {
         "storage": {"workspace": str(Path(args.home).expanduser() / "workspace")},
         "log": {"level": "INFO", "output": "stdout"},
@@ -1044,17 +1044,14 @@ def ov_bootstrap_mlx_args(args: argparse.Namespace, *, dry_run: bool) -> argpars
 
 
 def ov_runtime_plan_payload(args: argparse.Namespace, *, dry_run: bool) -> dict[str, Any]:
-    runtime = getattr(args, "runtime", "none")
-    if getattr(args, "lmstudio", "never") != "never":
-        runtime = "lmstudio"
+    runtime = getattr(args, "runtime", "auto")
+    if runtime == "auto":
+        provider = getattr(args, "provider", DEFAULT_RUNTIME_PROVIDER)
+        runtime = "mlx" if provider == "mlx" else "none"
     if runtime == "none":
         return {"ok": True, "changed": False, "skipped": True, "provider": "none"}
     if runtime == "mlx":
         return command_payload_from_handler(command_mlx_bootstrap, ov_bootstrap_mlx_args(args, dry_run=dry_run))
-    if runtime == "ollama":
-        return command_payload_from_handler(command_ollama_bootstrap, ov_bootstrap_ollama_args(args, dry_run=dry_run))
-    if runtime == "lmstudio":
-        return command_payload_from_handler(command_lmstudio_bootstrap, ov_bootstrap_lmstudio_args(args, dry_run=dry_run))
     return {"ok": False, "changed": False, "error": f"unsupported runtime provider: {runtime}"}
 
 
@@ -1090,7 +1087,6 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
                     "skipped_reason": service_skipped_reason,
                 },
                 "runtime": runtime_plan,
-                "lmstudio": runtime_plan if getattr(args, "lmstudio", "never") != "never" else {"ok": True, "changed": False, "skipped": True, "mode": "never"},
             }
         )
         return 0
@@ -1119,7 +1115,6 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
             provider=getattr(args, "provider", DEFAULT_RUNTIME_PROVIDER),
             base_url=getattr(args, "base_url", None),
             provider_base=getattr(args, "provider_base", None),
-            lmstudio_base=getattr(args, "lmstudio_base", None),
             api_key=getattr(args, "api_key", None),
             chat_model=args.chat_model,
             embedding_model=args.embedding_model,
@@ -1172,10 +1167,8 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
     runtime_payload = ov_runtime_plan_payload(args, dry_run=False)
     steps.append({"name": "runtime bootstrap", "payload": runtime_payload})
     if not runtime_payload.get("ok"):
-        ok = bool(getattr(args, "runtime_best_effort", False) or getattr(args, "lmstudio_best_effort", False))
-        steps[-1]["best_effort_ignored_failure"] = bool(
-            getattr(args, "runtime_best_effort", False) or getattr(args, "lmstudio_best_effort", False)
-        )
+        ok = bool(getattr(args, "runtime_best_effort", False))
+        steps[-1]["best_effort_ignored_failure"] = bool(getattr(args, "runtime_best_effort", False))
 
     print_json(
         {
@@ -2484,12 +2477,9 @@ def ov_status_payload(
                 timeout=5,
             )
             payload["ok"] = bool(payload["ok"]) and bool(payload["mlx"].get("ok"))
-        elif provider == "lmstudio":
-            payload["lmstudio"] = lmstudio_status_payload(base_url, timeout=5)
-            payload["ok"] = bool(payload["ok"]) and bool(payload["lmstudio"].get("ok"))
-        elif provider == "ollama":
-            payload["ollama"] = ollama_status_payload(base_url, timeout=5)
-            payload["ok"] = bool(payload["ok"]) and bool(payload["ollama"].get("ok"))
+        elif provider == "custom":
+            payload["custom_api"] = custom_api_status_payload(base_url, timeout=5)
+            payload["ok"] = bool(payload["ok"]) and bool(payload["custom_api"].get("ok"))
         else:
             payload["ok"] = False
             payload["provider_error"] = f"unsupported provider: {provider}"
@@ -3211,6 +3201,29 @@ def command_mlx_status(args: argparse.Namespace) -> int:
     )
     print_json(payload)
     return 0 if payload.get("ok") else 1
+
+
+def custom_api_status_payload(base_url: str, *, timeout: float | None = 5) -> dict[str, Any]:
+    payload: dict[str, Any] = {"provider": "custom", "base_url": base_url}
+    if not base_url:
+        payload.update({"ok": False, "error": "custom provider status requires --base-url"})
+        return payload
+    try:
+        openai_models = http_json(base_url, "/v1/models", timeout=timeout)
+    except Exception as exc:
+        payload.update({"ok": False, "error": str(exc)})
+        return payload
+    openai_model_items = openai_models.get("data", [])
+    payload.update(
+        {
+            "ok": True,
+            "openai_models": openai_model_items,
+            "model_ids": sorted(
+                item.get("id") for item in openai_model_items if isinstance(item, dict) and item.get("id")
+            ),
+        }
+    )
+    return payload
 
 
 def mlx_install_payload(args: argparse.Namespace) -> dict[str, Any]:
@@ -4016,7 +4029,7 @@ def hardware_payload() -> dict[str, Any]:
             "notes": [
                 "Use the agent-basics MLX runtime as the default on Apple Silicon.",
                 "Use Gemma 4 E2B as the default chat/VLM model; E4B is not required.",
-                "Keep Ollama and LM Studio available only as fallback runtime providers.",
+                "Configure non-MLX runtimes as custom OpenAI-compatible API providers.",
             ],
             "memory_gb": memory_gb,
         },
@@ -5708,7 +5721,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = ov_sub.add_parser("doctor")
     doctor.add_argument("--online", action="store_true")
     doctor.add_argument("--providers", action="store_true")
-    doctor.add_argument("--provider", choices=["mlx", "ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
+    doctor.add_argument("--provider", choices=SUPPORTED_OV_PROVIDERS, default=DEFAULT_RUNTIME_PROVIDER)
     doctor.add_argument("--base-url")
     doctor.add_argument("--timeout", type=float, default=5)
     doctor.set_defaults(func=command_ov_doctor)
@@ -5726,13 +5739,12 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--package", default="openviking")
     bootstrap.add_argument("--config")
     bootstrap.add_argument("--cli-config")
-    bootstrap.add_argument("--provider", choices=["mlx", "ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
-    bootstrap.add_argument("--runtime", choices=["mlx", "ollama", "lmstudio", "none"], default=DEFAULT_RUNTIME_PROVIDER)
+    bootstrap.add_argument("--provider", choices=SUPPORTED_OV_PROVIDERS, default=DEFAULT_RUNTIME_PROVIDER)
+    bootstrap.add_argument("--runtime", choices=SUPPORTED_RUNTIME_PROVIDERS, default="auto")
     bootstrap.add_argument("--runtime-best-effort", action="store_true")
     bootstrap.add_argument("--base-url")
     bootstrap.add_argument("--provider-base")
     bootstrap.add_argument("--api-key")
-    bootstrap.add_argument("--lmstudio-base", default=None)
     bootstrap.add_argument("--chat-model")
     bootstrap.add_argument("--embedding-model")
     bootstrap.add_argument("--embedding-dimension", type=int, default=768)
@@ -5741,11 +5753,6 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--cli-timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
     bootstrap.add_argument("--service", choices=["auto", "always", "never"], default="auto")
     bootstrap.add_argument("--service-best-effort", action="store_true")
-    bootstrap.add_argument("--ollama-install", choices=["auto", "always", "never"], default="auto")
-    bootstrap.add_argument("--ollama-pull", choices=["auto", "always", "never"], default="auto")
-    bootstrap.add_argument("--ollama-timeout", type=float, default=5)
-    bootstrap.add_argument("--ollama-chat-model", default=DEFAULT_OLLAMA_CHAT_MODEL)
-    bootstrap.add_argument("--ollama-embedding-model", default=DEFAULT_OLLAMA_EMBEDDING_MODEL)
     bootstrap.add_argument("--mlx-home", default=str(DEFAULT_MLX_HOME))
     bootstrap.add_argument("--mlx-python", default=DEFAULT_MLX_PYTHON)
     bootstrap.add_argument("--mlx-package", action="append")
@@ -5775,13 +5782,6 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["none", "openviking-router"],
         default=DEFAULT_MLX_STARTUP_STRUCTURED_OUTPUT_CHECK,
     )
-    bootstrap.add_argument("--lmstudio", choices=["auto", "always", "never"], default="never")
-    bootstrap.add_argument("--lmstudio-best-effort", action="store_true")
-    bootstrap.add_argument("--lmstudio-min-memory-gb", type=float, default=DEFAULT_LMSTUDIO_MIN_MEMORY_GB)
-    bootstrap.add_argument("--lmstudio-cask", default=DEFAULT_LMSTUDIO_CASK)
-    bootstrap.add_argument("--lmstudio-app-path", default=str(DEFAULT_LMSTUDIO_APP))
-    bootstrap.add_argument("--lmstudio-lms-bin")
-    bootstrap.add_argument("--lmstudio-wait-server-seconds", type=float, default=30)
     bootstrap.add_argument("--server-bin")
     bootstrap.add_argument("--label", default=DEFAULT_OV_SERVICE_LABEL)
     bootstrap.add_argument("--plist")
@@ -5798,11 +5798,10 @@ def build_parser() -> argparse.ArgumentParser:
     config.add_argument("--config", default=str(DEFAULT_OV_CONFIG))
     config.add_argument("--cli-config", default=str(DEFAULT_OV_CLI_CONFIG))
     config.add_argument("--home", default=str(DEFAULT_OV_HOME))
-    config.add_argument("--provider", choices=["mlx", "ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
+    config.add_argument("--provider", choices=SUPPORTED_OV_PROVIDERS, default=DEFAULT_RUNTIME_PROVIDER)
     config.add_argument("--base-url")
     config.add_argument("--provider-base")
     config.add_argument("--api-key")
-    config.add_argument("--lmstudio-base", default=None)
     config.add_argument("--chat-model")
     config.add_argument("--embedding-model")
     config.add_argument("--embedding-dimension", type=int, default=768)
@@ -5941,7 +5940,7 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = ov_sub.add_parser("status")
     status_parser.add_argument("--offline", action="store_true")
     status_parser.add_argument("--providers", action="store_true")
-    status_parser.add_argument("--provider", choices=["mlx", "ollama", "lmstudio"], default=DEFAULT_RUNTIME_PROVIDER)
+    status_parser.add_argument("--provider", choices=SUPPORTED_OV_PROVIDERS, default=DEFAULT_RUNTIME_PROVIDER)
     status_parser.add_argument("--base-url")
     status_parser.set_defaults(func=command_ov_status)
 
@@ -6091,139 +6090,6 @@ def build_parser() -> argparse.ArgumentParser:
     mlx_bootstrap.add_argument("--best-effort", action="store_true")
     mlx_bootstrap.add_argument("--dry-run", action="store_true")
     mlx_bootstrap.set_defaults(func=command_mlx_bootstrap)
-
-    ollama = subparsers.add_parser("ollama")
-    ollama_sub = ollama.add_subparsers(dest="ollama_command", required=True)
-    ollama_status = ollama_sub.add_parser("status")
-    ollama_status.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
-    ollama_status.add_argument("--model", default=DEFAULT_OLLAMA_CHAT_MODEL)
-    ollama_status.add_argument("--embedding-model", default=DEFAULT_OLLAMA_EMBEDDING_MODEL)
-    ollama_status.add_argument("--timeout", type=float, default=5)
-    ollama_status.set_defaults(func=command_ollama_status)
-
-    ollama_bootstrap = ollama_sub.add_parser("bootstrap")
-    ollama_bootstrap.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
-    ollama_bootstrap.add_argument("--model", default=DEFAULT_OLLAMA_CHAT_MODEL)
-    ollama_bootstrap.add_argument("--embedding-model", default=DEFAULT_OLLAMA_EMBEDDING_MODEL)
-    ollama_bootstrap.add_argument("--pull-model", action="append", default=[])
-    ollama_bootstrap.add_argument("--install", choices=["auto", "always", "never"], default="auto")
-    ollama_bootstrap.add_argument("--pull", choices=["auto", "always", "never"], default="auto")
-    ollama_bootstrap.add_argument("--timeout", type=float, default=5)
-    ollama_bootstrap.add_argument("--dry-run", action="store_true")
-    ollama_bootstrap.set_defaults(func=command_ollama_bootstrap)
-
-    ollama_pull = ollama_sub.add_parser("pull")
-    ollama_pull.add_argument("--base-url", default=DEFAULT_OLLAMA_BASE)
-    ollama_pull.add_argument("--model", default=DEFAULT_OLLAMA_CHAT_MODEL)
-    ollama_pull.add_argument("--embedding-model", default=DEFAULT_OLLAMA_EMBEDDING_MODEL)
-    ollama_pull.add_argument("--pull-model", action="append", default=[])
-    ollama_pull.add_argument("--timeout", type=float, default=5)
-    ollama_pull.add_argument("--dry-run", action="store_true")
-    ollama_pull.set_defaults(func=command_ollama_pull)
-
-    lm = subparsers.add_parser("lmstudio")
-    lm_sub = lm.add_subparsers(dest="lmstudio_command", required=True)
-    status = lm_sub.add_parser("status")
-    status.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
-    status.add_argument("--timeout", type=float, default=5)
-    status.set_defaults(func=command_lmstudio_status)
-
-    hardware = lm_sub.add_parser("hardware")
-    hardware.set_defaults(func=command_lmstudio_hardware)
-
-    bootstrap_lm = lm_sub.add_parser("bootstrap")
-    bootstrap_lm.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
-    bootstrap_lm.add_argument("--lmstudio-home", default=str(DEFAULT_LMSTUDIO_HOME))
-    bootstrap_lm.add_argument("--model", default=DEFAULT_LMSTUDIO_CHAT_MODEL)
-    bootstrap_lm.add_argument("--embedding-model", default=DEFAULT_LMSTUDIO_EMBEDDING_MODEL)
-    bootstrap_lm.add_argument("--download-model", action="append", default=[])
-    bootstrap_lm.add_argument("--min-memory-gb", type=float, default=DEFAULT_LMSTUDIO_MIN_MEMORY_GB)
-    bootstrap_lm.add_argument("--allow-non-macos", action="store_true")
-    bootstrap_lm.add_argument("--force-hardware", action="store_true")
-    bootstrap_lm.add_argument("--install", choices=["auto", "always", "never"], default="auto")
-    bootstrap_lm.add_argument("--service", choices=["auto", "always", "never"], default="auto")
-    bootstrap_lm.add_argument("--configure", choices=["auto", "always", "never"], default="auto")
-    bootstrap_lm.add_argument("--download", choices=["auto", "always", "never"], default="auto")
-    bootstrap_lm.add_argument("--cask", default=DEFAULT_LMSTUDIO_CASK)
-    bootstrap_lm.add_argument("--app-path", default=str(DEFAULT_LMSTUDIO_APP))
-    bootstrap_lm.add_argument("--lms-bin")
-    bootstrap_lm.add_argument("--port", type=int, default=DEFAULT_LMSTUDIO_PORT)
-    bootstrap_lm.add_argument("--label", default=DEFAULT_LMSTUDIO_SERVICE_LABEL)
-    bootstrap_lm.add_argument("--plist")
-    bootstrap_lm.add_argument("--timeout", type=float, default=5)
-    bootstrap_lm.add_argument("--service-timeout", type=float, default=DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
-    bootstrap_lm.add_argument("--wait-server-seconds", type=float, default=30)
-    bootstrap_lm.add_argument("--force-install", action="store_true")
-    bootstrap_lm.add_argument("--force-service", action="store_true")
-    bootstrap_lm.add_argument("--no-load", action="store_true")
-    bootstrap_lm.add_argument("--best-effort", action="store_true")
-    bootstrap_lm.add_argument("--dry-run", action="store_true")
-    bootstrap_lm.set_defaults(func=command_lmstudio_bootstrap)
-
-    service_lm = lm_sub.add_parser("service")
-    service_lm.add_argument("service_action", choices=["install", "status", "start", "stop", "restart", "uninstall"])
-    service_lm.add_argument("--lmstudio-home", default=str(DEFAULT_LMSTUDIO_HOME))
-    service_lm.add_argument("--lms-bin")
-    service_lm.add_argument("--port", type=int, default=DEFAULT_LMSTUDIO_PORT)
-    service_lm.add_argument("--label", default=DEFAULT_LMSTUDIO_SERVICE_LABEL)
-    service_lm.add_argument("--plist")
-    service_lm.add_argument("--timeout", type=float, default=DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
-    service_lm.add_argument("--dry-run", action="store_true")
-    service_lm.add_argument("--force", action="store_true")
-    service_lm.add_argument("--no-load", action="store_true")
-    service_lm.set_defaults(func=command_lmstudio_service)
-
-    plan = lm_sub.add_parser("plan")
-    plan.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
-    plan.add_argument("--model", default=DEFAULT_LMSTUDIO_CHAT_MODEL)
-    plan.add_argument("--embedding-model", default=DEFAULT_LMSTUDIO_EMBEDDING_MODEL)
-    plan.add_argument("--max-tokens", type=int, default=2200)
-    plan.add_argument("--timeout", type=float, default=5)
-    plan.set_defaults(func=command_lmstudio_plan)
-
-    configure = lm_sub.add_parser("configure")
-    configure.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
-    configure.add_argument("--lmstudio-home", default=str(DEFAULT_LMSTUDIO_HOME))
-    configure.add_argument("--model", default=DEFAULT_LMSTUDIO_CHAT_MODEL)
-    configure.add_argument("--embedding-model", default=DEFAULT_LMSTUDIO_EMBEDDING_MODEL)
-    configure.add_argument("--cpu-threads", type=int, default=0)
-    configure.add_argument("--parallel", type=int, default=1)
-    configure.add_argument("--context-length", type=int, default=0)
-    configure.add_argument("--embedding-context-length", type=int, default=2048)
-    configure.add_argument("--kv-cache-quantization", default="q4_0")
-    configure.add_argument("--gpu-offload-ratio", type=float, default=1.0)
-    configure.add_argument("--temperature", type=float, default=0)
-    configure.add_argument("--timeout", type=float, default=5)
-    configure.add_argument("--write", action="store_true")
-    configure.add_argument("--backup", action=argparse.BooleanOptionalAction, default=True)
-    configure.add_argument("--include-embedding", action=argparse.BooleanOptionalAction, default=True)
-    configure.add_argument("--include-routing-defaults", action="store_true")
-    configure.add_argument("--verbose-config", action="store_true")
-    configure.set_defaults(func=command_lmstudio_configure)
-
-    load = lm_sub.add_parser("load")
-    load.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
-    load.add_argument("--model", default=DEFAULT_LMSTUDIO_CHAT_MODEL)
-    load.add_argument("--embedding-model", default=DEFAULT_LMSTUDIO_EMBEDDING_MODEL)
-    load.add_argument("--max-tokens", type=int, default=2200)
-    load.add_argument("--timeout", type=float, default=5)
-    load.add_argument("--dry-run", action="store_true")
-    load.add_argument("--unload-conflicts", action="store_true")
-    load.add_argument("--reload-mismatched", action="store_true")
-    load.set_defaults(func=command_lmstudio_load)
-
-    unload = lm_sub.add_parser("unload")
-    unload.add_argument("identifier", nargs="?", default=DEFAULT_LMSTUDIO_CHAT_MODEL)
-    unload.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
-    unload.add_argument("--timeout", type=float, default=5)
-    unload.add_argument("--all", action="store_true")
-    unload.set_defaults(func=command_lmstudio_unload)
-
-    route_test = lm_sub.add_parser("route-test")
-    route_test.add_argument("--base-url", default=DEFAULT_LM_STUDIO_BASE)
-    route_test.add_argument("--model", default=DEFAULT_LMSTUDIO_CHAT_MODEL)
-    route_test.add_argument("--max-tokens", type=int, default=2200)
-    route_test.set_defaults(func=command_lmstudio_route_test)
 
     migrate = subparsers.add_parser("migrate")
     migrate_sub = migrate.add_subparsers(dest="migrate_command", required=True)

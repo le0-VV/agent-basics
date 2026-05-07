@@ -62,7 +62,7 @@ class AgentBasicsDispatcherTest(unittest.TestCase):
         self.assertIn("repo_scoped_gateway", completed.stdout)
         self.assertNotIn("memory layout", completed.stdout.lower())
 
-    def test_lmstudio_plan_is_available_without_lms_cli(self) -> None:
+    def test_provider_specific_runtime_commands_are_not_public(self) -> None:
         completed = subprocess.run(
             [str(DISPATCHER), "lmstudio", "plan"],
             cwd=ROOT,
@@ -72,10 +72,20 @@ class AgentBasicsDispatcherTest(unittest.TestCase):
             check=False,
         )
 
-        self.assertIn(completed.returncode, {0, 1})
-        self.assertIn("google/gemma-4-e2b", completed.stdout)
-        self.assertIn("load_request", completed.stdout)
-        self.assertIn("persistent_default_config", completed.stdout)
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("unknown command: lmstudio", completed.stderr)
+
+        completed = subprocess.run(
+            [str(DISPATCHER), "ollama", "status"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("unknown command: ollama", completed.stderr)
 
     def test_mcp_uses_openviking_gateway(self) -> None:
         request = {

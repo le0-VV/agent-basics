@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -80,6 +80,32 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(payload["config"]["vlm"]["api_base"], "http://127.0.0.1:18080/v1")
         self.assertEqual(payload["config"]["vlm"]["model"], "mlx-community/gemma-4-e2b-it-4bit")
         self.assertEqual(payload["config"]["embedding"]["dense"]["model"], "mlx-community/embeddinggemma-300m-4bit")
+
+    def test_parser_exposes_mlx_and_custom_provider_only(self) -> None:
+        parser = agent_basics_ov.build_parser()
+        custom = parser.parse_args(
+            [
+                "ov",
+                "write-default-config",
+                "--provider",
+                "custom",
+                "--base-url",
+                "http://127.0.0.1:8000",
+                "--chat-model",
+                "custom-chat",
+                "--embedding-model",
+                "custom-embedding",
+            ]
+        )
+        self.assertEqual(custom.provider, "custom")
+
+        stderr = io.StringIO()
+        with redirect_stderr(stderr), self.assertRaises(SystemExit):
+            parser.parse_args(["ollama", "status"])
+        with redirect_stderr(stderr), self.assertRaises(SystemExit):
+            parser.parse_args(["lmstudio", "plan"])
+        with redirect_stderr(stderr), self.assertRaises(SystemExit):
+            parser.parse_args(["ov", "write-default-config", "--provider", "ollama"])
 
     def test_mlx_service_plist_runs_agent_basics_server(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1272,7 +1298,7 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertFalse(rejected["ok"])
         self.assertIn("repo namespace", rejected["error"])
 
-    def test_ov_default_config_uses_positive_vlm_timeout(self) -> None:
+    def test_ov_default_config_supports_custom_api_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "ov.conf"
             cli_config_path = Path(tmp) / "ovcli.conf"
@@ -1281,13 +1307,12 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
                     config=str(config_path),
                     cli_config=str(cli_config_path),
                     home=str(Path(tmp) / "openviking"),
-                    provider="ollama",
-                    base_url=agent_basics_ov.DEFAULT_OLLAMA_BASE,
+                    provider="custom",
+                    base_url="http://127.0.0.1:8000",
                     provider_base=None,
-                    lmstudio_base=None,
-                    api_key=None,
-                    chat_model=agent_basics_ov.DEFAULT_OLLAMA_CHAT_MODEL,
-                    embedding_model=agent_basics_ov.DEFAULT_OLLAMA_EMBEDDING_MODEL,
+                    api_key="test-key",
+                    chat_model="custom-chat",
+                    embedding_model="custom-embedding",
                     embedding_dimension=768,
                     vlm_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
                     server_url="http://127.0.0.1:1933",
@@ -1302,9 +1327,10 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         assert payload is not None
         assert cli_payload is not None
         self.assertGreater(payload["vlm"]["timeout"], 0)
-        self.assertEqual(payload["vlm"]["api_base"], "http://127.0.0.1:11434/v1")
-        self.assertEqual(payload["vlm"]["model"], "gemma4:e2b")
-        self.assertEqual(payload["embedding"]["dense"]["model"], "embeddinggemma:latest")
+        self.assertEqual(payload["vlm"]["api_base"], "http://127.0.0.1:8000/v1")
+        self.assertEqual(payload["vlm"]["api_key"], "test-key")
+        self.assertEqual(payload["vlm"]["model"], "custom-chat")
+        self.assertEqual(payload["embedding"]["dense"]["model"], "custom-embedding")
         self.assertEqual(cli_payload["timeout"], agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS)
 
     def test_merge_no_proxy_preserves_existing_and_adds_localhost_bypass(self) -> None:
@@ -1464,57 +1490,48 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertFalse(payload["service"]["enabled"])
         self.assertEqual(payload["service"]["skipped_reason"], "disabled by --service never")
 
-    def test_ov_bootstrap_dry_run_can_include_lmstudio_bootstrap(self) -> None:
+    def test_ov_bootstrap_custom_provider_skips_bundled_runtime_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "openviking"
-            original_bootstrap = agent_basics_ov.command_lmstudio_bootstrap
-            try:
-                agent_basics_ov.command_lmstudio_bootstrap = lambda args: (
-                    print(json.dumps({"ok": True, "changed": False, "mode": args.install})),
-                    0,
-                )[1]
-                output = io.StringIO()
-                with redirect_stdout(output):
-                    result = agent_basics_ov.command_ov_bootstrap_system(
-                        SimpleNamespace(
-                            home=str(home),
-                            python="3.12",
-                            package="openviking",
-                            config=None,
-                            cli_config=None,
-                            lmstudio_base="http://127.0.0.1:1234",
-                            chat_model=agent_basics_ov.DEFAULT_CHAT_MODEL,
-                            embedding_model=agent_basics_ov.DEFAULT_EMBEDDING_MODEL,
-                            embedding_dimension=768,
-                            vlm_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
-                            server_url="http://127.0.0.1:1933",
-                            cli_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
-                            service="never",
-                            service_best_effort=False,
-                            lmstudio="auto",
-                            lmstudio_best_effort=True,
-                            lmstudio_min_memory_gb=16,
-                            lmstudio_cask=agent_basics_ov.DEFAULT_LMSTUDIO_CASK,
-                            lmstudio_app_path=str(Path(tmp) / "LM Studio.app"),
-                            lmstudio_lms_bin=str(Path(tmp) / "lms"),
-                            lmstudio_wait_server_seconds=0,
-                            server_bin=None,
-                            label=agent_basics_ov.DEFAULT_OV_SERVICE_LABEL,
-                            plist=None,
-                            service_timeout=agent_basics_ov.DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS,
-                            force_install=False,
-                            force_config=False,
-                            force_service=False,
-                            no_load=False,
-                            dry_run=True,
-                        )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = agent_basics_ov.command_ov_bootstrap_system(
+                    SimpleNamespace(
+                        home=str(home),
+                        python="3.12",
+                        package="openviking",
+                        config=None,
+                        cli_config=None,
+                        provider="custom",
+                        runtime="auto",
+                        runtime_best_effort=False,
+                        base_url="http://127.0.0.1:8000",
+                        provider_base=None,
+                        api_key="test-key",
+                        chat_model="custom-chat",
+                        embedding_model="custom-embedding",
+                        embedding_dimension=768,
+                        vlm_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                        server_url="http://127.0.0.1:1933",
+                        cli_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                        service="never",
+                        service_best_effort=False,
+                        server_bin=None,
+                        label=agent_basics_ov.DEFAULT_OV_SERVICE_LABEL,
+                        plist=None,
+                        service_timeout=agent_basics_ov.DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS,
+                        force_install=False,
+                        force_config=False,
+                        force_service=False,
+                        no_load=False,
+                        dry_run=True,
                     )
-            finally:
-                agent_basics_ov.command_lmstudio_bootstrap = original_bootstrap
+                )
 
         payload = json.loads(output.getvalue())
         self.assertEqual(result, 0)
-        self.assertEqual(payload["lmstudio"]["mode"], "auto")
+        self.assertEqual(payload["runtime"]["provider"], "none")
+        self.assertTrue(payload["runtime"]["skipped"])
 
     def test_ov_bootstrap_installs_config_and_macos_service(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

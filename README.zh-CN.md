@@ -185,15 +185,16 @@ agent-basics-mlx --version
 agent-basics mlx pull --dry-run
 ```
 
-Ollama 仍然可以作为 fallback provider：
+外部 OpenAI-compatible API 统一按 custom provider 配置，不再走 provider-specific commands：
 
 ```bash
-agent-basics ollama status
-agent-basics ollama bootstrap
-agent-basics ollama pull --dry-run
+agent-basics ov write-default-config \
+  --provider custom \
+  --base-url http://127.0.0.1:8000 \
+  --chat-model your-chat-model \
+  --embedding-model your-embedding-model \
+  --api-key your-api-key
 ```
-
-LM Studio 命令还保留为 legacy optional provider，但已经不是默认 runtime 路径。
 
 ## 需要帮助的话
 

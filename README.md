@@ -179,15 +179,16 @@ agent-basics-mlx --version
 agent-basics mlx pull --dry-run
 ```
 
-Ollama remains available as a fallback provider:
+External OpenAI-compatible APIs are configured as custom providers instead of provider-specific commands:
 
 ```bash
-agent-basics ollama status
-agent-basics ollama bootstrap
-agent-basics ollama pull --dry-run
+agent-basics ov write-default-config \
+  --provider custom \
+  --base-url http://127.0.0.1:8000 \
+  --chat-model your-chat-model \
+  --embedding-model your-embedding-model \
+  --api-key your-api-key
 ```
-
-LM Studio commands remain available as a legacy optional provider, but they are not the default runtime path.
 
 ## If you need any help
 

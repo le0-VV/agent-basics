@@ -336,8 +336,7 @@ The target agent-facing surfaces are:
 - `agent-basics ov doctor`: check the user-level OpenViking installation, repo config, providers, ingest status, and health.
 - `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, write default config, and install the macOS LaunchAgent when available.
 - `agent-basics mlx bootstrap`: install the lightweight MLX runtime, pull the configured Hugging Face chat/embedding models when needed, and check the local OpenAI-compatible API.
-- `agent-basics ollama bootstrap`: optional fallback provider path.
-- `agent-basics lmstudio bootstrap`: legacy optional LM Studio provider path.
+- `agent-basics ov write-default-config --provider custom`: point OpenViking at a user-supplied OpenAI-compatible API provider.
 - `agent-basics ov install-system`: low-level repair command for only the OpenViking package installation.
 - `agent-basics ov write-default-config`: low-level repair command for default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for the configured local provider.
 - `agent-basics ov service install`: install and load the configured user-level OpenViking HTTP server as a macOS LaunchAgent.
@@ -404,7 +403,7 @@ Compatibility files are not the long-term architecture. Useful compatibility mem
   - Chat/VLM model: `mlx-community/gemma-4-e2b-it-4bit`
   - Embedding model: `mlx-community/embeddinggemma-300m-4bit`
 - The MLX LaunchAgent should preload both configured models after startup, run the OpenViking router structured-output warmup check, keep model weights warm, and clear transient MLX runtime cache after each request.
-- MLX is the default local runtime on Apple Silicon. Ollama and LM Studio commands remain available only as fallback or legacy optional providers.
+- MLX is the default local runtime on Apple Silicon. Non-MLX inference should be configured as a custom OpenAI-compatible API provider through OpenViking config, not through provider-specific agent-basics commands.
 
 ## Long-Horizon Work
 
@@ -1071,10 +1070,6 @@ summary: Source URLs used by agent-basics setup, packaging, embedding API, Rust 
 - mlx-vlm: https://github.com/Blaizzy/mlx-vlm
 - mlx-community Gemma 4 E2B MLX model: https://huggingface.co/mlx-community/gemma-4-e2b-it-4bit
 - mlx-community EmbeddingGemma MLX model: https://huggingface.co/mlx-community/embeddinggemma-300m-4bit
-- Ollama OpenAI compatibility: https://docs.ollama.com/openai
-- Ollama embeddings: https://docs.ollama.com/capabilities/embeddings
-- Ollama structured outputs: https://docs.ollama.com/capabilities/structured-outputs
-- Ollama macOS setup: https://docs.ollama.com/macos
 - SentenceTransformers documentation: https://sbert.net/
 - FastAPI documentation: https://fastapi.tiangolo.com/
 - MCP 2025-11-25 lifecycle specification: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle

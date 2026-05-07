@@ -78,8 +78,6 @@ Usage:
   agent-basics [--repo DIR] mcp
   agent-basics [--repo DIR] ov <doctor|status|search|read|record|add-resource|add-skill|ingest-changed|install-hooks|install-system|bootstrap-system|write-default-config|service|server|import-repo-memory> [...]
   agent-basics [--repo DIR] mlx <status|install|write-server|package|pull|service|server|bootstrap> [...]
-  agent-basics [--repo DIR] ollama <status|bootstrap|pull> [...]
-  agent-basics [--repo DIR] lmstudio <status|hardware|bootstrap|service|plan|configure|load|unload|route-test> [...]
   agent-basics [--repo DIR] migrate memory-to-openviking [--write]
   agent-basics [--repo DIR] verify
   agent-basics licenses
@@ -119,8 +117,8 @@ MLX is the default local OpenAI-compatible runtime on Apple Silicon. The
 default models are `mlx-community/gemma-4-e2b-it-4bit` for chat/VLM routing and
 `mlx-community/embeddinggemma-300m-4bit` for embeddings. Bootstrap packages the
 MLX server as a standalone `agent-basics-mlx` executable before installing the
-LaunchAgent. Ollama and LM Studio commands remain available as fallback
-providers.
+LaunchAgent. External OpenAI-compatible APIs can be configured as a custom
+provider through `agent-basics ov write-default-config --provider custom`.
 
 MCP clients should use:
   command: agent-basics
@@ -374,7 +372,6 @@ def check_license_notices(repo: Path) -> bool:
             "mlx-vlm",
             "mlx-embeddings",
             "gpl-3.0",
-            "ollama",
             "gemma",
             "embeddinggemma",
             "uv",
@@ -646,14 +643,6 @@ case "$command_name" in
   mlx)
     enter_repo
     exec python3 "$(find_ov_helper)" --repo "$(pwd)" mlx "$@"
-    ;;
-  ollama)
-    enter_repo
-    exec python3 "$(find_ov_helper)" --repo "$(pwd)" ollama "$@"
-    ;;
-  lmstudio)
-    enter_repo
-    exec python3 "$(find_ov_helper)" --repo "$(pwd)" lmstudio "$@"
     ;;
   migrate)
     enter_repo
