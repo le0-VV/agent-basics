@@ -334,12 +334,13 @@ The target agent-facing surfaces are:
 
 - `agent-basics mcp`: repo-aware MCP server for OpenViking-backed tools.
 - `agent-basics ov doctor`: check the user-level OpenViking installation, repo config, providers, ingest status, and health.
-- `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, write default config, and install the macOS LaunchAgent when available.
+- `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, package the server as `~/.openviking/openviking`, write default config, and install the macOS LaunchAgent when available.
+- `agent-basics ov package-server`: build the OpenViking server entrypoint into a one-file `openviking` executable so macOS process listings do not show the long-running service as `python3.12`.
 - `agent-basics mlx bootstrap`: install the lightweight MLX runtime, pull the configured Hugging Face chat/embedding models when needed, and check the local OpenAI-compatible API.
 - `agent-basics ov write-default-config --provider custom`: point OpenViking at a user-supplied OpenAI-compatible API provider.
 - `agent-basics ov install-system`: low-level repair command for only the OpenViking package installation.
 - `agent-basics ov write-default-config`: low-level repair command for default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for the configured local provider.
-- `agent-basics ov service install`: install and load the configured user-level OpenViking HTTP server as a macOS LaunchAgent.
+- `agent-basics ov service install`: install and load the configured user-level OpenViking HTTP server as a macOS LaunchAgent, preferring the packaged `~/.openviking/openviking` executable.
 - `agent-basics ov server`: start the configured user-level OpenViking HTTP server in the foreground for debugging.
 - `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
 - `agent-basics ov search <query>`: retrieve prior context for vague or specific project requests.
@@ -2465,6 +2466,12 @@ ensure_user_openviking_service() {
   if ! dispatcher="$(find_agent_basics_dispatcher)"; then
     echo "Warning: no executable agent-basics dispatcher found for OpenViking service setup." >&2
     echo "Re-run manually: agent-basics ov service install --home \"$ov_home\"" >&2
+    return
+  fi
+
+  if ! "$dispatcher" ov package-server --home "$ov_home"; then
+    echo "Warning: OpenViking server packaging failed." >&2
+    echo "Re-run manually: $dispatcher ov package-server --home \"$ov_home\"" >&2
     return
   fi
 

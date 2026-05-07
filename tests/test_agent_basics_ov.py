@@ -107,6 +107,102 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         with redirect_stderr(stderr), self.assertRaises(SystemExit):
             parser.parse_args(["ov", "write-default-config", "--provider", "ollama"])
 
+    def test_ov_package_server_dry_run_builds_openviking_process(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "openviking"
+            target = home / "openviking"
+            payload = agent_basics_ov.ov_package_server_payload(
+                SimpleNamespace(
+                    home=str(home),
+                    server_bin=None,
+                    source=None,
+                    manifest=None,
+                    force=False,
+                    dry_run=True,
+                )
+            )
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["changed"])
+        self.assertTrue(payload["dry_run"])
+        self.assertEqual(payload["target"], str(target))
+        self.assertEqual(payload["process_name"], "openviking")
+        self.assertEqual(payload["packager"], "pyinstaller")
+        self.assertEqual(payload["mode"], "onefile")
+        self.assertEqual(payload["commands"]["package"][0], str(home / "venv" / "bin" / "python"))
+        self.assertIn("--name", payload["commands"]["package"])
+        self.assertIn("openviking", payload["commands"]["package"])
+        self.assertIn("--collect-all", payload["commands"]["package"])
+
+    def test_ov_pyinstaller_command_adds_native_ragfs_binary(self) -> None:
+        command = agent_basics_ov.ov_pyinstaller_command(
+            python_bin=Path("/tmp/ov/bin/python"),
+            source=Path("/tmp/openviking-server.py"),
+            dist_dir=Path("/tmp/dist"),
+            build_dir=Path("/tmp/build"),
+            spec_dir=Path("/tmp/spec"),
+            native_binaries=[(Path("/tmp/site-packages/openviking/lib/ragfs_python.abi3.so"), "openviking/lib")],
+        )
+
+        self.assertIn("--add-binary", command)
+        self.assertIn("/tmp/site-packages/openviking/lib/ragfs_python.abi3.so:openviking/lib", command)
+
+    def test_ov_package_manifest_requires_package_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "openviking"
+            target.write_text("#!/bin/sh\n", encoding="utf-8")
+            target.chmod(0o755)
+            manifest = root / "openviking-manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "packager": "pyinstaller",
+                        "mode": "onefile",
+                        "target": str(target),
+                        "source_sha256": "abc",
+                        "openviking_version": "0.1",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertFalse(
+                agent_basics_ov.ov_package_manifest_matches(
+                    manifest,
+                    target=target,
+                    source_digest="abc",
+                    openviking_version="0.1",
+                    package_revision=agent_basics_ov.OV_PACKAGE_REVISION,
+                )
+            )
+
+    def test_ov_service_defaults_to_packaged_openviking_process(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "openviking"
+            packaged = home / "openviking"
+            entrypoint = home / "venv" / "bin" / "openviking-server"
+            packaged.parent.mkdir(parents=True)
+            entrypoint.parent.mkdir(parents=True)
+            packaged.write_text("#!/bin/sh\n", encoding="utf-8")
+            packaged.chmod(0o755)
+            entrypoint.write_text("#!/bin/sh\n", encoding="utf-8")
+            entrypoint.chmod(0o755)
+
+            paths = agent_basics_ov.ov_service_paths(
+                SimpleNamespace(
+                    home=str(home),
+                    server_bin=None,
+                    config=None,
+                    label="com.agent-basics.test.openviking",
+                    plist=None,
+                )
+            )
+
+        self.assertEqual(paths["server_bin"], packaged)
+        self.assertEqual(paths["plist_payload"]["ProgramArguments"][0], str(packaged))
+
     def test_mlx_service_plist_runs_agent_basics_server(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "mlx"
@@ -1486,6 +1582,7 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["dry_run"])
         self.assertFalse(payload["install"]["needed"])
+        self.assertTrue(payload["package_server"]["needed"])
         self.assertTrue(payload["config"]["needed"])
         self.assertFalse(payload["service"]["enabled"])
         self.assertEqual(payload["service"]["skipped_reason"], "disabled by --service never")
@@ -1537,14 +1634,42 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "openviking"
             server_path = home / "venv" / "bin" / "openviking-server"
+            python_bin = home / "venv" / "bin" / "python"
+            native_binding = home / "venv" / "lib" / "python3.12" / "site-packages" / "openviking" / "lib" / "ragfs_python.abi3.so"
             plist_path = Path(tmp) / "com.agent-basics.test.openviking.plist"
             server_path.parent.mkdir(parents=True)
             server_path.write_text("#!/bin/sh\n", encoding="utf-8")
             server_path.chmod(0o755)
+            python_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+            python_bin.chmod(0o755)
+            native_binding.parent.mkdir(parents=True)
+            native_binding.write_bytes(b"native")
             commands: list[list[str]] = []
 
             def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
                 commands.append(command)
+                if command[:2] == [str(python_bin), "-c"] and "find_spec('openviking')" in command[2]:
+                    return {
+                        "ok": True,
+                        "command": command,
+                        "returncode": 0,
+                        "stdout": f"{native_binding}\n",
+                        "stderr": "",
+                    }
+                if command[:2] == [str(python_bin), "-c"] and "m.version('openviking')" in command[2]:
+                    return {
+                        "ok": True,
+                        "command": command,
+                        "returncode": 0,
+                        "stdout": "0.3.14\n",
+                        "stderr": "",
+                    }
+                if "--distpath" in command:
+                    dist_path = Path(command[command.index("--distpath") + 1])
+                    dist_path.mkdir(parents=True, exist_ok=True)
+                    built = dist_path / "openviking"
+                    built.write_text("#!/bin/sh\n", encoding="utf-8")
+                    built.chmod(0o755)
                 return {"ok": True, "command": command, "returncode": 0, "stdout": "", "stderr": ""}
 
             original_run_command = agent_basics_ov.run_command
@@ -1598,9 +1723,9 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertTrue(payload["service_enabled"])
         self.assertEqual(
             [step["name"] for step in payload["steps"]],
-            ["install-system", "write-default-config", "service install", "runtime bootstrap"],
+            ["install-system", "package-server", "write-default-config", "service install", "runtime bootstrap"],
         )
-        self.assertTrue(payload["steps"][3]["payload"]["skipped"])
+        self.assertTrue(payload["steps"][4]["payload"]["skipped"])
         self.assertEqual(commands[0], ["/tmp/uv", "venv", "--python", "3.12", str(home / "venv")])
         self.assertEqual(commands[1][:4], ["/tmp/uv", "pip", "install", "--python"])
         self.assertTrue(config_exists)

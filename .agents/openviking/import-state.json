@@ -180,6 +180,16 @@
       "skipped": true,
       "target": "viking://user/default/memories/events/projects/agent-basics/1778114749-removed-ollama-and-lm-studio-public-commands.md"
     },
+    ".agents/memory/memories/events/1778118781-packaged-openviking-server-executable.md": {
+      "imported_at": 1778118795,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778118781-packaged-openviking-server-executable.md",
+      "sha256": "e3a36ec2e5600475bbcb1791d86b094254f79992dd99f0935b81bb5ee31d077e",
+      "skipped": true,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778118781-packaged-openviking-server-executable.md"
+    },
     ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -281,10 +291,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778115145,
+  "last_import": 1778119067,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778115145,
+  "updated": 1778119067,
   "version": 1
 }

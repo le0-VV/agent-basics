@@ -112,6 +112,23 @@ class SetupMacosTest(unittest.TestCase):
             "    printf '{\"storage\":{\"workspace\":\"%s/workspace\"}}\\n' \"$home\" > \"$config\"\n"
             "    printf '{\"url\":\"http://127.0.0.1:1933\",\"timeout\":86400}\\n' > \"$cli_config\"\n"
             "    ;;\n"
+            "  package-server)\n"
+            "    shift 2\n"
+            "    home=\"\"\n"
+            "    while [ \"$#\" -gt 0 ]; do\n"
+            "      case \"$1\" in\n"
+            "        --home) home=\"$2\"; shift 2 ;;\n"
+            "        *) shift ;;\n"
+            "      esac\n"
+            "    done\n"
+            "    if [ -z \"$home\" ]; then echo \"missing --home\" >&2; exit 2; fi\n"
+            "    mkdir -p \"$home\"\n"
+            "    cat > \"$home/openviking\" <<'EOS'\n"
+            "#!/usr/bin/env sh\n"
+            "exit 0\n"
+            "EOS\n"
+            "    chmod 0755 \"$home/openviking\"\n"
+            "    ;;\n"
             "  service)\n"
             "    shift 2\n"
             "    if [ \"${1:-}\" != \"install\" ]; then\n"
@@ -291,6 +308,7 @@ class SetupMacosTest(unittest.TestCase):
                 install_log.read_text(encoding="utf-8").strip().splitlines(),
                 [
                     f"ov bootstrap-system --home {ov_home} --service-best-effort --runtime mlx --runtime-best-effort",
+                    f"ov package-server --home {ov_home}",
                     f"ov service install --home {ov_home}",
                 ],
             )

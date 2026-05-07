@@ -25,7 +25,7 @@ This section separates shipped behavior from target architecture.
 Implemented and verified in this repository:
 
 - User-level OpenViking is installed under `~/.openviking`.
-- Homebrew install runs `agent-basics ov bootstrap-system` to install/configure OpenViking, attempt macOS LaunchAgent setup, and run best-effort MLX runtime/model setup.
+- Homebrew install runs `agent-basics ov bootstrap-system` to install/configure OpenViking, package the OpenViking server as `~/.openviking/openviking`, attempt macOS LaunchAgent setup, and run best-effort MLX runtime/model setup.
 - OpenViking is configured for the local agent-basics MLX chat/VLM and embedding endpoints.
 - `.agents/memory/` is preserved as the repo-owned OpenViking source store.
 - `.agents/openviking/migration-manifest.json` records migration/adaptation state.
@@ -350,6 +350,14 @@ MLX runtime commands:
 | `agent-basics mlx service` | In progress | Installs and manages a macOS LaunchAgent for the MLX runtime. |
 | `agent-basics mlx server` | In progress | Runs `agent-basics-mlx` in the foreground for debugging. |
 | `agent-basics mlx bootstrap` | In progress | Orchestrates install, standalone server packaging, model download, service setup, and health checks. |
+
+OpenViking runtime commands:
+
+| Command | Status | Notes |
+| --- | --- | --- |
+| `agent-basics ov package-server` | In progress | Builds the OpenViking server entrypoint into a one-file `openviking` executable with PyInstaller so macOS process listings do not show the service as `python3.12`. |
+| `agent-basics ov service` | Implemented | Installs and manages a macOS LaunchAgent that prefers the packaged `~/.openviking/openviking` server executable. |
+| `agent-basics ov bootstrap-system` | Implemented | Orchestrates OpenViking install, server packaging, config, service setup, and bundled runtime setup. |
 
 `agent-basics ov import-repo-memory` should write OV-native memory source files directly into `viking://user/default/memories/<category>/projects/<repo>/` and use OpenViking resource/skill ingestion only for resources and skills. Repo source memory should not depend on `ov add-memory` extraction to rediscover already-structured records. Memory writes should retry when OpenViking reports a busy memory tree because previous extraction or indexing jobs may still hold locks.
 

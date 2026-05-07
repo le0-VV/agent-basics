@@ -45,7 +45,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, writes default config when missing, and attempts to install the macOS LaunchAgent. It configures OpenViking for the agent-basics MLX runtime at `http://127.0.0.1:18080/v1`, with `mlx-community/gemma-4-e2b-it-4bit` for chat/VLM routing and `mlx-community/embeddinggemma-300m-4bit` for embeddings. The MLX bootstrap packages the runtime server as `~/.agent-basics/mlx/agent-basics-mlx`; the LaunchAgent preloads both models after startup and runs a small OpenViking structured-output check.
+The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, packages its server as `~/.openviking/openviking`, writes default config when missing, and attempts to install the macOS LaunchAgent. It configures OpenViking for the agent-basics MLX runtime at `http://127.0.0.1:18080/v1`, with `mlx-community/gemma-4-e2b-it-4bit` for chat/VLM routing and `mlx-community/embeddinggemma-300m-4bit` for embeddings. The MLX bootstrap packages the runtime server as `~/.agent-basics/mlx/agent-basics-mlx`; the LaunchAgent preloads both models after startup and runs a small OpenViking structured-output check.
 
 Verify the command:
 
@@ -85,6 +85,7 @@ On macOS, bootstrap installs OpenViking as a user LaunchAgent so live search, in
 ```bash
 agent-basics ov service status
 agent-basics ov service restart
+agent-basics ov package-server --dry-run
 agent-basics ov server
 ```
 

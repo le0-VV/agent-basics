@@ -45,7 +45,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。默认会把 OpenViking 指向 agent-basics MLX runtime 的 `http://127.0.0.1:18080/v1`，chat/VLM routing 用 `mlx-community/gemma-4-e2b-it-4bit`，embedding 用 `mlx-community/embeddinggemma-300m-4bit`。MLX bootstrap 会把 runtime server 打包成 `~/.agent-basics/mlx/agent-basics-mlx`；MLX LaunchAgent 会在启动后预加载这两个模型，并跑一个小的 OpenViking structured-output 检查。
+Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，把 OpenViking server 打包成 `~/.openviking/openviking`，缺少默认配置时会写入配置，并尝试安装 macOS LaunchAgent。默认会把 OpenViking 指向 agent-basics MLX runtime 的 `http://127.0.0.1:18080/v1`，chat/VLM routing 用 `mlx-community/gemma-4-e2b-it-4bit`，embedding 用 `mlx-community/embeddinggemma-300m-4bit`。MLX bootstrap 会把 runtime server 打包成 `~/.agent-basics/mlx/agent-basics-mlx`；MLX LaunchAgent 会在启动后预加载这两个模型，并跑一个小的 OpenViking structured-output 检查。
 
 验证命令：
 
@@ -91,6 +91,7 @@ agent-basics ov doctor
 ```bash
 agent-basics ov service status
 agent-basics ov service restart
+agent-basics ov package-server --dry-run
 agent-basics ov server
 ```
 

@@ -88,6 +88,7 @@ DEFAULT_OV_HOME = Path.home() / ".openviking"
 DEFAULT_OV_BIN = DEFAULT_OV_HOME / "venv" / "bin" / "ov"
 DEFAULT_OV_CONFIG = DEFAULT_OV_HOME / "ov.conf"
 DEFAULT_OV_CLI_CONFIG = DEFAULT_OV_HOME / "ovcli.conf"
+DEFAULT_OV_PROCESS = DEFAULT_OV_HOME / "openviking"
 DEFAULT_OV_SERVER = DEFAULT_OV_HOME / "venv" / "bin" / "openviking-server"
 DEFAULT_OV_SERVICE_LABEL = "com.agent-basics.openviking"
 DEFAULT_OV_SERVICE_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{DEFAULT_OV_SERVICE_LABEL}.plist"
@@ -97,6 +98,31 @@ DEFAULT_OV_MEMORY_TARGET = "viking://user/default/memories"
 DEFAULT_OV_RESOURCE_TARGET = "viking://resources/projects"
 OV_HOOK_MARKER = "agent-basics-openviking-hook"
 LEGACY_MEMORY_HOOK_MARKER = "agent-basics memory hook"
+DEFAULT_OV_PACKAGER_PACKAGES = ["pyinstaller"]
+OV_PACKAGE_REVISION = 2
+OV_PYINSTALLER_HIDDEN_IMPORTS = [
+    "openviking_cli.server_bootstrap",
+    "uvicorn.logging",
+    "uvicorn.loops",
+    "uvicorn.loops.auto",
+    "uvicorn.protocols",
+    "uvicorn.protocols.http",
+    "uvicorn.protocols.http.auto",
+    "uvicorn.protocols.websockets",
+    "uvicorn.protocols.websockets.auto",
+    "uvicorn.lifespan",
+    "uvicorn.lifespan.on",
+]
+OV_PYINSTALLER_COLLECT_ALL = [
+    "fastapi",
+    "litellm",
+    "mcp",
+    "openviking",
+    "openviking_cli",
+    "pydantic",
+    "uvicorn",
+    "vikingbot",
+]
 DEFAULT_LMSTUDIO_HOME = Path.home() / ".lmstudio"
 DEFAULT_LMSTUDIO_APP = Path("/Applications/LM Studio.app")
 DEFAULT_LMS_BIN = DEFAULT_LMSTUDIO_HOME / "bin" / "lms"
@@ -519,6 +545,8 @@ def find_ov_server() -> Path | None:
     if explicit:
         path = Path(explicit).expanduser()
         return path if path.exists() else None
+    if DEFAULT_OV_PROCESS.exists():
+        return DEFAULT_OV_PROCESS
     if DEFAULT_OV_SERVER.exists():
         return DEFAULT_OV_SERVER
     for directory in os.environ.get("PATH", "").split(os.pathsep):
@@ -809,6 +837,301 @@ def shutil_which(name: str) -> str | None:
     return None
 
 
+def ov_python(home: Path) -> Path:
+    return home / "venv" / "bin" / "python"
+
+
+def ov_process(home: Path) -> Path:
+    return home / "openviking"
+
+
+def ov_server_entrypoint(home: Path) -> Path:
+    return home / "venv" / "bin" / "openviking-server"
+
+
+def ov_package_manifest(home: Path) -> Path:
+    return home / "package" / "openviking-manifest.json"
+
+
+def ov_packaged_server_source() -> bytes:
+    return (
+        "#!/usr/bin/env python3\n"
+        "from __future__ import annotations\n"
+        "\n"
+        "import sys\n"
+        "\n"
+        "from openviking_cli.server_bootstrap import main\n"
+        "\n"
+        "\n"
+        "if __name__ == \"__main__\":\n"
+        "    sys.exit(main())\n"
+    ).encode("utf-8")
+
+
+def ov_installed_version(python_bin: Path) -> str | None:
+    if not python_bin.exists() or not os.access(python_bin, os.X_OK):
+        return None
+    result = run_command(
+        [
+            str(python_bin),
+            "-c",
+            "import importlib.metadata as m; print(m.version('openviking'))",
+        ],
+        timeout=30,
+    )
+    if not result.get("ok"):
+        return None
+    return str(result.get("stdout", "")).strip() or None
+
+
+def ov_package_manifest_matches(
+    manifest_path: Path,
+    *,
+    target: Path,
+    source_digest: str,
+    openviking_version: str | None,
+    package_revision: int,
+) -> bool:
+    manifest = load_json_file(manifest_path)
+    if not isinstance(manifest, dict):
+        return False
+    return (
+        manifest.get("version") == 1
+        and manifest.get("package_revision") == package_revision
+        and manifest.get("packager") == "pyinstaller"
+        and manifest.get("mode") == "onefile"
+        and manifest.get("target") == str(target)
+        and manifest.get("source_sha256") == source_digest
+        and manifest.get("openviking_version") == openviking_version
+        and target.exists()
+        and os.access(target, os.X_OK)
+    )
+
+
+def ov_native_binaries(python_bin: Path) -> list[tuple[Path, str]]:
+    finder = (
+        "import importlib.util, pathlib, sys\n"
+        "spec = importlib.util.find_spec('openviking')\n"
+        "if not spec or not spec.submodule_search_locations:\n"
+        "    sys.exit(1)\n"
+        "lib = pathlib.Path(next(iter(spec.submodule_search_locations))) / 'lib'\n"
+        "patterns = ('ragfs_python.abi3.so', 'ragfs_python.abi3.*', 'ragfs_python.pyd')\n"
+        "seen = set()\n"
+        "for pattern in patterns:\n"
+        "    for path in sorted(lib.glob(pattern)):\n"
+        "        if path.is_file() and path not in seen:\n"
+        "            seen.add(path)\n"
+        "            print(path)\n"
+    )
+    result = run_command([str(python_bin), "-c", finder], timeout=30)
+    if not result.get("ok"):
+        return []
+    binaries: list[tuple[Path, str]] = []
+    for line in str(result.get("stdout", "")).splitlines():
+        path = Path(line.strip())
+        if path.exists() and path.is_file():
+            binaries.append((path, "openviking/lib"))
+    return binaries
+
+
+def ov_pyinstaller_command(
+    *,
+    python_bin: Path,
+    source: Path,
+    dist_dir: Path,
+    build_dir: Path,
+    spec_dir: Path,
+    native_binaries: list[tuple[Path, str]] | None = None,
+) -> list[str]:
+    command = [
+        str(python_bin),
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--clean",
+        "--onefile",
+        "--name",
+        "openviking",
+        "--distpath",
+        str(dist_dir),
+        "--workpath",
+        str(build_dir),
+        "--specpath",
+        str(spec_dir),
+    ]
+    for module in OV_PYINSTALLER_HIDDEN_IMPORTS:
+        command.extend(["--hidden-import", module])
+    for module in OV_PYINSTALLER_COLLECT_ALL:
+        command.extend(["--collect-all", module])
+    for source_path, destination in native_binaries or []:
+        command.extend(["--add-binary", f"{source_path}:{destination}"])
+    command.append(str(source))
+    return command
+
+
+def ov_package_server_payload(args: argparse.Namespace) -> dict[str, Any]:
+    home = Path(getattr(args, "home", DEFAULT_OV_HOME)).expanduser()
+    python_bin = ov_python(home)
+    target = Path(getattr(args, "server_bin", None) or ov_process(home)).expanduser()
+    source_override = getattr(args, "source", None)
+    try:
+        source_bytes = Path(source_override).expanduser().read_bytes() if source_override else ov_packaged_server_source()
+    except OSError as exc:
+        return {
+            "ok": False,
+            "changed": False,
+            "source": str(Path(source_override).expanduser()) if source_override else None,
+            "error": f"failed to read OpenViking package source: {exc}",
+            "exception_type": type(exc).__name__,
+        }
+    manifest_path = Path(getattr(args, "manifest", None)).expanduser() if getattr(args, "manifest", None) else ov_package_manifest(home)
+    package_root = home / "package"
+    source_stage = package_root / "src" / "openviking-server.py"
+    dist_dir = package_root / "dist"
+    build_dir = package_root / "build"
+    spec_dir = package_root / "spec"
+    built_executable = dist_dir / "openviking"
+    dry_run = bool(getattr(args, "dry_run", False))
+    force = bool(getattr(args, "force", False))
+    source_digest = hashlib.sha256(source_bytes).hexdigest()
+    python_ready = python_bin.exists() and os.access(python_bin, os.X_OK)
+    openviking_version = ov_installed_version(python_bin) if python_ready else None
+    native_binaries = ov_native_binaries(python_bin) if python_ready else []
+    needed = force or not ov_package_manifest_matches(
+        manifest_path,
+        target=target,
+        source_digest=source_digest,
+        openviking_version=openviking_version,
+        package_revision=OV_PACKAGE_REVISION,
+    )
+    pyinstaller_check = [str(python_bin), "-c", "import PyInstaller"]
+    uv = shutil_which("uv")
+    pyinstaller_install = [uv, "pip", "install", "--python", str(python_bin), *DEFAULT_OV_PACKAGER_PACKAGES] if uv else []
+    package_command = ov_pyinstaller_command(
+        python_bin=python_bin,
+        source=source_stage,
+        dist_dir=dist_dir,
+        build_dir=build_dir,
+        spec_dir=spec_dir,
+        native_binaries=native_binaries,
+    )
+    payload: dict[str, Any] = {
+        "ok": True,
+        "changed": False,
+        "home": str(home),
+        "python": str(python_bin),
+        "target": str(target),
+        "manifest": str(manifest_path),
+        "source": str(Path(source_override).expanduser()) if source_override else "generated:openviking_cli.server_bootstrap",
+        "staged_source": str(source_stage),
+        "source_sha256": source_digest,
+        "openviking_version": openviking_version,
+        "packager": "pyinstaller",
+        "package_revision": OV_PACKAGE_REVISION,
+        "mode": "onefile",
+        "process_name": "openviking",
+        "native_binaries": [{"source": str(path), "destination": destination} for path, destination in native_binaries],
+        "needed": needed,
+        "commands": {
+            "check_pyinstaller": pyinstaller_check,
+            "install_pyinstaller": pyinstaller_install,
+            "package": package_command,
+        },
+    }
+    if not needed:
+        payload["message"] = "standalone OpenViking server executable is already packaged"
+        return payload
+    if dry_run:
+        payload.update({"changed": True, "dry_run": True})
+        return payload
+    if not python_bin.exists() or not os.access(python_bin, os.X_OK):
+        payload.update({"ok": False, "changed": False, "error": "OpenViking runtime Python is not executable"})
+        return payload
+    if not native_binaries:
+        payload.update(
+            {
+                "ok": False,
+                "changed": False,
+                "error": "OpenViking native ragfs binding was not found; cannot package a working server executable",
+            }
+        )
+        return payload
+
+    source_stage.parent.mkdir(parents=True, exist_ok=True)
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    build_dir.mkdir(parents=True, exist_ok=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    source_stage.write_bytes(source_bytes)
+
+    steps = []
+    check = run_command(pyinstaller_check, timeout=30)
+    steps.append({"name": "check pyinstaller", "payload": check})
+    if not check.get("ok"):
+        if not uv:
+            payload.update(
+                {
+                    "ok": False,
+                    "changed": False,
+                    "steps": steps,
+                    "error": "uv is required to install PyInstaller for OpenViking executable packaging",
+                }
+            )
+            return payload
+        install = run_command(pyinstaller_install, timeout=None)
+        steps.append({"name": "install pyinstaller", "payload": install})
+        if not install.get("ok"):
+            payload.update({"ok": False, "changed": False, "steps": steps})
+            return payload
+    build = run_command(package_command, timeout=None)
+    steps.append({"name": "package executable", "payload": build})
+    if not build.get("ok"):
+        payload.update({"ok": False, "changed": False, "steps": steps})
+        return payload
+    if not built_executable.exists():
+        payload.update(
+            {
+                "ok": False,
+                "changed": False,
+                "steps": steps,
+                "error": "PyInstaller completed but did not produce the expected executable",
+                "expected_executable": str(built_executable),
+            }
+        )
+        return payload
+
+    backup = None
+    if target.exists():
+        backup = target.with_name(f"{target.name}.bak.{int(time.time())}")
+        target.replace(backup)
+    built_executable.replace(target)
+    target.chmod(0o755)
+    manifest = {
+        "version": 1,
+        "created": int(time.time()),
+        "packager": "pyinstaller",
+        "package_revision": OV_PACKAGE_REVISION,
+        "mode": "onefile",
+        "process_name": "openviking",
+        "native_binaries": payload["native_binaries"],
+        "source": payload["source"],
+        "source_sha256": source_digest,
+        "openviking_version": openviking_version,
+        "target": str(target),
+        "backup": str(backup) if backup else None,
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    payload.update({"changed": True, "backup": str(backup) if backup else None, "steps": steps})
+    return payload
+
+
+def command_ov_package_server(args: argparse.Namespace) -> int:
+    payload = ov_package_server_payload(args)
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
 def provider_default_base(provider: str) -> str:
     if provider == "mlx":
         return DEFAULT_MLX_BASE
@@ -1043,6 +1366,17 @@ def ov_bootstrap_mlx_args(args: argparse.Namespace, *, dry_run: bool) -> argpars
     )
 
 
+def ov_bootstrap_package_server_args(args: argparse.Namespace, *, dry_run: bool) -> argparse.Namespace:
+    return argparse.Namespace(
+        home=getattr(args, "home", str(DEFAULT_OV_HOME)),
+        server_bin=getattr(args, "package_server_bin", None),
+        source=getattr(args, "package_source", None),
+        manifest=getattr(args, "package_manifest", None),
+        force=getattr(args, "force_package", False),
+        dry_run=dry_run,
+    )
+
+
 def ov_runtime_plan_payload(args: argparse.Namespace, *, dry_run: bool) -> dict[str, Any]:
     runtime = getattr(args, "runtime", "auto")
     if runtime == "auto":
@@ -1066,6 +1400,15 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
 
     if args.dry_run:
         runtime_plan = ov_runtime_plan_payload(args, dry_run=True)
+        package_mode = getattr(args, "package_server", "auto")
+        package_plan = (
+            command_payload_from_handler(
+                command_ov_package_server,
+                ov_bootstrap_package_server_args(args, dry_run=True),
+            )
+            if package_mode != "never"
+            else {"ok": True, "changed": False, "skipped": True, "mode": package_mode}
+        )
         print_json(
             {
                 "ok": True,
@@ -1081,6 +1424,7 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
                     "cli_config": str(cli_config),
                     "needed": args.force_config or not config.exists() or not cli_config.exists(),
                 },
+                "package_server": package_plan,
                 "service": {
                     "enabled": service_enabled,
                     "best_effort": args.service_best_effort,
@@ -1105,6 +1449,28 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
     if not ok:
         print_json({"ok": False, "home": str(home), "steps": steps})
         return 1
+
+    package_mode = getattr(args, "package_server", "auto")
+    package_payload: dict[str, Any] | None = None
+    if package_mode != "never":
+        package_payload = command_payload_from_handler(
+            command_ov_package_server,
+            ov_bootstrap_package_server_args(args, dry_run=False),
+        )
+        steps.append({"name": "package-server", "payload": package_payload})
+        if not package_payload.get("ok"):
+            if args.service_best_effort:
+                steps[-1]["best_effort_ignored_failure"] = True
+            else:
+                print_json({"ok": False, "home": str(home), "steps": steps})
+                return 1
+    else:
+        steps.append(
+            {
+                "name": "package-server",
+                "payload": {"ok": True, "changed": False, "skipped": True, "mode": package_mode},
+            }
+        )
 
     config_payload = command_payload_from_handler(
         command_ov_write_default_config,
@@ -1132,21 +1498,30 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
         return 1
 
     if service_enabled:
-        service_payload = command_payload_from_handler(
-            command_ov_service,
-            argparse.Namespace(
-                service_action="install",
-                home=str(home),
-                server_bin=args.server_bin,
-                config=str(config),
-                label=args.label,
-                plist=args.plist,
-                timeout=args.service_timeout,
-                dry_run=False,
-                force=args.force_service,
-                no_load=args.no_load,
-            ),
-        )
+        if package_payload is not None and not package_payload.get("ok"):
+            service_payload = {
+                "ok": True,
+                "changed": False,
+                "skipped": True,
+                "reason": "OpenViking package-server failed and --service-best-effort was set",
+            }
+        else:
+            packaged_server = package_payload.get("target") if package_payload and package_payload.get("ok") else None
+            service_payload = command_payload_from_handler(
+                command_ov_service,
+                argparse.Namespace(
+                    service_action="install",
+                    home=str(home),
+                    server_bin=args.server_bin or packaged_server,
+                    config=str(config),
+                    label=args.label,
+                    plist=args.plist,
+                    timeout=args.service_timeout,
+                    dry_run=False,
+                    force=args.force_service,
+                    no_load=args.no_load,
+                ),
+            )
         steps.append({"name": "service install", "payload": service_payload})
         if not service_payload.get("ok"):
             ok = bool(args.service_best_effort)
@@ -1263,11 +1638,11 @@ def ov_service_plist_text(payload: dict[str, Any]) -> str:
 def ov_service_paths(args: argparse.Namespace) -> dict[str, Any]:
     home = Path(getattr(args, "home", DEFAULT_OV_HOME)).expanduser()
     label = getattr(args, "label", DEFAULT_OV_SERVICE_LABEL) or DEFAULT_OV_SERVICE_LABEL
-    server_bin = (
-        Path(args.server_bin).expanduser()
-        if getattr(args, "server_bin", None)
-        else home / "venv" / "bin" / "openviking-server"
-    )
+    if getattr(args, "server_bin", None):
+        server_bin = Path(args.server_bin).expanduser()
+    else:
+        packaged = ov_process(home)
+        server_bin = packaged if packaged.exists() else ov_server_entrypoint(home)
     config = Path(args.config).expanduser() if getattr(args, "config", None) else home / "ov.conf"
     plist_path = Path(args.plist).expanduser() if getattr(args, "plist", None) else ov_service_plist_path(label)
     no_proxy = merge_no_proxy(os.environ.get("NO_PROXY") or os.environ.get("no_proxy", ""))
@@ -5733,10 +6108,23 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--force", action="store_true")
     install.set_defaults(func=command_ov_install_system)
 
+    package_server = ov_sub.add_parser("package-server")
+    package_server.add_argument("--home", default=str(DEFAULT_OV_HOME))
+    package_server.add_argument("--server-bin")
+    package_server.add_argument("--source")
+    package_server.add_argument("--manifest")
+    package_server.add_argument("--force", action="store_true")
+    package_server.add_argument("--dry-run", action="store_true")
+    package_server.set_defaults(func=command_ov_package_server)
+
     bootstrap = ov_sub.add_parser("bootstrap-system")
     bootstrap.add_argument("--home", default=str(DEFAULT_OV_HOME))
     bootstrap.add_argument("--python", default="3.12")
     bootstrap.add_argument("--package", default="openviking")
+    bootstrap.add_argument("--package-server", choices=["auto", "always", "never"], default="auto")
+    bootstrap.add_argument("--package-server-bin")
+    bootstrap.add_argument("--package-source")
+    bootstrap.add_argument("--package-manifest")
     bootstrap.add_argument("--config")
     bootstrap.add_argument("--cli-config")
     bootstrap.add_argument("--provider", choices=SUPPORTED_OV_PROVIDERS, default=DEFAULT_RUNTIME_PROVIDER)
@@ -5787,6 +6175,7 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--plist")
     bootstrap.add_argument("--service-timeout", type=float, default=DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
     bootstrap.add_argument("--force-install", action="store_true")
+    bootstrap.add_argument("--force-package", action="store_true")
     bootstrap.add_argument("--force-config", action="store_true")
     bootstrap.add_argument("--mlx-force-package", action="store_true")
     bootstrap.add_argument("--force-service", action="store_true")
