@@ -321,7 +321,7 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 
 - OpenViking is the required target backend for agent-basics memory, documentation, resources, skills, semantic organization, and retrieval.
 - Agents should not call OpenViking with ad hoc commands when an agent-basics gateway exists. Use the repo-aware `agent-basics mcp` server or stable `agent-basics ov ...` commands.
-- Repository-specific OpenViking metadata and locks should live under `.agents/openviking/`. The OpenViking package and workspace should live in a user-level installation, normally `~/.openviking`, not inside each repository.
+- Repository-specific OpenViking config, workspace, import state, metadata, and locks should live under `.agents/openviking/`. Only the OpenViking package/runtime should live in the user-level installation, normally `~/.openviking`.
 - `agent-basics` owns setup, upgrade, validation, repo path resolution, git hooks, migration safety, and agent-facing command/MCP contracts.
 - OpenViking owns durable context storage, resource ingestion, summaries, semantic search, and vector indexes.
 - Before making context-dependent claims, search OpenViking through the gateway.
@@ -334,14 +334,14 @@ The target agent-facing surfaces are:
 
 - `agent-basics mcp`: repo-aware MCP server for OpenViking-backed tools.
 - `agent-basics ov doctor`: check the user-level OpenViking installation, repo config, providers, ingest status, and health.
-- `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, package the server as `~/.openviking/openviking`, write default config, and install the macOS LaunchAgent when available.
+- `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, package the server as `~/.openviking/openviking`, and prepare default runtime/provider config. Repo setup owns repo-local OpenViking config and service setup.
 - `agent-basics ov package-server`: build the OpenViking server entrypoint into a one-file `openviking` executable so macOS process listings do not show the long-running service as `python3.12`.
 - `agent-basics mlx bootstrap`: on Apple Silicon Macs with at least 16 GB unified memory, install the lightweight MLX runtime, pull the configured Hugging Face chat/embedding models when needed, and check the local OpenAI-compatible API.
 - `agent-basics ov write-default-config --provider custom`: point OpenViking at a user-supplied OpenAI-compatible API provider.
 - `agent-basics ov install-system`: low-level repair command for only the OpenViking package installation.
-- `agent-basics ov write-default-config`: low-level repair command for default `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf` for the configured local provider.
-- `agent-basics ov service install`: install and load the configured user-level OpenViking HTTP server as a macOS LaunchAgent, preferring the packaged `~/.openviking/openviking` executable.
-- `agent-basics ov server`: start the configured user-level OpenViking HTTP server in the foreground for debugging.
+- `agent-basics ov write-default-config`: low-level repair command for OpenViking `ov.conf` and `ovcli.conf` for the configured local provider.
+- `agent-basics ov service install --repo-local`: install and load the repo-local OpenViking HTTP server as a macOS LaunchAgent, using the shared `~/.openviking/openviking` executable and repo-local `.agents/openviking/ov.conf`.
+- `agent-basics ov server`: start the repo-local OpenViking HTTP server in the foreground for debugging.
 - `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
 - `agent-basics ov search <query>`: retrieve prior context for vague or specific project requests.
 - `agent-basics ov record`: record durable context in the correct OpenViking category.
@@ -395,7 +395,7 @@ Compatibility files are not the long-term architecture. Useful compatibility mem
 
 ## Configuration
 
-- Durable repo configuration belongs in `.agents/config.toml` and `.agents/openviking/` metadata files once those files exist. User-level OpenViking runtime configuration belongs under `~/.openviking`.
+- Durable repo configuration belongs in `.agents/config.toml` and `.agents/openviking/` metadata/config files once those files exist. User-level OpenViking runtime installation files belong under `~/.openviking`.
 - Provider URLs, model names, timeouts, runtime paths, and feature flags should be stored in config files, not scattered through shell environment variables.
 - Environment variables are allowed for secrets, compatibility inputs, and one-off overrides.
 - Never commit raw provider API keys or local-only secrets.
@@ -574,7 +574,7 @@ EOT
 
 `.agents/memory/` is the repo-owned source store for OpenViking-facing memory, resources, and skills.
 
-OpenViking is the required runtime backend for durable memory, documentation resources, semantic organization, vector indexes, and retrieval. The files in this directory are project-owned source material that agents and setup tooling can inspect, adapt, ingest, and version-control. The OpenViking package, workspace, generated summaries, and vector database remain outside the repository unless the user explicitly configures otherwise.
+OpenViking is the required runtime backend for durable memory, documentation resources, semantic organization, vector indexes, and retrieval. The files in this directory are project-owned source material that agents and setup tooling can inspect, adapt, ingest, and version-control. The OpenViking package/runtime stays user-level; the repo-local OpenViking workspace, generated summaries, queues, and vector database live under `.agents/openviking/workspace/` as ignored generated state.
 
 ## Directory Contract
 
@@ -1157,7 +1157,7 @@ Use this whenever an agent needs prior project context, durable memory recording
 6. Record durable decisions, facts, preferences, gotchas, events, procedures, and useful findings through the OpenViking-backed MCP record tool or `agent-basics ov record`.
 7. Add important documentation or reference material with `agent-basics ov add-resource <path-or-url>`.
 8. Add reusable workflows with `agent-basics ov add-skill <path>`.
-9. After adapting repo memory, resources, or skills under `.agents/memory/`, run `agent-basics ov import-repo-memory --write`. OV-native memory files are written directly into their OpenViking memory categories; resources and skills use OpenViking ingestion.
+9. After adapting repo memory, resources, or skills under `.agents/memory/`, run `agent-basics ov import-repo-memory --write --wait-memory --wait-resources`. OV-native memory files are written directly into their OpenViking memory categories; resources and skills use OpenViking ingestion.
 10. After instruction, documentation, memory, or skill files change, run `agent-basics ov ingest-changed`.
 11. Run `agent-basics ov doctor` before relying on OpenViking if setup, provider configuration, or ingest state is uncertain.
 
@@ -2122,11 +2122,6 @@ write_repo_openviking_metadata_if_missing() {
   local repo_metadata="$REPO_OPENVIKING_DIR/repo.json"
   local timestamp
 
-  if [[ -f "$repo_metadata" ]]; then
-    echo "Exists: .agents/openviking/repo.json"
-    return
-  fi
-
   timestamp="$(date -u +%s)"
   mkdir -p "$REPO_OPENVIKING_DIR"
   python3 - "$repo_metadata" "$timestamp" "$PROJECT_NAME" <<'PY'
@@ -2136,24 +2131,249 @@ import json
 import sys
 
 path, timestamp, project_name = sys.argv[1:]
-payload = {
+existed = True
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+except FileNotFoundError:
+    existed = False
+    payload = {}
+except json.JSONDecodeError:
+    payload = {}
+
+created = int(payload.get("created") or timestamp)
+desired = dict(payload)
+desired.update({
     "version": 1,
-    "created": int(timestamp),
-    "updated": int(timestamp),
+    "created": created,
     "project_name": project_name,
     "memory_source": ".agents/memory",
     "legacy_snapshots": ".agents/openviking/legacy-memory",
-    "runtime_home": "~/.openviking",
+    "shared_runtime_home": "~/.openviking",
+    "ov_config": ".agents/openviking/ov.conf",
+    "ov_cli_config": ".agents/openviking/ovcli.conf",
+    "workspace": ".agents/openviking/workspace",
+    "data_plane": "repo-local",
     "notes": (
-        "Repository-specific source material stays here; OpenViking runtime data and indexes stay in "
-        "the user-level OpenViking home unless explicitly configured otherwise."
+        "The OpenViking executable/runtime is shared at user level. Repository-specific OpenViking "
+        "config, workspace, generated data, queues, vector indexes, import state, and locks stay under "
+        ".agents/openviking/."
     ),
-}
-with open(path, "w", encoding="utf-8") as handle:
-    json.dump(payload, handle, indent=2, sort_keys=True)
-    handle.write("\n")
+})
+changed = (not existed) or any(payload.get(key) != value for key, value in desired.items())
+if changed:
+    desired["updated"] = int(timestamp)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(desired, handle, indent=2, sort_keys=True)
+        handle.write("\n")
 PY
-  echo "Created: .agents/openviking/repo.json"
+  echo "Wrote: .agents/openviking/repo.json"
+}
+
+repo_openviking_service_port() {
+  python3 - "$TARGET_DIR" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1]).resolve()
+digest = hashlib.sha256(str(repo).encode("utf-8")).hexdigest()
+print(20000 + int(digest[:4], 16) % 20000)
+PY
+}
+
+repo_openviking_service_label() {
+  local repo_slug
+  repo_slug="$(slugify "$PROJECT_NAME")"
+  python3 - "$TARGET_DIR" "$repo_slug" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1]).resolve()
+repo_slug = sys.argv[2]
+digest = hashlib.sha256(str(repo).encode("utf-8")).hexdigest()[:8]
+print(f"com.agent-basics.openviking.{repo_slug}.{digest}")
+PY
+}
+
+write_repo_openviking_config_files_if_missing() {
+  local ov_home="$REPO_OPENVIKING_DIR"
+  local ov_config="$REPO_OPENVIKING_DIR/ov.conf"
+  local ovcli_config="$REPO_OPENVIKING_DIR/ovcli.conf"
+  local meta_config="$REPO_OPENVIKING_DIR/config.toml"
+  local namespaces_config="$REPO_OPENVIKING_DIR/namespaces.toml"
+  local server_port
+  local server_url
+  local service_label
+  local dispatcher
+  local helper_path
+  local timestamp
+  local repo_slug
+  local workspace_path
+
+  server_port="$(repo_openviking_service_port)"
+  server_url="http://127.0.0.1:$server_port"
+  service_label="$(repo_openviking_service_label)"
+  timestamp="$(date -u +%s)"
+  repo_slug="$(slugify "$PROJECT_NAME")"
+
+  mkdir -p "$REPO_OPENVIKING_DIR" "$REPO_OPENVIKING_DIR/workspace"
+  workspace_path="$(cd "$REPO_OPENVIKING_DIR" && pwd -P)/workspace"
+
+  if [[ -f "$ov_config" && -f "$ovcli_config" ]]; then
+    python3 - "$ov_config" "$ovcli_config" "$workspace_path" "$server_url" "$server_port" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+ov_config = Path(sys.argv[1])
+ovcli_config = Path(sys.argv[2])
+workspace = sys.argv[3]
+server_url = sys.argv[4]
+server_port = int(sys.argv[5])
+
+
+def load_json(path: Path) -> dict:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise SystemExit(f"invalid JSON in {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"invalid JSON in {path}: expected object")
+    return payload
+
+
+changed = []
+config = load_json(ov_config)
+storage = config.setdefault("storage", {})
+if not isinstance(storage, dict):
+    storage = {}
+    config["storage"] = storage
+if storage.get("workspace") != workspace:
+    storage["workspace"] = workspace
+    changed.append(str(ov_config))
+server = config.setdefault("server", {})
+if not isinstance(server, dict):
+    server = {}
+    config["server"] = server
+if server.get("host") != "127.0.0.1":
+    server["host"] = "127.0.0.1"
+    changed.append(str(ov_config))
+if server.get("port") != server_port:
+    server["port"] = server_port
+    changed.append(str(ov_config))
+
+cli = load_json(ovcli_config)
+if cli.get("url") != server_url:
+    cli["url"] = server_url
+    changed.append(str(ovcli_config))
+
+if str(ov_config) in changed:
+    ov_config.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+if str(ovcli_config) in changed:
+    ovcli_config.write_text(json.dumps(cli, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+if changed:
+    print("Updated repo-local OpenViking config paths")
+else:
+    print("Exists: .agents/openviking/ov.conf")
+    print("Exists: .agents/openviking/ovcli.conf")
+PY
+  elif helper_path="$(find_ov_helper_source)"; then
+    python3 "$helper_path" --repo "$TARGET_DIR" ov write-default-config \
+      --home "$ov_home" \
+      --config "$ov_config" \
+      --cli-config "$ovcli_config" \
+      --server-url "$server_url" >/dev/null
+    echo "Wrote repo-local OpenViking config: .agents/openviking/ov.conf"
+    echo "Wrote repo-local OpenViking CLI config: .agents/openviking/ovcli.conf"
+  elif dispatcher="$(find_agent_basics_dispatcher)"; then
+    "$dispatcher" --repo "$TARGET_DIR" ov write-default-config \
+      --home "$ov_home" \
+      --config "$ov_config" \
+      --cli-config "$ovcli_config" \
+      --server-url "$server_url" >/dev/null
+    echo "Wrote repo-local OpenViking config: .agents/openviking/ov.conf"
+    echo "Wrote repo-local OpenViking CLI config: .agents/openviking/ovcli.conf"
+  else
+    echo "Error: cannot write repo-local OpenViking config because no agent-basics dispatcher/helper was found." >&2
+    exit 1
+  fi
+
+  python3 - "$meta_config" "$namespaces_config" "$timestamp" "$repo_slug" "$server_url" "$server_port" "$service_label" <<'PY'
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+meta_path, namespaces_path, timestamp, repo_slug, server_url, server_port, service_label = sys.argv[1:]
+
+def quote(value: str) -> str:
+    return json.dumps(value)
+
+def previous_generated_at(path: Path) -> int:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return int(timestamp)
+    match = re.search(r"(?m)^generated_at\s*=\s*(\d+)\s*$", text)
+    return int(match.group(1)) if match else int(timestamp)
+
+def write_if_changed(path: Path, text: str) -> None:
+    try:
+        current = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        current = None
+    if current != text:
+        path.write_text(text, encoding="utf-8")
+
+meta = Path(meta_path)
+namespaces = Path(namespaces_path)
+generated_at = previous_generated_at(meta)
+
+meta_lines = [
+    "version = 1",
+    f"generated_at = {generated_at}",
+    'data_plane = "repo-local"',
+    'shared_runtime_home = "~/.openviking"',
+    'ov_config_path = ".agents/openviking/ov.conf"',
+    'ov_cli_config_path = ".agents/openviking/ovcli.conf"',
+    'workspace_path = ".agents/openviking/workspace"',
+    "",
+    "[server]",
+    'host = "127.0.0.1"',
+    f"port = {int(server_port)}",
+    f"url = {quote(server_url)}",
+    "",
+    "[service]",
+    f"label = {quote(service_label)}",
+    "repo_local = true",
+    "",
+]
+write_if_changed(meta, "\n".join(meta_lines))
+
+namespace_lines = [
+    "version = 1",
+    f"repo_slug = {quote(repo_slug)}",
+    f"resource_root = {quote('viking://resources/projects/' + repo_slug)}",
+    'memory_base = "viking://user/default/memories"',
+    "",
+    "[memory_roots]",
+]
+for category in ["profile", "preferences", "entities", "events", "cases", "patterns", "tools", "skills"]:
+    namespace_lines.append(f"{category} = {quote('viking://user/default/memories/' + category + '/projects/' + repo_slug)}")
+namespace_lines.append("")
+write_if_changed(namespaces, "\n".join(namespace_lines))
+PY
+  echo "Wrote repo OpenViking metadata: .agents/openviking/config.toml"
+  echo "Wrote repo OpenViking namespaces: .agents/openviking/namespaces.toml"
 }
 
 write_repo_config_if_missing() {
@@ -2191,7 +2411,13 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write("[openviking]\n")
     handle.write("enabled = true\n")
     handle.write("required = true\n")
-    handle.write('source_store_path = ".agents/memory"\n\n')
+    handle.write('source_store_path = ".agents/memory"\n')
+    handle.write('config_path = ".agents/openviking/ov.conf"\n')
+    handle.write('cli_config_path = ".agents/openviking/ovcli.conf"\n')
+    handle.write('workspace_path = ".agents/openviking/workspace"\n')
+    handle.write('metadata_path = ".agents/openviking/config.toml"\n')
+    handle.write('namespaces_path = ".agents/openviking/namespaces.toml"\n')
+    handle.write('data_plane = "repo-local"\n\n')
     handle.write("[openviking.mcp]\n")
     handle.write('command = "agent-basics"\n')
     handle.write('args = ["mcp"]\n')
@@ -2311,11 +2537,11 @@ install_or_repair_user_openviking() {
   if ! dispatcher="$(find_agent_basics_dispatcher)"; then
     echo "Error: user-level OpenViking $mode is required, but no executable agent-basics dispatcher was found." >&2
     echo "Expected an executable dispatcher next to setup-macos.sh or on PATH as: agent-basics" >&2
-    echo "Install or repair agent-basics, then run: agent-basics ov bootstrap-system --home \"$ov_home\" --service-best-effort --runtime mlx --runtime-best-effort" >&2
+    echo "Install or repair agent-basics, then run: agent-basics ov bootstrap-system --home \"$ov_home\" --service never --runtime mlx --runtime-best-effort" >&2
     exit 1
   fi
 
-  install_args=(ov bootstrap-system --home "$ov_home" --service-best-effort --runtime mlx --runtime-best-effort)
+  install_args=(ov bootstrap-system --home "$ov_home" --service never --runtime mlx --runtime-best-effort)
   if [[ "$mode" == "repair" ]]; then
     install_args+=(--force-install)
   fi
@@ -2327,11 +2553,11 @@ install_or_repair_user_openviking() {
       echo "Error: user-level OpenViking $mode is required, but setup is not running interactively." >&2
       echo "Expected executable: $ov_bin" >&2
       echo "Run setup in an interactive terminal, or run this first:" >&2
-      echo "  $dispatcher ov bootstrap-system --home \"$ov_home\" --service-best-effort --runtime mlx --runtime-best-effort" >&2
+      echo "  $dispatcher ov bootstrap-system --home \"$ov_home\" --service never --runtime mlx --runtime-best-effort" >&2
       exit 1
     fi
 
-    printf "User-level OpenViking %s is required at %s. Run '%s ov bootstrap-system --home \"%s\" --service-best-effort --runtime mlx --runtime-best-effort' now? [y/N]: " \
+    printf "User-level OpenViking %s is required at %s. Run '%s ov bootstrap-system --home \"%s\" --service never --runtime mlx --runtime-best-effort' now? [y/N]: " \
       "$mode" "$ov_bin" "$dispatcher" "$ov_home" >&2
     read -r choice
     case "$choice" in
@@ -2339,7 +2565,7 @@ install_or_repair_user_openviking() {
         ;;
       *)
         echo "Error: user-level OpenViking $mode was declined." >&2
-        echo "Install or repair OpenViking with: $dispatcher ov bootstrap-system --home \"$ov_home\" --service-best-effort --runtime mlx --runtime-best-effort" >&2
+        echo "Install or repair OpenViking with: $dispatcher ov bootstrap-system --home \"$ov_home\" --service never --runtime mlx --runtime-best-effort" >&2
         exit 1
         ;;
     esac
@@ -2490,6 +2716,45 @@ ensure_user_openviking_service() {
   echo "Re-run manually: $dispatcher ov service install --home \"$ov_home\"" >&2
 }
 
+ensure_repo_openviking_service() {
+  local dispatcher
+
+  # Test-only fake CLIs do not imply a real OpenViking server binary.
+  if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" || "${AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK:-0}" == "1" ]]; then
+    return
+  fi
+
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "Warning: repo-local OpenViking service setup is only supported on macOS launchctl." >&2
+    return
+  fi
+
+  if ! dispatcher="$(find_agent_basics_dispatcher)"; then
+    echo "Warning: no executable agent-basics dispatcher found for repo-local OpenViking service setup." >&2
+    echo "Re-run manually: agent-basics --repo \"$TARGET_DIR\" ov service install --repo-local" >&2
+    return
+  fi
+
+  if "$dispatcher" --repo "$TARGET_DIR" ov service status --repo-local >/dev/null 2>&1 && openviking_health_ready; then
+    echo "Verified repo-local OpenViking macOS service"
+    return
+  fi
+
+  if ! "$dispatcher" ov package-server --home "$HOME/.openviking"; then
+    echo "Warning: OpenViking server packaging failed." >&2
+    echo "Re-run manually: $dispatcher ov package-server --home \"$HOME/.openviking\"" >&2
+    return
+  fi
+
+  if "$dispatcher" --repo "$TARGET_DIR" ov service install --repo-local; then
+    echo "Verified repo-local OpenViking macOS service"
+    return
+  fi
+
+  echo "Warning: repo-local OpenViking service setup failed." >&2
+  echo "Re-run manually: $dispatcher --repo \"$TARGET_DIR\" ov service install --repo-local" >&2
+}
+
 append_gitignore_entry_if_missing() {
   local entry="$1"
 
@@ -2597,7 +2862,7 @@ openviking_health_ready() {
   fi
 
   [[ -x "$ov_bin" ]] || return 1
-  "$ov_bin" health -o json >/dev/null 2>&1
+  OPENVIKING_CLI_CONFIG_FILE="$REPO_OPENVIKING_DIR/ovcli.conf" "$ov_bin" health -o json >/dev/null 2>&1
 }
 
 wait_for_openviking_health_for_import() {
@@ -2649,35 +2914,35 @@ import_openviking_source_store() {
 
   if ! wait_for_openviking_health_for_import; then
     echo "Error: OpenViking service did not become healthy before source-store import." >&2
-    echo "Re-run manually with: agent-basics ov import-repo-memory --write" >&2
+    echo "Re-run manually with: agent-basics ov import-repo-memory --write --wait-memory --wait-resources" >&2
     exit 1
   fi
 
   if helper_path="$(find_ov_helper_source)"; then
     if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" ]]; then
-      if run_openviking_source_import_command env AGENT_BASICS_OV_BIN="$AGENT_BASICS_TEST_OPENVIKING_BIN" python3 "$helper_path" --repo "$TARGET_DIR" ov import-repo-memory --write; then
+      if run_openviking_source_import_command env AGENT_BASICS_OV_BIN="$AGENT_BASICS_TEST_OPENVIKING_BIN" python3 "$helper_path" --repo "$TARGET_DIR" ov import-repo-memory --write --wait-memory --wait-resources; then
         echo "Imported OpenViking source store"
         return
       fi
     else
-      if run_openviking_source_import_command python3 "$helper_path" --repo "$TARGET_DIR" ov import-repo-memory --write; then
+      if run_openviking_source_import_command python3 "$helper_path" --repo "$TARGET_DIR" ov import-repo-memory --write --wait-memory --wait-resources; then
         echo "Imported OpenViking source store"
         return
       fi
     fi
     echo "Error: OpenViking source-store import failed." >&2
-    echo "Re-run manually with: agent-basics ov import-repo-memory --write" >&2
+    echo "Re-run manually with: agent-basics ov import-repo-memory --write --wait-memory --wait-resources" >&2
     exit 1
   fi
 
   if dispatcher="$(find_agent_basics_dispatcher)"; then
     if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" ]]; then
-      if run_openviking_source_import_command env AGENT_BASICS_OV_BIN="$AGENT_BASICS_TEST_OPENVIKING_BIN" "$dispatcher" --repo "$TARGET_DIR" ov import-repo-memory --write; then
+      if run_openviking_source_import_command env AGENT_BASICS_OV_BIN="$AGENT_BASICS_TEST_OPENVIKING_BIN" "$dispatcher" --repo "$TARGET_DIR" ov import-repo-memory --write --wait-memory --wait-resources; then
         echo "Imported OpenViking source store"
         return
       fi
     else
-      if run_openviking_source_import_command "$dispatcher" --repo "$TARGET_DIR" ov import-repo-memory --write; then
+      if run_openviking_source_import_command "$dispatcher" --repo "$TARGET_DIR" ov import-repo-memory --write --wait-memory --wait-resources; then
         echo "Imported OpenViking source store"
         return
       fi
@@ -2685,7 +2950,7 @@ import_openviking_source_store() {
   fi
 
   echo "Error: OpenViking source-store import could not be completed." >&2
-  echo "Re-run manually with: agent-basics ov import-repo-memory --write" >&2
+  echo "Re-run manually with: agent-basics ov import-repo-memory --write --wait-memory --wait-resources" >&2
   exit 1
 }
 
@@ -3349,8 +3614,6 @@ start_repo_local_embedding_api_for_setup() {
 
 ensure_agent_basics_install_config
 verify_user_openviking_installation
-ensure_user_openviking_config
-ensure_user_openviking_service
 snapshot_existing_legacy_memory
 create_memory_layout
 
@@ -3372,6 +3635,7 @@ copy_memory_template_if_missing "memory-index" ".agents/memory/INDEX.md"
 copy_memory_template_if_missing "memory-adaptation" ".agents/memory/ADAPTATION.md"
 write_repo_openviking_metadata_if_missing
 write_repo_config_if_missing
+write_repo_openviking_config_files_if_missing
 write_repo_mcp_config_snippets
 create_empty_file_if_missing ".agents/memory/memories/profile/.gitkeep"
 create_empty_file_if_missing ".agents/memory/memories/preferences/.gitkeep"
@@ -3430,6 +3694,11 @@ append_gitignore_entry_if_missing ".agents/TODO.md"
 append_gitignore_entry_if_missing ".agents/backups/"
 append_gitignore_entry_if_missing ".agents/merge-sessions/"
 append_gitignore_entry_if_missing ".agents/openviking/locks/"
+append_gitignore_entry_if_missing ".agents/openviking/ov.conf"
+append_gitignore_entry_if_missing ".agents/openviking/ovcli.conf"
+append_gitignore_entry_if_missing ".agents/openviking/workspace/"
+append_gitignore_entry_if_missing ".agents/openviking/logs/"
+append_gitignore_entry_if_missing ".agents/openviking/tmp/"
 
 if compat_memory_enabled; then
   configure_embedding
@@ -3450,6 +3719,7 @@ else
 fi
 
 install_openviking_hooks
+ensure_repo_openviking_service
 
 while IFS= read -r markdown_file; do
   ensure_trailing_blank_line "$markdown_file"
@@ -3472,8 +3742,13 @@ OpenViking source store:
 OpenViking 仓库 metadata:
   .agents/openviking/
 
+OpenViking 仓库 workspace:
+  .agents/openviking/workspace/ (ignored)
+
 OpenViking 仓库配置:
   .agents/config.toml
+  .agents/openviking/ov.conf
+  .agents/openviking/ovcli.conf
 
 agent-basics 安装配置:
   $AGENT_BASICS_CONFIG_FILE
@@ -3516,8 +3791,13 @@ OpenViking source store:
 OpenViking repo metadata:
   .agents/openviking/
 
+OpenViking repo workspace:
+  .agents/openviking/workspace/ (ignored)
+
 OpenViking repo config:
   .agents/config.toml
+  .agents/openviking/ov.conf
+  .agents/openviking/ovcli.conf
 
 agent-basics install config:
   $AGENT_BASICS_CONFIG_FILE

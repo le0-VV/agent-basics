@@ -107,6 +107,40 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         with redirect_stderr(stderr), self.assertRaises(SystemExit):
             parser.parse_args(["ov", "write-default-config", "--provider", "ollama"])
 
+    def test_ov_default_config_without_home_uses_repo_local_absolute_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = agent_basics_ov.command_ov_write_default_config(
+                    SimpleNamespace(
+                        repo=str(repo),
+                        config=None,
+                        cli_config=None,
+                        home=None,
+                        provider="mlx",
+                        base_url=None,
+                        provider_base=None,
+                        api_key=None,
+                        chat_model=None,
+                        embedding_model=None,
+                        embedding_dimension=768,
+                        vlm_timeout=86400,
+                        server_url="http://127.0.0.1:1933",
+                        cli_timeout=86400,
+                        force=False,
+                    )
+                )
+
+            payload = json.loads(output.getvalue())
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            payload["config"]["storage"]["workspace"],
+            str((repo / ".agents" / "openviking" / "workspace").resolve()),
+        )
+
     def test_ov_package_server_dry_run_builds_openviking_process(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "openviking"
@@ -1124,6 +1158,89 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(memory_command[1], "write")
         self.assertIn("viking://user/default/memories/cases/projects/agent-basics/case.md", memory_command)
 
+    def test_ov_import_repo_memory_reimports_when_state_target_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "agent-basics"
+            memory_path = repo / ".agents" / "memory" / "memories" / "cases" / "case.md"
+            memory_path.parent.mkdir(parents=True)
+            memory_text = (
+                "---\n"
+                "record_kind: memory\n"
+                "ov_category: cases\n"
+                "title: Example case\n"
+                "requires_human_review: false\n"
+                "---\n"
+                "\n"
+                "# Example case\n"
+            )
+            memory_path.write_text(memory_text, encoding="utf-8")
+            target = "viking://user/default/memories/cases/projects/agent-basics/case.md"
+            state_path = repo / ".agents" / "openviking" / "import-state.json"
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "imports": {
+                            ".agents/memory/memories/cases/case.md": {
+                                "ok": True,
+                                "method": "write",
+                                "sha256": agent_basics_ov.sha256_text(memory_text),
+                                "target": target,
+                            }
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            commands: list[list[str]] = []
+
+            def fake_run(command: list[str], timeout: float | None = 30, env: dict[str, str] | None = None) -> dict[str, object]:
+                commands.append(command)
+                if command[1] == "health":
+                    return {"ok": True, "command": command, "stdout": "{}", "stderr": "", "returncode": 0}
+                if command[1] == "stat":
+                    return {"ok": False, "command": command, "stdout": "", "stderr": "not found", "returncode": 1}
+                return {"ok": True, "command": command, "stdout": "{}", "stderr": "", "returncode": 0}
+
+            original_find_ov_bin = agent_basics_ov.find_ov_bin
+            original_run_command_env = agent_basics_ov.run_command_env
+            try:
+                agent_basics_ov.find_ov_bin = lambda: Path("/tmp/ov")
+                agent_basics_ov.run_command_env = fake_run
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    result = agent_basics_ov.command_ov_import_repo_memory(
+                        SimpleNamespace(
+                            repo=str(repo),
+                            target=None,
+                            memory_target=agent_basics_ov.DEFAULT_OV_MEMORY_TARGET,
+                            timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                            include_review=False,
+                            force=False,
+                            dry_run=False,
+                            wait=False,
+                            wait_memory=False,
+                            wait_resources=False,
+                            busy_retries=0,
+                            busy_delay=0,
+                            write=False,
+                        )
+                    )
+            finally:
+                agent_basics_ov.find_ov_bin = original_find_ov_bin
+                agent_basics_ov.run_command_env = original_run_command_env
+
+        payload = json.loads(output.getvalue())
+        write_commands = [command for command in commands if command[1] == "write"]
+
+        self.assertEqual(result, 0)
+        self.assertFalse(payload["results"][0]["skipped"])
+        self.assertEqual(len(write_commands), 1)
+        self.assertIn(target, write_commands[0])
+
     def test_ov_existing_content_result_verifies_matching_target(self) -> None:
         original = agent_basics_ov.run_command
         try:
@@ -1142,6 +1259,43 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         assert result is not None
         self.assertTrue(result["ok"])
         self.assertTrue(result["verified_existing"])
+
+    def test_retry_busy_can_wait_for_openviking_background_work(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(command: list[str], timeout: float | None = 30, env: dict[str, str] | None = None) -> dict[str, object]:
+            calls.append(command)
+            if command[1] == "wait":
+                return {"ok": True, "command": command, "stdout": "waited", "stderr": "", "returncode": 0}
+            if len([item for item in calls if item[1] == "write"]) == 1:
+                return {
+                    "ok": False,
+                    "command": command,
+                    "stdout": "",
+                    "stderr": "resource is busy and cannot be written now",
+                    "returncode": 1,
+                }
+            return {"ok": True, "command": command, "stdout": "{}", "stderr": "", "returncode": 0}
+
+        original = agent_basics_ov.run_command_env
+        original_sleep = agent_basics_ov.time.sleep
+        try:
+            agent_basics_ov.run_command_env = fake_run
+            agent_basics_ov.time.sleep = lambda _seconds: None
+            result = agent_basics_ov.run_command_retry_busy(
+                ["/tmp/ov", "write", "viking://target"],
+                retries=1,
+                delay=0,
+                wait_command=["/tmp/ov", "wait"],
+            )
+        finally:
+            agent_basics_ov.run_command_env = original
+            agent_basics_ov.time.sleep = original_sleep
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["busy_retries"], 1)
+        self.assertEqual(result["busy_waits"], 1)
+        self.assertIn(["/tmp/ov", "wait"], calls)
 
     def test_ov_search_payload_scopes_every_category_to_repo(self) -> None:
         commands: list[list[str]] = []

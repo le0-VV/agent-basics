@@ -1,0 +1,14 @@
+{
+  "created": 1778158453,
+  "data_plane": "repo-local",
+  "legacy_snapshots": ".agents/openviking/legacy-memory",
+  "memory_source": ".agents/memory",
+  "notes": "The OpenViking executable/runtime is shared at user level. Repository-specific OpenViking config, workspace, generated data, queues, vector indexes, import state, and locks stay under .agents/openviking/.",
+  "ov_cli_config": ".agents/openviking/ovcli.conf",
+  "ov_config": ".agents/openviking/ov.conf",
+  "project_name": "agent-basics",
+  "shared_runtime_home": "~/.openviking",
+  "updated": 1778158453,
+  "version": 1,
+  "workspace": ".agents/openviking/workspace"
+}

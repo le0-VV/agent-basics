@@ -1,0 +1,14 @@
+version = 1
+repo_slug = "agent-basics"
+resource_root = "viking://resources/projects/agent-basics"
+memory_base = "viking://user/default/memories"
+
+[memory_roots]
+profile = "viking://user/default/memories/profile/projects/agent-basics"
+preferences = "viking://user/default/memories/preferences/projects/agent-basics"
+entities = "viking://user/default/memories/entities/projects/agent-basics"
+events = "viking://user/default/memories/events/projects/agent-basics"
+cases = "viking://user/default/memories/cases/projects/agent-basics"
+patterns = "viking://user/default/memories/patterns/projects/agent-basics"
+tools = "viking://user/default/memories/tools/projects/agent-basics"
+skills = "viking://user/default/memories/skills/projects/agent-basics"

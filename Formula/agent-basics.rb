@@ -10,13 +10,14 @@ class AgentBasics < Formula
   end
 
   def post_install
-    system bin/"agent-basics", "ov", "bootstrap-system", "--service-best-effort", "--runtime", "mlx", "--runtime-best-effort"
+    system bin/"agent-basics", "ov", "bootstrap-system", "--service", "never", "--runtime", "mlx", "--runtime-best-effort"
   end
 
   def caveats
     <<~EOS
       agent-basics bootstraps OpenViking during install and configures the
       agent-basics MLX runtime as the default local OpenAI-compatible runtime.
+      Repo setup installs repo-local OpenViking service/config when needed.
       To repair or rerun that step manually:
         agent-basics ov bootstrap-system
         agent-basics mlx bootstrap

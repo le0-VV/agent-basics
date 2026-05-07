@@ -1,0 +1,19 @@
+version = 1
+generated_at = 1778158453
+repo_slug = "agent-basics"
+
+[openviking]
+enabled = true
+required = true
+source_store_path = ".agents/memory"
+config_path = ".agents/openviking/ov.conf"
+cli_config_path = ".agents/openviking/ovcli.conf"
+workspace_path = ".agents/openviking/workspace"
+metadata_path = ".agents/openviking/config.toml"
+namespaces_path = ".agents/openviking/namespaces.toml"
+data_plane = "repo-local"
+
+[openviking.mcp]
+command = "agent-basics"
+args = ["mcp"]
+cwd_argument = "cwd"

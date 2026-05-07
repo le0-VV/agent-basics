@@ -196,6 +196,18 @@ class SetupMacosTest(unittest.TestCase):
             self.assertTrue((memory_root / "memories" / "preferences" / ".gitkeep").is_file())
             self.assertTrue((memory_root / "resources" / "sources" / ".gitkeep").is_file())
             self.assertTrue((repo / ".agents" / "openviking" / "repo.json").is_file())
+            self.assertTrue((repo / ".agents" / "openviking" / "config.toml").is_file())
+            self.assertTrue((repo / ".agents" / "openviking" / "namespaces.toml").is_file())
+            self.assertTrue((repo / ".agents" / "openviking" / "ov.conf").is_file())
+            self.assertTrue((repo / ".agents" / "openviking" / "ovcli.conf").is_file())
+            self.assertTrue((repo / ".agents" / "openviking" / "workspace").is_dir())
+            ov_config = json.loads((repo / ".agents" / "openviking" / "ov.conf").read_text(encoding="utf-8"))
+            ovcli_config = json.loads((repo / ".agents" / "openviking" / "ovcli.conf").read_text(encoding="utf-8"))
+            self.assertEqual(
+                ov_config["storage"]["workspace"],
+                str((repo / ".agents" / "openviking" / "workspace").resolve()),
+            )
+            self.assertEqual(ovcli_config["url"], f"http://127.0.0.1:{ov_config['server']['port']}")
             self.assertTrue((repo / ".agents" / "backups").is_dir())
             self.assertTrue((repo / ".agents" / "merge-sessions").is_dir())
             self.assertIn("Imported OpenViking source store", result.stdout)
@@ -220,6 +232,12 @@ class SetupMacosTest(unittest.TestCase):
                     "enabled": True,
                     "required": True,
                     "source_store_path": ".agents/memory",
+                    "config_path": ".agents/openviking/ov.conf",
+                    "cli_config_path": ".agents/openviking/ovcli.conf",
+                    "workspace_path": ".agents/openviking/workspace",
+                    "metadata_path": ".agents/openviking/config.toml",
+                    "namespaces_path": ".agents/openviking/namespaces.toml",
+                    "data_plane": "repo-local",
                     "mcp": {
                         "command": "agent-basics",
                         "args": ["mcp"],
@@ -250,6 +268,54 @@ class SetupMacosTest(unittest.TestCase):
                     }
                 },
             )
+
+    def test_existing_ov_config_repairs_repo_paths_without_clobbering_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            ov_dir = repo / ".agents" / "openviking"
+            ov_dir.mkdir(parents=True)
+            (ov_dir / "ov.conf").write_text(
+                json.dumps(
+                    {
+                        "storage": {"workspace": ".agents/openviking/workspace"},
+                        "server": {"host": "127.0.0.1", "port": 1933},
+                        "vlm": {"api_base": "http://custom.local/v1", "model": "custom-chat"},
+                        "embedding": {"dense": {"api_base": "http://custom.local/v1", "model": "custom-embedding"}},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (ov_dir / "ovcli.conf").write_text('{"url":"http://127.0.0.1:1933","timeout":123}\n', encoding="utf-8")
+
+            result = self.run_setup(repo)
+            ov_config = json.loads((ov_dir / "ov.conf").read_text(encoding="utf-8"))
+            ovcli_config = json.loads((ov_dir / "ovcli.conf").read_text(encoding="utf-8"))
+
+            self.assertIn("Updated repo-local OpenViking config paths", result.stdout)
+            self.assertEqual(ov_config["storage"]["workspace"], str((ov_dir / "workspace").resolve()))
+            self.assertEqual(ov_config["vlm"]["api_base"], "http://custom.local/v1")
+            self.assertEqual(ov_config["embedding"]["dense"]["model"], "custom-embedding")
+            self.assertEqual(ovcli_config["url"], f"http://127.0.0.1:{ov_config['server']['port']}")
+            self.assertEqual(ovcli_config["timeout"], 123)
+
+    def test_repeated_setup_keeps_repo_openviking_metadata_stable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self.run_setup(repo)
+            paths = [
+                repo / ".agents" / "openviking" / "repo.json",
+                repo / ".agents" / "openviking" / "config.toml",
+                repo / ".agents" / "openviking" / "namespaces.toml",
+                repo / ".agents" / "openviking" / "ov.conf",
+                repo / ".agents" / "openviking" / "ovcli.conf",
+            ]
+            before = {path: path.read_text(encoding="utf-8") for path in paths}
+
+            self.run_setup(repo)
+
+            after = {path: path.read_text(encoding="utf-8") for path in paths}
+            self.assertEqual(after, before)
 
     def test_setup_snapshots_existing_legacy_memory_without_generated_rag_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -316,10 +382,10 @@ class SetupMacosTest(unittest.TestCase):
             self.assertEqual(
                 install_log.read_text(encoding="utf-8").strip().splitlines(),
                 [
-                    f"ov bootstrap-system --home {ov_home} --service-best-effort --runtime mlx --runtime-best-effort",
-                    f"ov service status --home {ov_home}",
+                    f"ov bootstrap-system --home {ov_home} --service never --runtime mlx --runtime-best-effort",
+                    f"--repo {repo} ov service status --repo-local",
                     f"ov package-server --home {ov_home}",
-                    f"ov service install --home {ov_home}",
+                    f"--repo {repo} ov service install --repo-local",
                 ],
             )
             self.assertTrue((ov_home / "venv" / "bin" / "ov").is_file())

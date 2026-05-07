@@ -16,7 +16,7 @@ class HomebrewFormulaTest(unittest.TestCase):
         self.assertIn('depends_on "uv"', text)
         self.assertNotIn('depends_on "ollama"', text)
         self.assertIn('"ov", "bootstrap-system"', text)
-        self.assertIn('"--service-best-effort"', text)
+        self.assertIn('"--service", "never"', text)
         self.assertIn('"--runtime", "mlx"', text)
         self.assertIn('"--runtime-best-effort"', text)
         self.assertIn('bin/"agent-basics-mlx"', text)

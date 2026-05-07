@@ -11,6 +11,11 @@
 .agents/memory/rag/embedding-api/venv/
 .agents/memory/rag/embedding-api/models/
 .agents/openviking/locks/
+.agents/openviking/ov.conf
+.agents/openviking/ovcli.conf
+.agents/openviking/workspace/
+.agents/openviking/logs/
+.agents/openviking/tmp/
 target/
 __pycache__/
 *.py[cod]

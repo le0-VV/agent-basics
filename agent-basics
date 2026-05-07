@@ -104,14 +104,17 @@ Setup options:
       generated agent instructions.
 
 OpenViking is the target required backend for memory, resources, skills, and
-retrieval. `agent-basics ov` uses a user-level OpenViking installation, normally
-under ~/.openviking, instead of installing OpenViking into each repository.
-Fresh setup creates `.agents/memory/` as the OpenViking source store.
+retrieval. `agent-basics ov` uses a shared user-level OpenViking executable,
+normally under ~/.openviking, and repo-local OpenViking config/workspace under
+`.agents/openviking/`.
+Fresh setup creates `.agents/memory/` as the OpenViking source store and
+`.agents/openviking/` as the repo-local data plane.
 Use `agent-basics ov import-repo-memory --write` to write repo OV-native memory
 files into OpenViking memory categories and ingest resources/skills.
-Use `agent-basics ov bootstrap-system` to install or repair the user-level
-OpenViking package, package the server as `~/.openviking/openviking`, default config, and macOS LaunchAgent. Use
-`agent-basics ov server` for foreground debugging.
+Use `agent-basics ov bootstrap-system` to install or repair the shared
+OpenViking package/runtime. Use `agent-basics ov service install --repo-local`
+to install the current repo's OpenViking server, and `agent-basics ov server`
+for foreground debugging.
 
 MLX is the default local OpenAI-compatible runtime for supported Apple Silicon
 Macs. For the first release, the bundled local MLX runtime requires an Apple

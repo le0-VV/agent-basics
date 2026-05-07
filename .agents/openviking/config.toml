@@ -1,0 +1,16 @@
+version = 1
+generated_at = 1778158453
+data_plane = "repo-local"
+shared_runtime_home = "~/.openviking"
+ov_config_path = ".agents/openviking/ov.conf"
+ov_cli_config_path = ".agents/openviking/ovcli.conf"
+workspace_path = ".agents/openviking/workspace"
+
+[server]
+host = "127.0.0.1"
+port = 27563
+url = "http://127.0.0.1:27563"
+
+[service]
+label = "com.agent-basics.openviking.agent-basics.1d8b1506"
+repo_local = true

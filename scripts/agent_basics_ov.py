@@ -97,6 +97,8 @@ DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS = 120
 DEFAULT_OV_VLM_TIMEOUT_SECONDS = 86400
 DEFAULT_OV_MEMORY_TARGET = "viking://user/default/memories"
 DEFAULT_OV_RESOURCE_TARGET = "viking://resources/projects"
+OPENVIKING_CONFIG_ENV = "OPENVIKING_CONFIG_FILE"
+OPENVIKING_CLI_CONFIG_ENV = "OPENVIKING_CLI_CONFIG_FILE"
 OV_HOOK_MARKER = "agent-basics-openviking-hook"
 LEGACY_MEMORY_HOOK_MARKER = "agent-basics memory hook"
 DEFAULT_OV_PACKAGER_PACKAGES = ["pyinstaller"]
@@ -266,7 +268,7 @@ def repo_root_from_args(args: argparse.Namespace) -> Path:
     return Path(raw).expanduser().resolve()
 
 
-def run_command(command: list[str], timeout: float | None = 30) -> dict[str, Any]:
+def run_command(command: list[str], timeout: float | None = 30, env: dict[str, str] | None = None) -> dict[str, Any]:
     started = time.time()
     try:
         completed = subprocess.run(
@@ -276,6 +278,7 @@ def run_command(command: list[str], timeout: float | None = 30) -> dict[str, Any
             stderr=subprocess.PIPE,
             timeout=timeout,
             check=False,
+            env=env,
         )
     except FileNotFoundError:
         return {
@@ -301,20 +304,44 @@ def run_command(command: list[str], timeout: float | None = 30) -> dict[str, Any
     }
 
 
+def run_command_env(command: list[str], timeout: float | None = 30, env: dict[str, str] | None = None) -> dict[str, Any]:
+    if env is None:
+        return run_command(command, timeout=timeout)
+    try:
+        return run_command(command, timeout=timeout, env=env)
+    except TypeError as exc:
+        if env is not None and "env" in str(exc):
+            return run_command(command, timeout=timeout)
+        raise
+
+
 def result_is_busy(result: dict[str, Any]) -> bool:
     text = f"{result.get('stdout', '')}\n{result.get('stderr', '')}".lower()
     return "resource is busy" in text or "cannot be written now" in text
 
 
-def run_command_retry_busy(command: list[str], *, retries: int, delay: float) -> dict[str, Any]:
-    result = run_command(command, timeout=None)
+def run_command_retry_busy(
+    command: list[str],
+    *,
+    retries: int,
+    delay: float,
+    env: dict[str, str] | None = None,
+    wait_command: list[str] | None = None,
+) -> dict[str, Any]:
+    result = run_command_env(command, timeout=None, env=env)
     attempts = 0
+    wait_results: list[dict[str, Any]] = []
     while not result["ok"] and result_is_busy(result) and attempts < retries:
         attempts += 1
+        if wait_command is not None:
+            wait_results.append(run_command_env(wait_command, timeout=None, env=env))
         time.sleep(delay)
-        result = run_command(command, timeout=None)
+        result = run_command_env(command, timeout=None, env=env)
     if attempts:
         result["busy_retries"] = attempts
+    if wait_results:
+        result["busy_waits"] = len(wait_results)
+        result["last_busy_wait"] = wait_results[-1]
     return result
 
 
@@ -369,6 +396,54 @@ def ov_bin_or_error() -> tuple[Path | None, dict[str, Any] | None]:
 
 def ov_repo_slug(repo: Path) -> str:
     return slugify(repo.name)
+
+
+def repo_openviking_dir(repo: Path) -> Path:
+    return repo / ".agents" / "openviking"
+
+
+def repo_ov_config_path(repo: Path) -> Path:
+    return Path(os.environ.get("AGENT_BASICS_REPO_OV_CONFIG", str(repo_openviking_dir(repo) / "ov.conf"))).expanduser()
+
+
+def repo_ov_cli_config_path(repo: Path) -> Path:
+    return Path(
+        os.environ.get("AGENT_BASICS_REPO_OV_CLI_CONFIG", str(repo_openviking_dir(repo) / "ovcli.conf"))
+    ).expanduser()
+
+
+def repo_ov_workspace_path(repo: Path) -> Path:
+    return repo_openviking_dir(repo) / "workspace"
+
+
+def repo_ov_service_digest(repo: Path) -> str:
+    return hashlib.sha256(str(repo.resolve()).encode("utf-8")).hexdigest()[:12]
+
+
+def repo_ov_service_label(repo: Path) -> str:
+    return f"{DEFAULT_OV_SERVICE_LABEL}.{ov_repo_slug(repo)}.{repo_ov_service_digest(repo)[:8]}"
+
+
+def repo_ov_default_port(repo: Path) -> int:
+    digest = repo_ov_service_digest(repo)
+    return 20000 + int(digest[:4], 16) % 20000
+
+
+def repo_ov_server_url(repo: Path) -> str:
+    cli_config = load_json_file(repo_ov_cli_config_path(repo))
+    if isinstance(cli_config, dict):
+        url = cli_config.get("url")
+        if isinstance(url, str) and url.strip():
+            return url.rstrip("/")
+    return f"http://127.0.0.1:{repo_ov_default_port(repo)}"
+
+
+def repo_ov_cli_env(repo: Path) -> dict[str, str]:
+    env = dict(os.environ)
+    env[OPENVIKING_CLI_CONFIG_ENV] = str(repo_ov_cli_config_path(repo))
+    env["NO_PROXY"] = merge_no_proxy(env.get("NO_PROXY") or env.get("no_proxy", ""))
+    env["no_proxy"] = env["NO_PROXY"]
+    return env
 
 
 def ov_repo_resource_root(repo: Path) -> str:
@@ -428,8 +503,14 @@ def filter_ov_find_result(payload: Any, repo: Path, *, include_global: bool = Fa
     return {**payload, "result": filtered_result}
 
 
-def ov_command_payload(command: list[str], *, timeout: float | None = None, parse_json: bool = True) -> dict[str, Any]:
-    result = run_command(command, timeout=timeout)
+def ov_command_payload(
+    command: list[str],
+    *,
+    timeout: float | None = None,
+    parse_json: bool = True,
+    env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    result = run_command_env(command, timeout=timeout, env=env)
     payload = dict(result)
     if parse_json and result.get("stdout"):
         try:
@@ -1166,8 +1247,9 @@ def provider_default_embedding_model(provider: str) -> str:
 
 
 def command_ov_write_default_config(args: argparse.Namespace) -> int:
-    path = Path(args.config).expanduser()
-    home = Path(args.home).expanduser()
+    repo = repo_root_from_args(args)
+    home = (Path(args.home).expanduser() if getattr(args, "home", None) else repo_openviking_dir(repo)).resolve()
+    path = Path(args.config).expanduser() if getattr(args, "config", None) else home / "ov.conf"
     cli_config_path = Path(getattr(args, "cli_config", None) or home / "ovcli.conf").expanduser()
     server_url = getattr(args, "server_url", None) or "http://127.0.0.1:1933"
     provider = getattr(args, "provider", DEFAULT_RUNTIME_PROVIDER)
@@ -1185,8 +1267,11 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
     if provider == "custom" and (not chat_model or not embedding_model):
         print_json({"ok": False, "error": "custom provider requires --chat-model and --embedding-model"})
         return 2
+    parsed_server_url = urllib.parse.urlparse(server_url)
+    server_host = parsed_server_url.hostname or "127.0.0.1"
+    server_port = parsed_server_url.port or (443 if parsed_server_url.scheme == "https" else 80)
     config_payload = {
-        "storage": {"workspace": str(Path(args.home).expanduser() / "workspace")},
+        "storage": {"workspace": str(home / "workspace")},
         "log": {"level": "INFO", "output": "stdout"},
         "embedding": {
             "dense": {
@@ -1208,7 +1293,7 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
             "max_concurrent": 1,
             "timeout": args.vlm_timeout,
         },
-        "server": {"host": "127.0.0.1", "port": 1933},
+        "server": {"host": server_host, "port": server_port},
     }
     cli_payload = {
         "url": server_url.rstrip("/"),
@@ -1244,6 +1329,7 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
         {
             "ok": ok,
             "changed": any(item["changed"] for item in results),
+            "repo": str(repo),
             "path": str(path),
             "cli_config_path": str(cli_config_path),
             "config": results[0]["config"],
@@ -1637,14 +1723,25 @@ def ov_service_plist_text(payload: dict[str, Any]) -> str:
 
 
 def ov_service_paths(args: argparse.Namespace) -> dict[str, Any]:
+    repo = repo_root_from_args(args)
+    repo_local = bool(getattr(args, "repo_local", False))
     home = Path(getattr(args, "home", DEFAULT_OV_HOME)).expanduser()
-    label = getattr(args, "label", DEFAULT_OV_SERVICE_LABEL) or DEFAULT_OV_SERVICE_LABEL
+    if repo_local:
+        home = repo_openviking_dir(repo)
+    label = getattr(args, "label", None)
+    label = label or (repo_ov_service_label(repo) if repo_local else DEFAULT_OV_SERVICE_LABEL)
     if getattr(args, "server_bin", None):
         server_bin = Path(args.server_bin).expanduser()
+    elif repo_local:
+        server_bin = find_ov_server() or DEFAULT_OV_PROCESS
     else:
         packaged = ov_process(home)
         server_bin = packaged if packaged.exists() else ov_server_entrypoint(home)
-    config = Path(args.config).expanduser() if getattr(args, "config", None) else home / "ov.conf"
+    config = (
+        Path(args.config).expanduser()
+        if getattr(args, "config", None)
+        else (repo_ov_config_path(repo) if repo_local else home / "ov.conf")
+    )
     plist_path = Path(args.plist).expanduser() if getattr(args, "plist", None) else ov_service_plist_path(label)
     no_proxy = merge_no_proxy(os.environ.get("NO_PROXY") or os.environ.get("no_proxy", ""))
     plist_payload = ov_service_plist_payload(
@@ -1655,6 +1752,8 @@ def ov_service_paths(args: argparse.Namespace) -> dict[str, Any]:
         no_proxy=no_proxy,
     )
     return {
+        "repo": repo,
+        "repo_local": repo_local,
         "home": home,
         "label": label,
         "server_bin": server_bin,
@@ -1689,6 +1788,8 @@ def command_ov_service(args: argparse.Namespace) -> int:
     payload: dict[str, Any] = {
         "ok": True,
         "action": action,
+        "repo": str(paths["repo"]),
+        "repo_local": paths["repo_local"],
         "home": str(paths["home"]),
         "label": paths["label"],
         "target": paths["target"],
@@ -1844,6 +1945,7 @@ def command_ov_service(args: argparse.Namespace) -> int:
 
 
 def command_ov_server(args: argparse.Namespace) -> int:
+    repo = repo_root_from_args(args)
     server_bin = Path(args.server_bin).expanduser() if args.server_bin else find_ov_server()
     if server_bin is None:
         print_json(
@@ -1853,7 +1955,7 @@ def command_ov_server(args: argparse.Namespace) -> int:
             }
         )
         return 1
-    config = Path(args.config).expanduser()
+    config = Path(args.config).expanduser() if args.config else repo_ov_config_path(repo)
     command = [str(server_bin), "--config", str(config)]
     if args.host:
         command.extend(["--host", args.host])
@@ -1867,6 +1969,8 @@ def command_ov_server(args: argparse.Namespace) -> int:
         command.append("--with-bot")
     payload = {
         "ok": True,
+        "repo": str(repo),
+        "repo_local": not bool(args.config),
         "command": command,
         "server_bin": str(server_bin),
         "config": str(config),
@@ -2025,7 +2129,7 @@ def ov_memory_target_uri(base_uri: str, repo: Path, path: Path, category: str) -
     return f"{base_uri.rstrip('/')}/{category}/projects/{slugify(repo.name)}/{path.name}"
 
 
-def ov_mkdir_p(ov_bin: Path, uri: str) -> list[dict[str, Any]]:
+def ov_mkdir_p(ov_bin: Path, uri: str, *, env: dict[str, str] | None = None) -> list[dict[str, Any]]:
     if not uri.startswith("viking://"):
         return []
     suffix = uri[len("viking://") :].strip("/")
@@ -2036,7 +2140,7 @@ def ov_mkdir_p(ov_bin: Path, uri: str) -> list[dict[str, Any]]:
     current = "viking://"
     for piece in pieces:
         current = f"viking://{piece}" if current == "viking://" else f"{current.rstrip('/')}/{piece}"
-        result = run_command([str(ov_bin), "mkdir", current, "-o", "json"], timeout=None)
+        result = run_command_env([str(ov_bin), "mkdir", current, "-o", "json"], timeout=None, env=env)
         if not result["ok"] and "already" not in result.get("stderr", "").lower() and "exist" not in result.get("stderr", "").lower():
             commands.append(result)
             break
@@ -2044,8 +2148,14 @@ def ov_mkdir_p(ov_bin: Path, uri: str) -> list[dict[str, Any]]:
     return commands
 
 
-def ov_existing_content_result(ov_bin: Path, target: str, expected: str) -> dict[str, Any] | None:
-    read_result = run_command([str(ov_bin), "read", target, "-o", "json"], timeout=None)
+def ov_existing_content_result(
+    ov_bin: Path,
+    target: str,
+    expected: str,
+    *,
+    env: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    read_result = run_command_env([str(ov_bin), "read", target, "-o", "json"], timeout=None, env=env)
     if read_result["ok"] and read_result.get("stdout", "").strip() == expected.strip():
         return {
             "ok": True,
@@ -2068,11 +2178,12 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
     files = ov_native_import_files(repo)
     state = load_ov_import_state(repo)
     imports = state.setdefault("imports", {})
+    env = repo_ov_cli_env(repo)
     base_uri = (args.target or f"viking://resources/projects/{slugify(repo.name)}").rstrip("/")
     memory_base_uri = args.memory_target.rstrip("/")
-    parent_results = [] if args.dry_run else ov_mkdir_p(ov_bin, base_uri)
+    parent_results = [] if args.dry_run else ov_mkdir_p(ov_bin, base_uri, env=env)
 
-    health = run_command([str(ov_bin), "health", "-o", "json"], timeout=10)
+    health = run_command_env([str(ov_bin), "health", "-o", "json"], timeout=10, env=env)
     if not health["ok"] and not args.dry_run:
         print_json(
             {
@@ -2086,16 +2197,22 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
 
     results: list[dict[str, Any]] = []
 
-    def should_skip(path: Path, digest: str, method: str) -> bool:
+    def should_skip(path: Path, digest: str, method: str, target: str | None = None) -> bool:
         if args.force:
             return False
         previous = imports.get(path.relative_to(repo).as_posix())
-        return (
+        matches_state = (
             isinstance(previous, dict)
             and previous.get("sha256") == digest
             and previous.get("ok") is True
             and previous.get("method") == method
         )
+        if not matches_state:
+            return False
+        if args.dry_run or not target:
+            return True
+        stat_result = run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=None, env=env)
+        return bool(stat_result.get("ok"))
 
     def record_result(
         kind: str,
@@ -2145,17 +2262,21 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
             continue
         category = ov_memory_category(meta, path)
         target = ov_memory_target_uri(memory_base_uri, repo, path, category)
-        if should_skip(path, digest, "write"):
+        if should_skip(path, digest, "write", target):
             record_result("memory", path, digest, None, skipped=True, method="write", target=target)
             continue
         if not args.dry_run and not args.force:
-            existing_result = ov_existing_content_result(ov_bin, target, text)
+            existing_result = ov_existing_content_result(ov_bin, target, text, env=env)
             if existing_result:
                 record_result("memory", path, digest, existing_result, method="write", target=target)
                 continue
         if not args.dry_run:
-            parent_results.extend(ov_mkdir_p(ov_bin, ov_parent_uri(target)))
-        stat_result = {"ok": False} if args.dry_run else run_command([str(ov_bin), "stat", target, "-o", "json"], timeout=None)
+            parent_results.extend(ov_mkdir_p(ov_bin, ov_parent_uri(target), env=env))
+        stat_result = (
+            {"ok": False}
+            if args.dry_run
+            else run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=None, env=env)
+        )
         mode = "replace" if stat_result["ok"] else "create"
         command = [str(ov_bin), "write", target, "--from-file", str(path), "--mode", mode, "-o", "json"]
         if args.wait_memory:
@@ -2163,15 +2284,27 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
         result = (
             {"ok": True, "command": command, "stdout": "dry-run", "stderr": "", "returncode": 0}
             if args.dry_run
-            else run_command_retry_busy(command, retries=args.busy_retries, delay=args.busy_delay)
+            else run_command_retry_busy(
+                command,
+                retries=args.busy_retries,
+                delay=args.busy_delay,
+                env=env,
+                wait_command=[str(ov_bin), "wait"],
+            )
         )
         if not result["ok"] and mode == "create" and "already" in result.get("stderr", "").lower():
             command = [str(ov_bin), "write", target, "--from-file", str(path), "--mode", "replace", "-o", "json"]
             if args.wait_memory:
                 command.extend(["--wait", "--timeout", str(args.timeout)])
-            result = run_command_retry_busy(command, retries=args.busy_retries, delay=args.busy_delay)
+            result = run_command_retry_busy(
+                command,
+                retries=args.busy_retries,
+                delay=args.busy_delay,
+                env=env,
+                wait_command=[str(ov_bin), "wait"],
+            )
         if not result["ok"] and not args.dry_run:
-            existing_result = ov_existing_content_result(ov_bin, target, text)
+            existing_result = ov_existing_content_result(ov_bin, target, text, env=env)
             if existing_result:
                 existing_result["previous_error"] = result.get("stderr") or result.get("error")
                 result = existing_result
@@ -2180,7 +2313,7 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
     for path in files["resources"]:
         digest = sha256_text(path.read_text(encoding="utf-8"))
         target = ov_target_uri(base_uri, repo, path, "resources")
-        if should_skip(path, digest, "add-resource"):
+        if should_skip(path, digest, "add-resource", target):
             record_result("resource", path, digest, None, skipped=True, method="add-resource", target=target)
             continue
         command = [
@@ -2196,9 +2329,13 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
         ]
         if args.wait_resources:
             command.extend(["--wait", "--timeout", str(args.timeout)])
-        result = {"ok": True, "command": command, "stdout": "dry-run", "stderr": "", "returncode": 0} if args.dry_run else run_command(command, timeout=None)
+        result = (
+            {"ok": True, "command": command, "stdout": "dry-run", "stderr": "", "returncode": 0}
+            if args.dry_run
+            else run_command_env(command, timeout=None, env=env)
+        )
         if not result["ok"] and "already" in result.get("stderr", "").lower() and "exist" in result.get("stderr", "").lower():
-            stat_result = run_command([str(ov_bin), "stat", target, "-o", "json"], timeout=None)
+            stat_result = run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=None, env=env)
             if stat_result["ok"]:
                 result = {
                     **result,
@@ -2214,12 +2351,16 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
             record_result("skill", path, digest, None, skipped=True, method="add-skill")
             continue
         command = [str(ov_bin), "add-skill", str(path), "--wait", "--timeout", str(args.timeout), "-o", "json"]
-        result = {"ok": True, "command": command, "stdout": "dry-run", "stderr": "", "returncode": 0} if args.dry_run else run_command(command, timeout=None)
+        result = (
+            {"ok": True, "command": command, "stdout": "dry-run", "stderr": "", "returncode": 0}
+            if args.dry_run
+            else run_command_env(command, timeout=None, env=env)
+        )
         record_result("skill", path, digest, result, method="add-skill")
 
     wait_result = None
     if args.wait and not args.dry_run:
-        wait_result = run_command([str(ov_bin), "wait"], timeout=None)
+        wait_result = run_command_env([str(ov_bin), "wait"], timeout=None, env=env)
 
     state.update(
         {
@@ -2247,6 +2388,7 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
         "results": results,
         "wait": wait_result,
         "state_path": str(ov_import_state_path(repo)),
+        "cli_config": str(repo_ov_cli_config_path(repo)),
     }
     print_json(payload)
     return 0 if ok else 1
@@ -2329,10 +2471,11 @@ def ov_search_payload(
 
     scopes = [uri] if uri else ([] if include_global else ov_repo_search_scopes(repo))
     if include_global and not uri:
+        env = repo_ov_cli_env(repo)
         command = [str(ov_bin), "find", query, "-o", "json", "-n", str(limit)]
         if threshold is not None:
             command.extend(["--threshold", str(threshold)])
-        result = ov_command_payload(command, timeout=timeout)
+        result = ov_command_payload(command, timeout=timeout, env=env)
         payload = result.get("json") if isinstance(result.get("json"), dict) else None
         return {
             "ok": ov_find_result_ok(result),
@@ -2346,11 +2489,12 @@ def ov_search_payload(
         }
 
     command_payloads = []
+    env = repo_ov_cli_env(repo)
     for scope in scopes:
         command = [str(ov_bin), "find", query, "--uri", str(scope), "-o", "json", "-n", str(limit)]
         if threshold is not None:
             command.extend(["--threshold", str(threshold)])
-        result = ov_command_payload(command, timeout=timeout)
+        result = ov_command_payload(command, timeout=timeout, env=env)
         result["scope"] = scope
         if isinstance(result.get("json"), dict):
             result["json"] = filter_ov_find_result(result["json"], repo, include_global=False)
@@ -2397,8 +2541,9 @@ def ov_read_payload(repo: Path, *, uri: str, allow_global: bool = False, timeout
             "uri": uri,
             "error": "URI is outside this repo namespace; pass --allow-global to read it anyway",
         }
-    read_result = ov_command_payload([str(ov_bin), "read", uri, "-o", "json"], timeout=timeout, parse_json=False)
-    stat_result = ov_command_payload([str(ov_bin), "stat", uri, "-o", "json"], timeout=timeout)
+    env = repo_ov_cli_env(repo)
+    read_result = ov_command_payload([str(ov_bin), "read", uri, "-o", "json"], timeout=timeout, parse_json=False, env=env)
+    stat_result = ov_command_payload([str(ov_bin), "stat", uri, "-o", "json"], timeout=timeout, env=env)
     return {
         "ok": bool(read_result.get("ok")),
         "repo": str(repo),
@@ -2554,16 +2699,17 @@ def ov_record_payload(
     source_dir.mkdir(parents=True, exist_ok=True)
     source_path.write_text(markdown, encoding="utf-8")
     assert ov_bin is not None
-    parent_results = ov_mkdir_p(ov_bin, ov_parent_uri(target))
+    env = repo_ov_cli_env(repo)
+    parent_results = ov_mkdir_p(ov_bin, ov_parent_uri(target), env=env)
     command = [str(ov_bin), "write", target, "--from-file", str(source_path), "--mode", "create", "-o", "json"]
     if wait:
         command.extend(["--wait", "--timeout", str(timeout)])
-    result = run_command_retry_busy(command, retries=120, delay=5)
+    result = run_command_retry_busy(command, retries=120, delay=5, env=env)
     if not result["ok"] and "already" in result.get("stderr", "").lower():
         replace_command = [str(ov_bin), "write", target, "--from-file", str(source_path), "--mode", "replace", "-o", "json"]
         if wait:
             replace_command.extend(["--wait", "--timeout", str(timeout)])
-        result = run_command_retry_busy(replace_command, retries=120, delay=5)
+        result = run_command_retry_busy(replace_command, retries=120, delay=5, env=env)
     ok = bool(result.get("ok"))
     state_entry = update_ov_import_state_entry(
         repo,
@@ -2582,6 +2728,7 @@ def ov_record_payload(
         "category": category,
         "source_path": str(source_path),
         "target": target,
+        "cli_config": str(repo_ov_cli_config_path(repo)),
         "parents": parent_results,
         "state": state_entry,
         "state_path": str(ov_import_state_path(repo)),
@@ -2668,8 +2815,9 @@ def ov_add_resource_payload(
     if dry_run:
         return {"ok": True, "dry_run": True, "repo": str(repo), "source": command_source, "target": target}
     assert ov_bin is not None
-    parent_results = ov_mkdir_p(ov_bin, ov_parent_uri(target))
-    stat_result = run_command([str(ov_bin), "stat", target, "-o", "json"], timeout=None)
+    env = repo_ov_cli_env(repo)
+    parent_results = ov_mkdir_p(ov_bin, ov_parent_uri(target), env=env)
+    stat_result = run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=None, env=env)
     if stat_result["ok"]:
         return {
             "ok": True,
@@ -2686,13 +2834,14 @@ def ov_add_resource_payload(
         command.extend(["--instruction", instruction])
     if wait:
         command.extend(["--wait", "--timeout", str(timeout)])
-    result = run_command(command, timeout=None)
+    result = run_command_env(command, timeout=None, env=env)
     return {
         "ok": bool(result.get("ok")),
         "changed": bool(result.get("ok")),
         "repo": str(repo),
         "source": command_source,
         "target": target,
+        "cli_config": str(repo_ov_cli_config_path(repo)),
         "parents": parent_results,
         "write": result,
     }
@@ -2737,16 +2886,18 @@ def ov_add_skill_payload(
     if dry_run:
         return {"ok": True, "dry_run": True, "repo": str(repo), "source": source, "source_path": source_path}
     assert ov_bin is not None
+    env = repo_ov_cli_env(repo)
     command = [str(ov_bin), "add-skill", source, "-o", "json"]
     if wait:
         command.extend(["--wait", "--timeout", str(timeout)])
-    result = run_command(command, timeout=None)
+    result = run_command_env(command, timeout=None, env=env)
     return {
         "ok": bool(result.get("ok")),
         "changed": bool(result.get("ok")),
         "repo": str(repo),
         "source": source,
         "source_path": source_path,
+        "cli_config": str(repo_ov_cli_config_path(repo)),
         "note": "OpenViking add-skill does not expose a target URI; repo attribution should be included in skill content.",
         "write": result,
     }
@@ -2795,8 +2946,11 @@ def ov_status_payload(
 ) -> dict[str, Any]:
     base_url = (base_url or provider_default_base(provider)).rstrip("/")
     ov_bin = find_ov_bin()
-    ov_config = Path(os.environ.get("AGENT_BASICS_OV_CONFIG", str(DEFAULT_OV_CONFIG))).expanduser()
-    ov_cli_config = Path(os.environ.get("AGENT_BASICS_OV_CLI_CONFIG", str(DEFAULT_OV_CLI_CONFIG))).expanduser()
+    repo_ov_dir = repo_openviking_dir(repo)
+    repo_config = repo_ov_config_path(repo)
+    repo_cli_config = repo_ov_cli_config_path(repo)
+    user_config = Path(os.environ.get("AGENT_BASICS_OV_CONFIG", str(DEFAULT_OV_CONFIG))).expanduser()
+    user_cli_config = Path(os.environ.get("AGENT_BASICS_OV_CLI_CONFIG", str(DEFAULT_OV_CLI_CONFIG))).expanduser()
     payload: dict[str, Any] = {
         "ok": bool(ov_bin),
         "repo": str(repo),
@@ -2821,20 +2975,31 @@ def ov_status_payload(
             "home": str(DEFAULT_OV_HOME),
             "bin": str(ov_bin) if ov_bin else None,
             "bin_exists": bool(ov_bin and ov_bin.exists()),
-            "config_path": str(ov_config),
-            "config_exists": ov_config.exists(),
-            "config": load_json_file(ov_config),
-            "cli_config_path": str(ov_cli_config),
-            "cli_config_exists": ov_cli_config.exists(),
-            "cli_config": load_json_file(ov_cli_config),
+            "config_path": str(repo_config),
+            "config_exists": repo_config.exists(),
+            "config": load_json_file(repo_config),
+            "cli_config_path": str(repo_cli_config),
+            "cli_config_exists": repo_cli_config.exists(),
+            "cli_config": load_json_file(repo_cli_config),
+            "server_url": repo_ov_server_url(repo),
+            "service_label": repo_ov_service_label(repo),
+            "workspace": str(repo_ov_workspace_path(repo)),
+            "workspace_exists": repo_ov_workspace_path(repo).exists(),
+            "repo_openviking_dir": str(repo_ov_dir),
+            "user_runtime_home": str(DEFAULT_OV_HOME),
+            "user_config_path": str(user_config),
+            "user_config_exists": user_config.exists(),
+            "user_cli_config_path": str(user_cli_config),
+            "user_cli_config_exists": user_cli_config.exists(),
             "repo_local_install_present": (repo / ".agents" / "openviking" / "venv").exists(),
         },
     }
     if ov_bin:
         payload["openviking"]["version"] = summarize_command_payload(run_command([str(ov_bin), "version"]))
         if online:
-            health = ov_command_payload([str(ov_bin), "health", "-o", "json"], timeout=None)
-            status = ov_command_payload([str(ov_bin), "status", "-o", "json"], timeout=None)
+            env = repo_ov_cli_env(repo)
+            health = ov_command_payload([str(ov_bin), "health", "-o", "json"], timeout=None, env=env)
+            status = ov_command_payload([str(ov_bin), "status", "-o", "json"], timeout=None, env=env)
             payload["openviking"]["health"] = {
                 **summarize_command_payload(health),
                 "json": health.get("json"),
@@ -6223,9 +6388,9 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.set_defaults(func=command_ov_bootstrap_system)
 
     config = ov_sub.add_parser("write-default-config")
-    config.add_argument("--config", default=str(DEFAULT_OV_CONFIG))
-    config.add_argument("--cli-config", default=str(DEFAULT_OV_CLI_CONFIG))
-    config.add_argument("--home", default=str(DEFAULT_OV_HOME))
+    config.add_argument("--config")
+    config.add_argument("--cli-config")
+    config.add_argument("--home")
     config.add_argument("--provider", choices=SUPPORTED_OV_PROVIDERS, default=DEFAULT_RUNTIME_PROVIDER)
     config.add_argument("--base-url")
     config.add_argument("--provider-base")
@@ -6241,7 +6406,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     server = ov_sub.add_parser("server")
     server.add_argument("--server-bin")
-    server.add_argument("--config", default=str(DEFAULT_OV_CONFIG))
+    server.add_argument("--config")
     server.add_argument("--host")
     server.add_argument("--port", type=int)
     server.add_argument("--workers", type=int)
@@ -6257,9 +6422,10 @@ def build_parser() -> argparse.ArgumentParser:
         service_parser.add_argument("--home", default=str(DEFAULT_OV_HOME))
         service_parser.add_argument("--server-bin")
         service_parser.add_argument("--config")
-        service_parser.add_argument("--label", default=DEFAULT_OV_SERVICE_LABEL)
+        service_parser.add_argument("--label")
         service_parser.add_argument("--plist")
         service_parser.add_argument("--timeout", type=float, default=DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
+        service_parser.add_argument("--repo-local", action="store_true")
         service_parser.add_argument("--dry-run", action="store_true")
         service_parser.set_defaults(func=command_ov_service)
 
