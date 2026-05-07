@@ -2470,6 +2470,11 @@ ensure_user_openviking_service() {
     return
   fi
 
+  if "$dispatcher" ov service status --home "$ov_home" >/dev/null 2>&1 && openviking_health_ready; then
+    echo "Verified user-level OpenViking macOS service: com.agent-basics.openviking"
+    return
+  fi
+
   if ! "$dispatcher" ov package-server --home "$ov_home"; then
     echo "Warning: OpenViking server packaging failed." >&2
     echo "Re-run manually: $dispatcher ov package-server --home \"$ov_home\"" >&2
@@ -2580,6 +2585,108 @@ install_openviking_hooks() {
   fi
 
   echo "Warning: OpenViking hook installation could not be completed. Re-run manually with: agent-basics ov install-hooks" >&2
+}
+
+openviking_health_ready() {
+  local ov_bin
+
+  if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" ]]; then
+    ov_bin="$AGENT_BASICS_TEST_OPENVIKING_BIN"
+  else
+    ov_bin="${HOME:-}/.openviking/venv/bin/ov"
+  fi
+
+  [[ -x "$ov_bin" ]] || return 1
+  "$ov_bin" health -o json >/dev/null 2>&1
+}
+
+wait_for_openviking_health_for_import() {
+  local timeout_seconds="${AGENT_BASICS_OPENVIKING_IMPORT_READY_TIMEOUT:-60}"
+  local start_time="$SECONDS"
+  local elapsed
+
+  if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" || "${AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  while true; do
+    if openviking_health_ready; then
+      return 0
+    fi
+
+    elapsed=$((SECONDS - start_time))
+    if (( elapsed >= timeout_seconds )); then
+      return 1
+    fi
+
+    echo "Waiting for OpenViking service before source-store import..."
+    sleep 2
+  done
+}
+
+run_openviking_source_import_command() {
+  local import_log
+
+  import_log="$(mktemp "${TMPDIR:-/tmp}/agent-basics-ov-import.XXXXXX.log")"
+  if "$@" > "$import_log" 2>&1; then
+    rm -f "$import_log"
+    return 0
+  fi
+
+  cat "$import_log" >&2
+  rm -f "$import_log"
+  return 1
+}
+
+import_openviking_source_store() {
+  local helper_path
+  local dispatcher
+
+  if [[ "${AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK:-0}" == "1" ]]; then
+    echo "Skipped OpenViking source-store import due to test-only skip flag"
+    return
+  fi
+
+  if ! wait_for_openviking_health_for_import; then
+    echo "Error: OpenViking service did not become healthy before source-store import." >&2
+    echo "Re-run manually with: agent-basics ov import-repo-memory --write" >&2
+    exit 1
+  fi
+
+  if helper_path="$(find_ov_helper_source)"; then
+    if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" ]]; then
+      if run_openviking_source_import_command env AGENT_BASICS_OV_BIN="$AGENT_BASICS_TEST_OPENVIKING_BIN" python3 "$helper_path" --repo "$TARGET_DIR" ov import-repo-memory --write; then
+        echo "Imported OpenViking source store"
+        return
+      fi
+    else
+      if run_openviking_source_import_command python3 "$helper_path" --repo "$TARGET_DIR" ov import-repo-memory --write; then
+        echo "Imported OpenViking source store"
+        return
+      fi
+    fi
+    echo "Error: OpenViking source-store import failed." >&2
+    echo "Re-run manually with: agent-basics ov import-repo-memory --write" >&2
+    exit 1
+  fi
+
+  if dispatcher="$(find_agent_basics_dispatcher)"; then
+    if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" ]]; then
+      if run_openviking_source_import_command env AGENT_BASICS_OV_BIN="$AGENT_BASICS_TEST_OPENVIKING_BIN" "$dispatcher" --repo "$TARGET_DIR" ov import-repo-memory --write; then
+        echo "Imported OpenViking source store"
+        return
+      fi
+    else
+      if run_openviking_source_import_command "$dispatcher" --repo "$TARGET_DIR" ov import-repo-memory --write; then
+        echo "Imported OpenViking source store"
+        return
+      fi
+    fi
+  fi
+
+  echo "Error: OpenViking source-store import could not be completed." >&2
+  echo "Re-run manually with: agent-basics ov import-repo-memory --write" >&2
+  exit 1
 }
 
 write_memory_tool_files() {
@@ -3352,6 +3459,8 @@ if compat_memory_enabled; then
   start_repo_local_embedding_api_for_setup
   ".agents/memory/rag/agent-memory.py" rebuild
 fi
+
+import_openviking_source_store
 
 if agent_basics_language_is_zh; then
 cat <<EOT

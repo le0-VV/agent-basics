@@ -320,6 +320,17 @@
       "skipped": true,
       "target": "viking://user/default/memories/tools/projects/agent-basics/1778127426-mlx-startup-preload-must-run-real-warmup-inference.md"
     },
+    ".agents/memory/memories/tools/1778130585-fresh-setup-imports-openviking-source-store.md": {
+      "imported_at": 1778130601,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/tools/1778130585-fresh-setup-imports-openviking-source-store.md",
+      "returncode": 0,
+      "sha256": "c04c8048decd6db4c78705808d354ae9db9592b54504c0d67c6d4b83aa84ae9d",
+      "skipped": false,
+      "target": "viking://user/default/memories/tools/projects/agent-basics/1778130585-fresh-setup-imports-openviking-source-store.md"
+    },
     ".agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md": {
       "imported_at": 1777948439,
       "kind": "resource",
@@ -331,10 +342,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778128743,
+  "last_import": 1778130601,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778128743,
+  "updated": 1778130601,
   "version": 1
 }

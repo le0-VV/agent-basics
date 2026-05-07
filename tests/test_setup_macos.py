@@ -198,6 +198,7 @@ class SetupMacosTest(unittest.TestCase):
             self.assertTrue((repo / ".agents" / "openviking" / "repo.json").is_file())
             self.assertTrue((repo / ".agents" / "backups").is_dir())
             self.assertTrue((repo / ".agents" / "merge-sessions").is_dir())
+            self.assertIn("Imported OpenViking source store", result.stdout)
             self.assertFalse((repo / ".agents" / "runs").exists())
             self.assertTrue((repo / "Skills.md").is_file())
             self.assertTrue((repo / ".agents" / "skills" / "prework.md").is_file())
@@ -228,6 +229,14 @@ class SetupMacosTest(unittest.TestCase):
             )
             self.assertNotIn("run", config)
             self.assertEqual(self.read_install_config(repo)["agent_basics"], {"language": "en"})
+            import_state = json.loads((repo / ".agents" / "openviking" / "import-state.json").read_text(encoding="utf-8"))
+            self.assertEqual(import_state["repo"], str(repo.resolve()))
+            for path in [
+                ".agents/memory/ADAPTATION.md",
+                ".agents/memory/INDEX.md",
+                ".agents/memory/SCHEMA.md",
+            ]:
+                self.assertTrue(import_state["imports"][path]["ok"], path)
 
             snippet = json.loads((repo / ".agents" / "openviking" / "codex-mcp.json").read_text(encoding="utf-8"))
             self.assertEqual(
@@ -308,6 +317,7 @@ class SetupMacosTest(unittest.TestCase):
                 install_log.read_text(encoding="utf-8").strip().splitlines(),
                 [
                     f"ov bootstrap-system --home {ov_home} --service-best-effort --runtime mlx --runtime-best-effort",
+                    f"ov service status --home {ov_home}",
                     f"ov package-server --home {ov_home}",
                     f"ov service install --home {ov_home}",
                 ],
@@ -395,6 +405,7 @@ class SetupMacosTest(unittest.TestCase):
             )
 
             self.assertIn("Skipped user-level OpenViking verification", result.stdout)
+            self.assertIn("Skipped OpenViking source-store import", result.stdout)
             self.assertTrue((repo / ".agents" / "config.toml").is_file())
 
     def test_setup_web_merge_conflict_creates_unresolved_session_without_gui(self) -> None:
