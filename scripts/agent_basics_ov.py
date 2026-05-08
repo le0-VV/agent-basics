@@ -95,6 +95,7 @@ DEFAULT_OV_SERVICE_LABEL = "com.agent-basics.openviking"
 DEFAULT_OV_SERVICE_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{DEFAULT_OV_SERVICE_LABEL}.plist"
 DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS = 120
 DEFAULT_OV_VLM_TIMEOUT_SECONDS = 86400
+DEFAULT_OV_QUICK_TIMEOUT_SECONDS = 30
 DEFAULT_OV_MEMORY_TARGET = "viking://user/default/memories"
 DEFAULT_OV_RESOURCE_TARGET = "viking://resources/projects"
 OPENVIKING_CONFIG_ENV = "OPENVIKING_CONFIG_FILE"
@@ -327,16 +328,18 @@ def run_command_retry_busy(
     delay: float,
     env: dict[str, str] | None = None,
     wait_command: list[str] | None = None,
+    timeout: float | None = None,
+    wait_timeout: float | None = None,
 ) -> dict[str, Any]:
-    result = run_command_env(command, timeout=None, env=env)
+    result = run_command_env(command, timeout=timeout, env=env)
     attempts = 0
     wait_results: list[dict[str, Any]] = []
     while not result["ok"] and result_is_busy(result) and attempts < retries:
         attempts += 1
         if wait_command is not None:
-            wait_results.append(run_command_env(wait_command, timeout=None, env=env))
+            wait_results.append(run_command_env(wait_command, timeout=wait_timeout, env=env))
         time.sleep(delay)
-        result = run_command_env(command, timeout=None, env=env)
+        result = run_command_env(command, timeout=timeout, env=env)
     if attempts:
         result["busy_retries"] = attempts
     if wait_results:
@@ -2066,7 +2069,7 @@ def update_ov_import_state_entry(
         if not ok:
             entry["stdout"] = command_result.get("stdout")
             entry["stderr"] = command_result.get("stderr")
-        for key in ["busy_retries", "verified_existing", "already_exists", "previous_error"]:
+        for key in ["busy_retries", "verified_existing", "already_exists", "previous_error", "error", "elapsed_seconds"]:
             if key in command_result:
                 entry[key] = command_result[key]
     imports[rel] = entry
@@ -2129,7 +2132,49 @@ def ov_memory_target_uri(base_uri: str, repo: Path, path: Path, category: str) -
     return f"{base_uri.rstrip('/')}/{category}/projects/{slugify(repo.name)}/{path.name}"
 
 
-def ov_mkdir_p(ov_bin: Path, uri: str, *, env: dict[str, str] | None = None) -> list[dict[str, Any]]:
+def ov_result_is_already_exists(result: dict[str, Any]) -> bool:
+    text = f"{result.get('stdout', '')}\n{result.get('stderr', '')}".lower()
+    return (
+        "already exists" in text
+        or "already exist" in text
+        or "file exists" in text
+        or "exists already" in text
+    )
+
+
+def ov_result_is_missing(result: dict[str, Any]) -> bool:
+    text = f"{result.get('stdout', '')}\n{result.get('stderr', '')}\n{result.get('error', '')}".lower()
+    return "not found" in text or "does not exist" in text or "no such" in text
+
+
+def ov_first_failed_result(results: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for result in results:
+        if not result.get("ok") and not ov_result_is_already_exists(result):
+            return result
+    return None
+
+
+def ov_dependency_failure(result: dict[str, Any], message: str) -> dict[str, Any]:
+    failure = {
+        "ok": False,
+        "command": result.get("command"),
+        "returncode": result.get("returncode"),
+        "stdout": result.get("stdout", ""),
+        "stderr": result.get("stderr") or result.get("error") or message,
+        "error": message,
+    }
+    if "elapsed_seconds" in result:
+        failure["elapsed_seconds"] = result["elapsed_seconds"]
+    return failure
+
+
+def ov_mkdir_p(
+    ov_bin: Path,
+    uri: str,
+    *,
+    env: dict[str, str] | None = None,
+    timeout: float | None = DEFAULT_OV_QUICK_TIMEOUT_SECONDS,
+) -> list[dict[str, Any]]:
     if not uri.startswith("viking://"):
         return []
     suffix = uri[len("viking://") :].strip("/")
@@ -2140,8 +2185,8 @@ def ov_mkdir_p(ov_bin: Path, uri: str, *, env: dict[str, str] | None = None) -> 
     current = "viking://"
     for piece in pieces:
         current = f"viking://{piece}" if current == "viking://" else f"{current.rstrip('/')}/{piece}"
-        result = run_command_env([str(ov_bin), "mkdir", current, "-o", "json"], timeout=None, env=env)
-        if not result["ok"] and "already" not in result.get("stderr", "").lower() and "exist" not in result.get("stderr", "").lower():
+        result = run_command_env([str(ov_bin), "mkdir", current, "-o", "json"], timeout=timeout, env=env)
+        if not result["ok"] and not ov_result_is_already_exists(result):
             commands.append(result)
             break
         commands.append(result)
@@ -2154,8 +2199,9 @@ def ov_existing_content_result(
     expected: str,
     *,
     env: dict[str, str] | None = None,
+    timeout: float | None = DEFAULT_OV_QUICK_TIMEOUT_SECONDS,
 ) -> dict[str, Any] | None:
-    read_result = run_command_env([str(ov_bin), "read", target, "-o", "json"], timeout=None, env=env)
+    read_result = run_command_env([str(ov_bin), "read", target, "-o", "json"], timeout=timeout, env=env)
     if read_result["ok"] and read_result.get("stdout", "").strip() == expected.strip():
         return {
             "ok": True,
@@ -2165,6 +2211,8 @@ def ov_existing_content_result(
             "stderr": read_result.get("stderr", ""),
             "verified_existing": True,
         }
+    if not read_result["ok"] and not ov_result_is_missing(read_result):
+        return ov_dependency_failure(read_result, "failed to verify existing OpenViking target content")
     return None
 
 
@@ -2181,9 +2229,10 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
     env = repo_ov_cli_env(repo)
     base_uri = (args.target or f"viking://resources/projects/{slugify(repo.name)}").rstrip("/")
     memory_base_uri = args.memory_target.rstrip("/")
-    parent_results = [] if args.dry_run else ov_mkdir_p(ov_bin, base_uri, env=env)
+    quick_timeout = getattr(args, "quick_timeout", DEFAULT_OV_QUICK_TIMEOUT_SECONDS)
+    parent_results: list[dict[str, Any]] = []
 
-    health = run_command_env([str(ov_bin), "health", "-o", "json"], timeout=10, env=env)
+    health = run_command_env([str(ov_bin), "health", "-o", "json"], timeout=quick_timeout, env=env)
     if not health["ok"] and not args.dry_run:
         print_json(
             {
@@ -2194,12 +2243,14 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
             }
         )
         return 1
+    if not args.dry_run:
+        parent_results.extend(ov_mkdir_p(ov_bin, base_uri, env=env, timeout=quick_timeout))
 
     results: list[dict[str, Any]] = []
 
-    def should_skip(path: Path, digest: str, method: str, target: str | None = None) -> bool:
+    def import_skip_check(path: Path, digest: str, method: str, target: str | None = None) -> dict[str, Any]:
         if args.force:
-            return False
+            return {"skip": False}
         previous = imports.get(path.relative_to(repo).as_posix())
         matches_state = (
             isinstance(previous, dict)
@@ -2208,11 +2259,18 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
             and previous.get("method") == method
         )
         if not matches_state:
-            return False
+            return {"skip": False}
         if args.dry_run or not target:
-            return True
-        stat_result = run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=None, env=env)
-        return bool(stat_result.get("ok"))
+            return {"skip": True}
+        stat_result = run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=quick_timeout, env=env)
+        if stat_result.get("ok"):
+            return {"skip": True}
+        if ov_result_is_missing(stat_result):
+            return {"skip": False}
+        return {
+            "skip": False,
+            "failure": ov_dependency_failure(stat_result, "failed to verify existing OpenViking target"),
+        }
 
     def record_result(
         kind: str,
@@ -2241,7 +2299,7 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
             if not ok:
                 entry["stdout"] = command_result.get("stdout")
                 entry["stderr"] = command_result.get("stderr")
-            for key in ["busy_retries", "verified_existing", "already_exists", "previous_error"]:
+            for key in ["busy_retries", "verified_existing", "already_exists", "previous_error", "error", "elapsed_seconds"]:
                 if key in command_result:
                     entry[key] = command_result[key]
         imports[rel] = entry
@@ -2262,25 +2320,52 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
             continue
         category = ov_memory_category(meta, path)
         target = ov_memory_target_uri(memory_base_uri, repo, path, category)
-        if should_skip(path, digest, "write", target):
+        skip_check = import_skip_check(path, digest, "write", target)
+        if skip_check.get("failure"):
+            record_result("memory", path, digest, skip_check["failure"], method="write", target=target)
+            continue
+        if skip_check.get("skip"):
             record_result("memory", path, digest, None, skipped=True, method="write", target=target)
             continue
         if not args.dry_run and not args.force:
-            existing_result = ov_existing_content_result(ov_bin, target, text, env=env)
+            existing_result = ov_existing_content_result(ov_bin, target, text, env=env, timeout=quick_timeout)
             if existing_result:
                 record_result("memory", path, digest, existing_result, method="write", target=target)
                 continue
         if not args.dry_run:
-            parent_results.extend(ov_mkdir_p(ov_bin, ov_parent_uri(target), env=env))
+            target_parent_results = ov_mkdir_p(ov_bin, ov_parent_uri(target), env=env, timeout=quick_timeout)
+            parent_results.extend(target_parent_results)
+            parent_failure = ov_first_failed_result(target_parent_results)
+            if parent_failure:
+                record_result(
+                    "memory",
+                    path,
+                    digest,
+                    ov_dependency_failure(parent_failure, "failed to create OpenViking parent URI"),
+                    method="write",
+                    target=target,
+                )
+                continue
         stat_result = (
             {"ok": False}
             if args.dry_run
-            else run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=None, env=env)
+            else run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=quick_timeout, env=env)
         )
+        if not args.dry_run and not stat_result["ok"] and not ov_result_is_missing(stat_result):
+            record_result(
+                "memory",
+                path,
+                digest,
+                ov_dependency_failure(stat_result, "failed to inspect OpenViking target"),
+                method="write",
+                target=target,
+            )
+            continue
         mode = "replace" if stat_result["ok"] else "create"
         command = [str(ov_bin), "write", target, "--from-file", str(path), "--mode", mode, "-o", "json"]
         if args.wait_memory:
             command.extend(["--wait", "--timeout", str(args.timeout)])
+        write_timeout = args.timeout if args.wait_memory else quick_timeout
         result = (
             {"ok": True, "command": command, "stdout": "dry-run", "stderr": "", "returncode": 0}
             if args.dry_run
@@ -2290,6 +2375,8 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
                 delay=args.busy_delay,
                 env=env,
                 wait_command=[str(ov_bin), "wait"],
+                timeout=write_timeout,
+                wait_timeout=write_timeout,
             )
         )
         if not result["ok"] and mode == "create" and "already" in result.get("stderr", "").lower():
@@ -2302,10 +2389,12 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
                 delay=args.busy_delay,
                 env=env,
                 wait_command=[str(ov_bin), "wait"],
+                timeout=write_timeout,
+                wait_timeout=write_timeout,
             )
         if not result["ok"] and not args.dry_run:
-            existing_result = ov_existing_content_result(ov_bin, target, text, env=env)
-            if existing_result:
+            existing_result = ov_existing_content_result(ov_bin, target, text, env=env, timeout=quick_timeout)
+            if existing_result and existing_result.get("ok"):
                 existing_result["previous_error"] = result.get("stderr") or result.get("error")
                 result = existing_result
         record_result("memory", path, digest, result, method="write", target=target)
@@ -2313,9 +2402,27 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
     for path in files["resources"]:
         digest = sha256_text(path.read_text(encoding="utf-8"))
         target = ov_target_uri(base_uri, repo, path, "resources")
-        if should_skip(path, digest, "add-resource", target):
+        skip_check = import_skip_check(path, digest, "add-resource", target)
+        if skip_check.get("failure"):
+            record_result("resource", path, digest, skip_check["failure"], method="add-resource", target=target)
+            continue
+        if skip_check.get("skip"):
             record_result("resource", path, digest, None, skipped=True, method="add-resource", target=target)
             continue
+        if not args.dry_run:
+            target_parent_results = ov_mkdir_p(ov_bin, ov_parent_uri(target), env=env, timeout=quick_timeout)
+            parent_results.extend(target_parent_results)
+            parent_failure = ov_first_failed_result(target_parent_results)
+            if parent_failure:
+                record_result(
+                    "resource",
+                    path,
+                    digest,
+                    ov_dependency_failure(parent_failure, "failed to create OpenViking parent URI"),
+                    method="add-resource",
+                    target=target,
+                )
+                continue
         command = [
             str(ov_bin),
             "add-resource",
@@ -2332,10 +2439,10 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
         result = (
             {"ok": True, "command": command, "stdout": "dry-run", "stderr": "", "returncode": 0}
             if args.dry_run
-            else run_command_env(command, timeout=None, env=env)
+            else run_command_env(command, timeout=args.timeout if args.wait_resources else quick_timeout, env=env)
         )
         if not result["ok"] and "already" in result.get("stderr", "").lower() and "exist" in result.get("stderr", "").lower():
-            stat_result = run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=None, env=env)
+            stat_result = run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=quick_timeout, env=env)
             if stat_result["ok"]:
                 result = {
                     **result,
@@ -2347,20 +2454,24 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
 
     for path in files["skills"]:
         digest = sha256_text(path.read_text(encoding="utf-8"))
-        if should_skip(path, digest, "add-skill"):
+        skip_check = import_skip_check(path, digest, "add-skill")
+        if skip_check.get("failure"):
+            record_result("skill", path, digest, skip_check["failure"], method="add-skill")
+            continue
+        if skip_check.get("skip"):
             record_result("skill", path, digest, None, skipped=True, method="add-skill")
             continue
         command = [str(ov_bin), "add-skill", str(path), "--wait", "--timeout", str(args.timeout), "-o", "json"]
         result = (
             {"ok": True, "command": command, "stdout": "dry-run", "stderr": "", "returncode": 0}
             if args.dry_run
-            else run_command_env(command, timeout=None, env=env)
+            else run_command_env(command, timeout=args.timeout, env=env)
         )
         record_result("skill", path, digest, result, method="add-skill")
 
     wait_result = None
     if args.wait and not args.dry_run:
-        wait_result = run_command_env([str(ov_bin), "wait"], timeout=None, env=env)
+        wait_result = run_command_env([str(ov_bin), "wait"], timeout=args.timeout, env=env)
 
     state.update(
         {
@@ -2374,7 +2485,8 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
     if args.write and not args.dry_run:
         write_ov_import_state(repo, state)
 
-    ok = all(item.get("ok") for item in results)
+    parents_ok = ov_first_failed_result(parent_results) is None
+    ok = all(item.get("ok") for item in results) and parents_ok
     payload = {
         "ok": ok,
         "repo": str(repo),
@@ -2384,6 +2496,7 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
         "write_state": args.write,
         "counts": {key: len(value) for key, value in files.items()},
         "parents": parent_results,
+        "parents_ok": parents_ok,
         "health": health,
         "results": results,
         "wait": wait_result,
@@ -2527,7 +2640,13 @@ def command_ov_search(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
-def ov_read_payload(repo: Path, *, uri: str, allow_global: bool = False, timeout: float | None = None) -> dict[str, Any]:
+def ov_read_payload(
+    repo: Path,
+    *,
+    uri: str,
+    allow_global: bool = False,
+    timeout: float | None = DEFAULT_OV_QUICK_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
     ov_bin, error = ov_bin_or_error()
     if error:
         return error
@@ -2557,7 +2676,12 @@ def ov_read_payload(repo: Path, *, uri: str, allow_global: bool = False, timeout
 
 
 def command_ov_read(args: argparse.Namespace) -> int:
-    payload = ov_read_payload(repo_root_from_args(args), uri=args.uri, allow_global=args.allow_global, timeout=None)
+    payload = ov_read_payload(
+        repo_root_from_args(args),
+        uri=args.uri,
+        allow_global=args.allow_global,
+        timeout=args.quick_timeout,
+    )
     print_json(payload)
     return 0 if payload.get("ok") else 1
 
@@ -2656,6 +2780,7 @@ def ov_record_payload(
     source_paths: list[str] | None = None,
     wait: bool = True,
     timeout: int = DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+    quick_timeout: float | None = DEFAULT_OV_QUICK_TIMEOUT_SECONDS,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     if category not in OV_MEMORY_CATEGORIES:
@@ -2700,16 +2825,50 @@ def ov_record_payload(
     source_path.write_text(markdown, encoding="utf-8")
     assert ov_bin is not None
     env = repo_ov_cli_env(repo)
-    parent_results = ov_mkdir_p(ov_bin, ov_parent_uri(target), env=env)
+    parent_results = ov_mkdir_p(ov_bin, ov_parent_uri(target), env=env, timeout=quick_timeout)
+    parent_failure = ov_first_failed_result(parent_results)
+    if parent_failure:
+        result = ov_dependency_failure(parent_failure, "failed to create OpenViking parent URI")
+        state_entry = update_ov_import_state_entry(
+            repo,
+            kind="memory",
+            method="write",
+            source_path=source_path,
+            target=target,
+            digest=sha256_text(markdown),
+            ok=False,
+            command_result=result,
+        )
+        return {
+            "ok": False,
+            "repo": str(repo),
+            "repo_slug": ov_repo_slug(repo),
+            "category": category,
+            "source_path": str(source_path),
+            "target": target,
+            "cli_config": str(repo_ov_cli_config_path(repo)),
+            "parents": parent_results,
+            "state": state_entry,
+            "state_path": str(ov_import_state_path(repo)),
+            "write": result,
+        }
     command = [str(ov_bin), "write", target, "--from-file", str(source_path), "--mode", "create", "-o", "json"]
     if wait:
         command.extend(["--wait", "--timeout", str(timeout)])
-    result = run_command_retry_busy(command, retries=120, delay=5, env=env)
+    write_timeout = timeout if wait else quick_timeout
+    result = run_command_retry_busy(command, retries=120, delay=5, env=env, timeout=write_timeout, wait_timeout=write_timeout)
     if not result["ok"] and "already" in result.get("stderr", "").lower():
         replace_command = [str(ov_bin), "write", target, "--from-file", str(source_path), "--mode", "replace", "-o", "json"]
         if wait:
             replace_command.extend(["--wait", "--timeout", str(timeout)])
-        result = run_command_retry_busy(replace_command, retries=120, delay=5, env=env)
+        result = run_command_retry_busy(
+            replace_command,
+            retries=120,
+            delay=5,
+            env=env,
+            timeout=write_timeout,
+            wait_timeout=write_timeout,
+        )
     ok = bool(result.get("ok"))
     state_entry = update_ov_import_state_entry(
         repo,
@@ -2756,6 +2915,7 @@ def command_ov_record(args: argparse.Namespace) -> int:
         source_paths=source_paths,
         wait=not args.no_wait,
         timeout=args.timeout,
+        quick_timeout=args.quick_timeout,
         dry_run=args.dry_run,
     )
     print_json(payload)
@@ -2794,6 +2954,7 @@ def ov_add_resource_payload(
     instruction: str = "",
     wait: bool = True,
     timeout: int = DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+    quick_timeout: float | None = DEFAULT_OV_QUICK_TIMEOUT_SECONDS,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     if not source.strip():
@@ -2816,8 +2977,21 @@ def ov_add_resource_payload(
         return {"ok": True, "dry_run": True, "repo": str(repo), "source": command_source, "target": target}
     assert ov_bin is not None
     env = repo_ov_cli_env(repo)
-    parent_results = ov_mkdir_p(ov_bin, ov_parent_uri(target), env=env)
-    stat_result = run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=None, env=env)
+    parent_results = ov_mkdir_p(ov_bin, ov_parent_uri(target), env=env, timeout=quick_timeout)
+    parent_failure = ov_first_failed_result(parent_results)
+    if parent_failure:
+        result = ov_dependency_failure(parent_failure, "failed to create OpenViking parent URI")
+        return {
+            "ok": False,
+            "changed": False,
+            "repo": str(repo),
+            "source": command_source,
+            "target": target,
+            "cli_config": str(repo_ov_cli_config_path(repo)),
+            "parents": parent_results,
+            "write": result,
+        }
+    stat_result = run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=quick_timeout, env=env)
     if stat_result["ok"]:
         return {
             "ok": True,
@@ -2829,12 +3003,25 @@ def ov_add_resource_payload(
             "parents": parent_results,
             "stat": stat_result,
         }
+    if not ov_result_is_missing(stat_result):
+        result = ov_dependency_failure(stat_result, "failed to inspect OpenViking target")
+        return {
+            "ok": False,
+            "changed": False,
+            "repo": str(repo),
+            "source": command_source,
+            "target": target,
+            "cli_config": str(repo_ov_cli_config_path(repo)),
+            "parents": parent_results,
+            "stat": stat_result,
+            "write": result,
+        }
     command = [str(ov_bin), "add-resource", command_source, "--to", target, "--reason", reason, "-o", "json"]
     if instruction:
         command.extend(["--instruction", instruction])
     if wait:
         command.extend(["--wait", "--timeout", str(timeout)])
-    result = run_command_env(command, timeout=None, env=env)
+    result = run_command_env(command, timeout=timeout if wait else quick_timeout, env=env)
     return {
         "ok": bool(result.get("ok")),
         "changed": bool(result.get("ok")),
@@ -2856,6 +3043,7 @@ def command_ov_add_resource(args: argparse.Namespace) -> int:
         instruction=args.instruction or "",
         wait=not args.no_wait,
         timeout=args.timeout,
+        quick_timeout=args.quick_timeout,
         dry_run=args.dry_run,
     )
     print_json(payload)
@@ -3047,6 +3235,7 @@ def command_ov_ingest_changed(args: argparse.Namespace) -> int:
         target=args.target,
         memory_target=args.memory_target,
         timeout=args.timeout,
+        quick_timeout=getattr(args, "quick_timeout", DEFAULT_OV_QUICK_TIMEOUT_SECONDS),
         include_review=args.include_review,
         force=False,
         dry_run=args.dry_run,
@@ -6455,6 +6644,7 @@ def build_parser() -> argparse.ArgumentParser:
     import_memory.add_argument("--target", default=None)
     import_memory.add_argument("--memory-target", default=DEFAULT_OV_MEMORY_TARGET)
     import_memory.add_argument("--timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+    import_memory.add_argument("--quick-timeout", type=float, default=DEFAULT_OV_QUICK_TIMEOUT_SECONDS)
     import_memory.add_argument("--include-review", action="store_true")
     import_memory.add_argument("--force", action="store_true")
     import_memory.add_argument("--dry-run", action="store_true")
@@ -6477,6 +6667,7 @@ def build_parser() -> argparse.ArgumentParser:
     read = ov_sub.add_parser("read")
     read.add_argument("uri")
     read.add_argument("--allow-global", action="store_true")
+    read.add_argument("--quick-timeout", type=float, default=DEFAULT_OV_QUICK_TIMEOUT_SECONDS)
     read.set_defaults(func=command_ov_read)
 
     record = ov_sub.add_parser("record")
@@ -6489,6 +6680,7 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--tag", action="append")
     record.add_argument("--status", default="active")
     record.add_argument("--timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+    record.add_argument("--quick-timeout", type=float, default=DEFAULT_OV_QUICK_TIMEOUT_SECONDS)
     record.add_argument("--no-wait", action="store_true")
     record.add_argument("--dry-run", action="store_true")
     record.set_defaults(func=command_ov_record)
@@ -6499,6 +6691,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_resource.add_argument("--reason", default="agent-basics repo resource import")
     add_resource.add_argument("--instruction", default="")
     add_resource.add_argument("--timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+    add_resource.add_argument("--quick-timeout", type=float, default=DEFAULT_OV_QUICK_TIMEOUT_SECONDS)
     add_resource.add_argument("--no-wait", action="store_true")
     add_resource.add_argument("--dry-run", action="store_true")
     add_resource.set_defaults(func=command_ov_add_resource)
@@ -6514,6 +6707,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_changed.add_argument("--target", default=None)
     ingest_changed.add_argument("--memory-target", default=DEFAULT_OV_MEMORY_TARGET)
     ingest_changed.add_argument("--timeout", type=int, default=DEFAULT_OV_VLM_TIMEOUT_SECONDS)
+    ingest_changed.add_argument("--quick-timeout", type=float, default=DEFAULT_OV_QUICK_TIMEOUT_SECONDS)
     ingest_changed.add_argument("--include-review", action="store_true")
     ingest_changed.add_argument("--dry-run", action="store_true")
     ingest_changed.add_argument("--busy-retries", type=int, default=120)
