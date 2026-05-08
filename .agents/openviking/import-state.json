@@ -210,6 +210,18 @@
       "skipped": true,
       "target": "viking://user/default/memories/events/projects/agent-basics/1778128274-first-release-local-mlx-requires-apple-silicon-16gb.md"
     },
+    ".agents/memory/memories/events/1778218094-setup-service-failure-output-polish.md": {
+      "elapsed_seconds": 3.329,
+      "imported_at": 1778218712,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778218094-setup-service-failure-output-polish.md",
+      "returncode": 0,
+      "sha256": "45e738dd7d70564e96371c65c81c147d6f2291b8a60dcafaf856acf3091877aa",
+      "skipped": false,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778218094-setup-service-failure-output-polish.md"
+    },
     ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -353,10 +365,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778156847,
+  "last_import": 1778218712,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778156847,
+  "updated": 1778218712,
   "version": 1
 }
