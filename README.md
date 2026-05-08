@@ -16,8 +16,6 @@ Setting up guide rails is tedious work. From what I've been seeing and communica
 
 This project aims to help solve this for as many people as possible.
 
-A solution that does not need OpenViking, and therefore does not need a separate LLM and embedding model API, is in the works.
-
 ## The Idea
 
 `agent-basics` is a basic repo harness: install one shared memory backend, put stable agent-facing files in predictable places, and teach agents a few repeatable routines.
@@ -60,6 +58,12 @@ For a new or existing project:
 
 ```bash
 agent-basics setup /path/to/project
+```
+
+Set the installation language once during setup if you want generated prompts and setup output in Simplified Chinese:
+
+```bash
+agent-basics --language zh-CN setup /path/to/project
 ```
 
 Re-running setup is the upgrade path:

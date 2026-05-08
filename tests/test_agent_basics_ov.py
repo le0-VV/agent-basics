@@ -1878,24 +1878,25 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "ov.conf"
             cli_config_path = Path(tmp) / "ovcli.conf"
-            result = agent_basics_ov.command_ov_write_default_config(
-                SimpleNamespace(
-                    config=str(config_path),
-                    cli_config=str(cli_config_path),
-                    home=str(Path(tmp) / "openviking"),
-                    provider="custom",
-                    base_url="http://127.0.0.1:8000",
-                    provider_base=None,
-                    api_key="test-key",
-                    chat_model="custom-chat",
-                    embedding_model="custom-embedding",
-                    embedding_dimension=768,
-                    vlm_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
-                    server_url="http://127.0.0.1:1933",
-                    cli_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
-                    force=False,
+            with redirect_stdout(io.StringIO()):
+                result = agent_basics_ov.command_ov_write_default_config(
+                    SimpleNamespace(
+                        config=str(config_path),
+                        cli_config=str(cli_config_path),
+                        home=str(Path(tmp) / "openviking"),
+                        provider="custom",
+                        base_url="http://127.0.0.1:8000",
+                        provider_base=None,
+                        api_key="test-key",
+                        chat_model="custom-chat",
+                        embedding_model="custom-embedding",
+                        embedding_dimension=768,
+                        vlm_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                        server_url="http://127.0.0.1:1933",
+                        cli_timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                        force=False,
+                    )
                 )
-            )
             payload = agent_basics_ov.load_json_file(config_path)
             cli_payload = agent_basics_ov.load_json_file(cli_config_path)
 

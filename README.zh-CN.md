@@ -16,8 +16,6 @@ Agents 做长线工作很容易掉链子，本质上还是 context 限制。Cont
 
 这个项目就是想尽量把这件事变简单一点。
 
-一个不需要 OpenViking，也就是不额外依赖 LLM 和 embedding model API 的方案，也在计划中。
-
 ## 核心想法
 
 `agent-basics` 是一个基础 repo harness：安装一个共享的记忆后端，把稳定的 agent-facing 文件放在可预测的位置，再教 agents 几个固定流程。
@@ -65,7 +63,7 @@ agent-basics setup /path/to/project
 把整个 agent-basics 安装的语言设成简体中文：
 
 ```bash
-agent-basics setup --language zh-CN /path/to/project
+agent-basics --language zh-CN setup /path/to/project
 ```
 
 重新运行 setup 就是 upgrade 路径：

@@ -87,6 +87,25 @@ class AgentBasicsDispatcherTest(unittest.TestCase):
         self.assertEqual(completed.returncode, 2)
         self.assertIn("unknown command: ollama", completed.stderr)
 
+    def test_public_help_centers_openviking_and_mlx(self) -> None:
+        completed = self.run_dispatcher(["--help"])
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("agent-basics [--repo DIR] mcp", completed.stdout)
+        self.assertIn("agent-basics [--repo DIR] ov", completed.stdout)
+        self.assertIn("agent-basics [--repo DIR] mlx", completed.stdout)
+        self.assertNotIn("memory <validate", completed.stdout)
+        self.assertNotIn("validate|rebuild|search|record", completed.stdout)
+        self.assertNotIn("--embedding-mode", completed.stdout)
+
+    def test_mcp_help_explains_directory_agnostic_setup(self) -> None:
+        completed = self.run_dispatcher(["mcp", "--help"])
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("agent-basics mcp", completed.stdout)
+        self.assertIn("working directory: optional", completed.stdout)
+        self.assertIn("pass `cwd`", completed.stdout)
+
     def test_mcp_uses_openviking_gateway(self) -> None:
         request = {
             "jsonrpc": "2.0",
@@ -185,6 +204,41 @@ class AgentBasicsDispatcherTest(unittest.TestCase):
         self.assertIn("[PASS] unit tests", completed.stdout)
         self.assertIn("[PASS] setup-macos.sh syntax", completed.stdout)
         self.assertIn("[SKIP] cargo test", completed.stdout)
+
+    def test_verify_summarizes_openviking_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            fake_dispatcher = repo / "agent-basics"
+            fake_dispatcher.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json\n"
+                "import sys\n"
+                "if sys.argv[1:] != ['ov', 'status', '--offline']:\n"
+                "    raise SystemExit(2)\n"
+                "print(json.dumps({\n"
+                "    'ok': True,\n"
+                f"    'repo': {str(repo)!r},\n"
+                "    'openviking': {\n"
+                "        'workspace': '.agents/openviking/workspace',\n"
+                "        'server_url': 'http://127.0.0.1:1933',\n"
+                "    },\n"
+                "    'source_store': {'canonical': {\n"
+                "        'counts': {'memories': 2, 'resources': 1, 'skills': 0},\n"
+                "        'stale_count': 0,\n"
+                "        'state': {'imports': {'too': 'large'}},\n"
+                "    }},\n"
+                "}))\n",
+                encoding="utf-8",
+            )
+            fake_dispatcher.chmod(0o755)
+
+            completed = self.run_dispatcher(["--repo", str(repo), "verify"])
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("[PASS] OpenViking offline status", completed.stdout)
+        self.assertIn("source_store: 2 memories, 1 resources, 0 skills", completed.stdout)
+        self.assertIn("stale_source_files: 0", completed.stdout)
+        self.assertNotIn("\"imports\"", completed.stdout)
 
     def test_commit_validates_message_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

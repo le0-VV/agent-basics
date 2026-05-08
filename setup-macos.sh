@@ -2527,11 +2527,16 @@ find_agent_basics_dispatcher() {
   return 1
 }
 
+agent_basics_display_command() {
+  printf "agent-basics\n"
+}
+
 install_or_repair_user_openviking() {
   local ov_bin="$1"
   local ov_home="$2"
   local mode="$3"
   local dispatcher
+  local display_command
   local choice
   local -a install_args
 
@@ -2541,6 +2546,7 @@ install_or_repair_user_openviking() {
     echo "Install or repair agent-basics, then run: agent-basics ov bootstrap-system --home \"$ov_home\" --service never --runtime mlx --runtime-best-effort" >&2
     exit 1
   fi
+  display_command="$(agent_basics_display_command)"
 
   install_args=(ov bootstrap-system --home "$ov_home" --service never --runtime mlx --runtime-best-effort)
   if [[ "$mode" == "repair" ]]; then
@@ -2554,26 +2560,26 @@ install_or_repair_user_openviking() {
       echo "Error: user-level OpenViking $mode is required, but setup is not running interactively." >&2
       echo "Expected executable: $ov_bin" >&2
       echo "Run setup in an interactive terminal, or run this first:" >&2
-      echo "  $dispatcher ov bootstrap-system --home \"$ov_home\" --service never --runtime mlx --runtime-best-effort" >&2
+      echo "  $display_command ov bootstrap-system --home \"$ov_home\" --service never --runtime mlx --runtime-best-effort" >&2
       exit 1
     fi
 
     printf "User-level OpenViking %s is required at %s. Run '%s ov bootstrap-system --home \"%s\" --service never --runtime mlx --runtime-best-effort' now? [y/N]: " \
-      "$mode" "$ov_bin" "$dispatcher" "$ov_home" >&2
+      "$mode" "$ov_bin" "$display_command" "$ov_home" >&2
     read -r choice
     case "$choice" in
       y|Y|yes|YES)
         ;;
       *)
         echo "Error: user-level OpenViking $mode was declined." >&2
-        echo "Install or repair OpenViking with: $dispatcher ov bootstrap-system --home \"$ov_home\" --service never --runtime mlx --runtime-best-effort" >&2
+        echo "Install or repair OpenViking with: $display_command ov bootstrap-system --home \"$ov_home\" --service never --runtime mlx --runtime-best-effort" >&2
         exit 1
         ;;
     esac
   fi
 
   if ! "$dispatcher" "${install_args[@]}"; then
-    echo "Error: OpenViking $mode command failed: $dispatcher ${install_args[*]}" >&2
+    echo "Error: OpenViking $mode command failed: $display_command ${install_args[*]}" >&2
     exit 1
   fi
 
@@ -2633,6 +2639,7 @@ ensure_user_openviking_config() {
   local ov_config
   local ovcli_config
   local dispatcher
+  local display_command
 
   # Test-only fake CLIs do not imply a real user-level OpenViking config.
   if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" || "${AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK:-0}" == "1" ]]; then
@@ -2659,10 +2666,11 @@ ensure_user_openviking_config() {
     echo "Run: agent-basics ov bootstrap-system --home \"$ov_home\" --service-best-effort --runtime mlx --runtime-best-effort" >&2
     exit 1
   fi
+  display_command="$(agent_basics_display_command)"
 
   if ! "$dispatcher" ov write-default-config --home "$ov_home" --config "$ov_config" --cli-config "$ovcli_config"; then
     echo "Error: failed to write user-level OpenViking configuration." >&2
-    echo "Run manually: $dispatcher ov bootstrap-system --home \"$ov_home\" --service-best-effort --runtime mlx --runtime-best-effort" >&2
+    echo "Run manually: $display_command ov bootstrap-system --home \"$ov_home\" --service-best-effort --runtime mlx --runtime-best-effort" >&2
     exit 1
   fi
 
@@ -2673,6 +2681,7 @@ ensure_user_openviking_config() {
 ensure_user_openviking_service() {
   local ov_home
   local dispatcher
+  local display_command
 
   # Test-only fake CLIs do not imply a real user-level OpenViking server binary.
   if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" || "${AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK:-0}" == "1" ]]; then
@@ -2696,6 +2705,7 @@ ensure_user_openviking_service() {
     echo "Re-run manually: agent-basics ov service install --home \"$ov_home\"" >&2
     return
   fi
+  display_command="$(agent_basics_display_command)"
 
   if "$dispatcher" ov service status --home "$ov_home" >/dev/null 2>&1 && openviking_health_ready; then
     echo "Verified user-level OpenViking macOS service: com.agent-basics.openviking"
@@ -2703,7 +2713,7 @@ ensure_user_openviking_service() {
   fi
 
   if ! run_setup_command_quiet "OpenViking server packaging" "$dispatcher" ov package-server --home "$ov_home"; then
-    echo "Re-run manually: $dispatcher ov package-server --home \"$ov_home\"" >&2
+    echo "Re-run manually: $display_command ov package-server --home \"$ov_home\"" >&2
     return
   fi
 
@@ -2712,11 +2722,12 @@ ensure_user_openviking_service() {
     return
   fi
 
-  echo "Re-run manually: $dispatcher ov service install --home \"$ov_home\"" >&2
+  echo "Re-run manually: $display_command ov service install --home \"$ov_home\"" >&2
 }
 
 ensure_repo_openviking_service() {
   local dispatcher
+  local display_command
 
   # Test-only fake CLIs do not imply a real OpenViking server binary.
   if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" || "${AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK:-0}" == "1" ]]; then
@@ -2733,6 +2744,7 @@ ensure_repo_openviking_service() {
     echo "Re-run manually: agent-basics --repo \"$TARGET_DIR\" ov service install --repo-local" >&2
     return 1
   fi
+  display_command="$(agent_basics_display_command)"
 
   if "$dispatcher" --repo "$TARGET_DIR" ov service status --repo-local >/dev/null 2>&1 && openviking_health_ready; then
     echo "Verified repo-local OpenViking macOS service"
@@ -2740,7 +2752,7 @@ ensure_repo_openviking_service() {
   fi
 
   if ! run_setup_command_quiet "OpenViking server packaging" "$dispatcher" ov package-server --home "$HOME/.openviking"; then
-    echo "Re-run manually: $dispatcher ov package-server --home \"$HOME/.openviking\"" >&2
+    echo "Re-run manually: $display_command ov package-server --home \"$HOME/.openviking\"" >&2
     return 1
   fi
 
@@ -2749,7 +2761,7 @@ ensure_repo_openviking_service() {
     return
   fi
 
-  echo "Re-run manually: $dispatcher --repo \"$TARGET_DIR\" ov service install --repo-local" >&2
+  echo "Re-run manually: $display_command --repo \"$TARGET_DIR\" ov service install --repo-local" >&2
   return 1
 }
 

@@ -222,6 +222,18 @@
       "skipped": false,
       "target": "viking://user/default/memories/events/projects/agent-basics/1778218094-setup-service-failure-output-polish.md"
     },
+    ".agents/memory/memories/events/1778219958-first-run-polish-before-real-world-test.md": {
+      "elapsed_seconds": 11.961,
+      "imported_at": 1778219970,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778219958-first-run-polish-before-real-world-test.md",
+      "returncode": 0,
+      "sha256": "8b93bebdd9545127f592c8306b8423cc319e47d34f62fb5c9a9da809a024e244",
+      "skipped": false,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778219958-first-run-polish-before-real-world-test.md"
+    },
     ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -365,10 +377,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778218712,
+  "last_import": 1778219970,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778218712,
+  "updated": 1778219970,
   "version": 1
 }

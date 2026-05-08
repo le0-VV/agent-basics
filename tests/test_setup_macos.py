@@ -441,6 +441,8 @@ class SetupMacosTest(unittest.TestCase):
             self.assertIn("Warning: repo-local OpenViking service setup failed:", result.stderr)
             self.assertIn("fake service failed", result.stderr)
             self.assertIn("Skipped OpenViking source-store import", result.stderr)
+            self.assertIn(f"Re-run manually: agent-basics --repo \"{repo}\" ov service install --repo-local", result.stderr)
+            self.assertNotIn(f"{dispatcher} --repo", result.stderr)
             self.assertNotIn("fake package-server", result.stdout)
             self.assertNotIn("fake service failed", result.stdout)
             self.assertTrue((repo / ".agents" / "config.toml").is_file())
