@@ -1899,15 +1899,24 @@ def command_ov_service(args: argparse.Namespace) -> int:
         print_json(payload)
         return 1
 
-    paths["home"].mkdir(parents=True, exist_ok=True)
-    (paths["home"] / "logs").mkdir(parents=True, exist_ok=True)
-    plist_path.parent.mkdir(parents=True, exist_ok=True)
     backup = None
-    if changed:
-        if plist_path.exists():
-            backup = plist_path.with_name(f"{plist_path.name}.bak.{int(time.time())}")
-            backup.write_text(plist_path.read_text(encoding="utf-8"), encoding="utf-8")
-        plist_path.write_text(plist_text, encoding="utf-8")
+    try:
+        paths["home"].mkdir(parents=True, exist_ok=True)
+        (paths["home"] / "logs").mkdir(parents=True, exist_ok=True)
+        plist_path.parent.mkdir(parents=True, exist_ok=True)
+        if changed:
+            if plist_path.exists():
+                backup = plist_path.with_name(f"{plist_path.name}.bak.{int(time.time())}")
+                backup.write_text(plist_path.read_text(encoding="utf-8"), encoding="utf-8")
+            plist_path.write_text(plist_text, encoding="utf-8")
+    except OSError as exc:
+        payload["ok"] = False
+        payload["changed"] = changed
+        payload["backup"] = str(backup) if backup else None
+        payload["error"] = f"failed to write OpenViking service files: {exc}"
+        payload["exception_type"] = type(exc).__name__
+        print_json(payload)
+        return 1
 
     if getattr(args, "no_load", False):
         payload["changed"] = changed

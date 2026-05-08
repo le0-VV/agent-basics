@@ -52,6 +52,7 @@ class SetupMacosTest(unittest.TestCase):
             "set -eu\n"
             f"FAIL_SERVICE={service_failure}\n"
             "printf '%s\\n' \"$*\" >> \"$AGENT_BASICS_TEST_OPENVIKING_INSTALL_LOG\"\n"
+            "if [ \"${1:-}\" = \"--repo\" ]; then shift 2; fi\n"
             "if [ \"$1\" != \"ov\" ]; then\n"
             "  echo \"unexpected fake dispatcher command: $*\" >&2\n"
             "  exit 2\n"
@@ -139,6 +140,7 @@ class SetupMacosTest(unittest.TestCase):
             "exit 0\n"
             "EOS\n"
             "    chmod 0755 \"$home/openviking\"\n"
+            "    printf '{\"ok\":true,\"message\":\"fake package-server\"}\\n'\n"
             "    ;;\n"
             "  service)\n"
             "    shift 2\n"
@@ -146,7 +148,11 @@ class SetupMacosTest(unittest.TestCase):
             "      echo \"unexpected fake service action: $*\" >&2\n"
             "      exit 2\n"
             "    fi\n"
-            "    if [ \"$FAIL_SERVICE\" = \"1\" ]; then exit 1; fi\n"
+            "    if [ \"$FAIL_SERVICE\" = \"1\" ]; then\n"
+            "      printf '{\"ok\":false,\"error\":\"fake service failed\"}\\n'\n"
+            "      exit 1\n"
+            "    fi\n"
+            "    printf '{\"ok\":true,\"message\":\"fake service install\"}\\n'\n"
             "    ;;\n"
             "  *)\n"
             "    echo \"unexpected fake dispatcher command: $*\" >&2\n"
@@ -432,8 +438,11 @@ class SetupMacosTest(unittest.TestCase):
                 fake_openviking=False,
             )
 
-            self.assertIn("Warning: repo-local OpenViking service setup failed.", result.stderr)
+            self.assertIn("Warning: repo-local OpenViking service setup failed:", result.stderr)
+            self.assertIn("fake service failed", result.stderr)
             self.assertIn("Skipped OpenViking source-store import", result.stderr)
+            self.assertNotIn("fake package-server", result.stdout)
+            self.assertNotIn("fake service failed", result.stdout)
             self.assertTrue((repo / ".agents" / "config.toml").is_file())
             self.assertFalse((repo / ".agents" / "openviking" / "import-state.json").exists())
 

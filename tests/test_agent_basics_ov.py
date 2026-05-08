@@ -2020,6 +2020,56 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertIn(["launchctl", "bootstrap", payload["target"].rsplit("/", 1)[0], str(plist_path)], payload["commands"])
         self.assertEqual(payload["plist_payload"]["ProgramArguments"], [str(server_path), "--config", str(config_path)])
 
+    def test_ov_service_permission_error_returns_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "openviking"
+            server_path = home / "openviking"
+            config_path = home / "ov.conf"
+            plist_path = Path(tmp) / "com.agent-basics.test.openviking.plist"
+            home.mkdir(parents=True)
+            server_path.write_text("#!/bin/sh\n", encoding="utf-8")
+            server_path.chmod(0o755)
+            config_path.write_text("{}\n", encoding="utf-8")
+
+            original_mkdir = agent_basics_ov.Path.mkdir
+            original_platform_system = agent_basics_ov.platform.system
+
+            def fake_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+                if Path(path).name == "logs":
+                    raise PermissionError(1, "Operation not permitted", str(path))
+                return original_mkdir(path, *args, **kwargs)
+
+            output = io.StringIO()
+            try:
+                agent_basics_ov.Path.mkdir = fake_mkdir
+                agent_basics_ov.platform.system = lambda: "Darwin"
+                with redirect_stdout(output):
+                    result = agent_basics_ov.command_ov_service(
+                        SimpleNamespace(
+                            service_action="install",
+                            home=str(home),
+                            server_bin=str(server_path),
+                            config=str(config_path),
+                            label="com.agent-basics.test.openviking",
+                            plist=str(plist_path),
+                            timeout=1,
+                            dry_run=False,
+                            force=False,
+                            no_load=True,
+                            repo_local=False,
+                        )
+                    )
+            finally:
+                agent_basics_ov.Path.mkdir = original_mkdir
+                agent_basics_ov.platform.system = original_platform_system
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 1)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["exception_type"], "PermissionError")
+        self.assertIn("failed to write OpenViking service files", payload["error"])
+        self.assertFalse(plist_path.exists())
+
     def test_ov_bootstrap_dry_run_reports_install_config_and_service_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "openviking"

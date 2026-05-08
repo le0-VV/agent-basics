@@ -2702,18 +2702,16 @@ ensure_user_openviking_service() {
     return
   fi
 
-  if ! "$dispatcher" ov package-server --home "$ov_home"; then
-    echo "Warning: OpenViking server packaging failed." >&2
+  if ! run_setup_command_quiet "OpenViking server packaging" "$dispatcher" ov package-server --home "$ov_home"; then
     echo "Re-run manually: $dispatcher ov package-server --home \"$ov_home\"" >&2
     return
   fi
 
-  if "$dispatcher" ov service install --home "$ov_home"; then
+  if run_setup_command_quiet "OpenViking service setup" "$dispatcher" ov service install --home "$ov_home"; then
     echo "Verified user-level OpenViking macOS service: com.agent-basics.openviking"
     return
   fi
 
-  echo "Warning: OpenViking service setup failed." >&2
   echo "Re-run manually: $dispatcher ov service install --home \"$ov_home\"" >&2
 }
 
@@ -2741,19 +2739,70 @@ ensure_repo_openviking_service() {
     return
   fi
 
-  if ! "$dispatcher" ov package-server --home "$HOME/.openviking"; then
-    echo "Warning: OpenViking server packaging failed." >&2
+  if ! run_setup_command_quiet "OpenViking server packaging" "$dispatcher" ov package-server --home "$HOME/.openviking"; then
     echo "Re-run manually: $dispatcher ov package-server --home \"$HOME/.openviking\"" >&2
     return 1
   fi
 
-  if "$dispatcher" --repo "$TARGET_DIR" ov service install --repo-local; then
+  if run_setup_command_quiet "repo-local OpenViking service setup" "$dispatcher" --repo "$TARGET_DIR" ov service install --repo-local; then
     echo "Verified repo-local OpenViking macOS service"
     return
   fi
 
-  echo "Warning: repo-local OpenViking service setup failed." >&2
   echo "Re-run manually: $dispatcher --repo \"$TARGET_DIR\" ov service install --repo-local" >&2
+  return 1
+}
+
+print_setup_command_failure_summary() {
+  local label="$1"
+  local log_path="$2"
+
+  python3 - "$label" "$log_path" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+
+label = sys.argv[1]
+log_path = Path(sys.argv[2])
+text = log_path.read_text(encoding="utf-8", errors="replace")
+stripped = text.strip()
+
+if not stripped:
+    print(f"Warning: {label} failed without output.", file=sys.stderr)
+    raise SystemExit(0)
+
+try:
+    payload = json.loads(stripped)
+except json.JSONDecodeError:
+    print(f"Warning: {label} failed. Last output:", file=sys.stderr)
+    for line in stripped.splitlines()[-20:]:
+        print(line, file=sys.stderr)
+    raise SystemExit(0)
+
+message = payload.get("error") or payload.get("message") or "command returned a failure status"
+print(f"Warning: {label} failed: {message}", file=sys.stderr)
+exception_type = payload.get("exception_type")
+if exception_type:
+    print(f"Failure type: {exception_type}", file=sys.stderr)
+PY
+}
+
+run_setup_command_quiet() {
+  local label="$1"
+  local log_path
+  shift
+
+  log_path="$(mktemp "${TMPDIR:-/tmp}/agent-basics-setup-command.XXXXXX.log")"
+  if "$@" > "$log_path" 2>&1; then
+    rm -f "$log_path"
+    return 0
+  fi
+
+  print_setup_command_failure_summary "$label" "$log_path"
+  rm -f "$log_path"
   return 1
 }
 
@@ -2838,20 +2887,22 @@ install_openviking_hooks() {
   local dispatcher
 
   if helper_path="$(find_ov_helper_source)"; then
-    if python3 "$helper_path" --repo "$TARGET_DIR" ov install-hooks; then
+    if run_setup_command_quiet "OpenViking hook installation" python3 "$helper_path" --repo "$TARGET_DIR" ov install-hooks; then
+      echo "Installed OpenViking git hooks"
       return
     fi
-    echo "Warning: OpenViking hook installation failed. Re-run manually with: agent-basics ov install-hooks" >&2
+    echo "Re-run manually with: agent-basics ov install-hooks" >&2
     return
   fi
 
   if dispatcher="$(find_agent_basics_dispatcher)"; then
-    if "$dispatcher" --repo "$TARGET_DIR" ov install-hooks; then
+    if run_setup_command_quiet "OpenViking hook installation" "$dispatcher" --repo "$TARGET_DIR" ov install-hooks; then
+      echo "Installed OpenViking git hooks"
       return
     fi
   fi
 
-  echo "Warning: OpenViking hook installation could not be completed. Re-run manually with: agent-basics ov install-hooks" >&2
+  echo "Re-run manually with: agent-basics ov install-hooks" >&2
 }
 
 openviking_health_ready() {
@@ -3722,7 +3773,9 @@ fi
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "Git repository already initialized"
 else
-  git init >/dev/null
+  if ! git init -b main >/dev/null 2>&1; then
+    git init >/dev/null
+  fi
   echo "Initialized empty Git repository"
 fi
 
