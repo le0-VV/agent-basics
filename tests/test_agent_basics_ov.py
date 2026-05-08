@@ -1247,6 +1247,84 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
             if command[1] in {"health", "mkdir", "stat", "read"}:
                 self.assertEqual(timeout, 3)
 
+    def test_ov_ingest_changed_skips_matching_state_without_target_stat(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "agent-basics"
+            memory_path = repo / ".agents" / "memory" / "memories" / "cases" / "case.md"
+            memory_path.parent.mkdir(parents=True)
+            memory_text = (
+                "---\n"
+                "record_kind: memory\n"
+                "ov_category: cases\n"
+                "title: Example case\n"
+                "requires_human_review: false\n"
+                "---\n"
+                "\n"
+                "# Example case\n"
+            )
+            memory_path.write_text(memory_text, encoding="utf-8")
+            state_path = repo / ".agents" / "openviking" / "import-state.json"
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "imports": {
+                            ".agents/memory/memories/cases/case.md": {
+                                "ok": True,
+                                "method": "write",
+                                "sha256": agent_basics_ov.sha256_text(memory_text),
+                                "target": "viking://user/default/memories/cases/projects/agent-basics/case.md",
+                            }
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            calls: list[list[str]] = []
+
+            def fake_run(command: list[str], timeout: float | None = 30, env: dict[str, str] | None = None) -> dict[str, object]:
+                calls.append(command)
+                if command[1] == "health":
+                    return {"ok": True, "command": command, "stdout": "{}", "stderr": "", "returncode": 0}
+                if command[1] == "stat":
+                    return {"ok": False, "command": command, "stdout": "", "stderr": "not found", "returncode": 1}
+                return {"ok": True, "command": command, "stdout": "{}", "stderr": "", "returncode": 0}
+
+            original_find_ov_bin = agent_basics_ov.find_ov_bin
+            original_run_command_env = agent_basics_ov.run_command_env
+            try:
+                agent_basics_ov.find_ov_bin = lambda: Path("/tmp/ov")
+                agent_basics_ov.run_command_env = fake_run
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    result = agent_basics_ov.command_ov_ingest_changed(
+                        SimpleNamespace(
+                            repo=str(repo),
+                            target=None,
+                            memory_target=agent_basics_ov.DEFAULT_OV_MEMORY_TARGET,
+                            timeout=agent_basics_ov.DEFAULT_OV_VLM_TIMEOUT_SECONDS,
+                            quick_timeout=3,
+                            include_review=False,
+                            dry_run=False,
+                            busy_retries=0,
+                            busy_delay=0,
+                        )
+                    )
+            finally:
+                agent_basics_ov.find_ov_bin = original_find_ov_bin
+                agent_basics_ov.run_command_env = original_run_command_env
+
+        payload = json.loads(output.getvalue())
+        commands = [command[1] for command in calls]
+
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["results"][0]["skipped"])
+        self.assertNotIn("stat", commands)
+        self.assertNotIn("write", commands)
+
     def test_ov_import_repo_memory_does_not_write_when_state_stat_times_out(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "agent-basics"

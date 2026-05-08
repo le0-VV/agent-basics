@@ -2256,6 +2256,7 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
         parent_results.extend(ov_mkdir_p(ov_bin, base_uri, env=env, timeout=quick_timeout))
 
     results: list[dict[str, Any]] = []
+    verify_existing_targets = getattr(args, "verify_existing_targets", True)
 
     def import_skip_check(path: Path, digest: str, method: str, target: str | None = None) -> dict[str, Any]:
         if args.force:
@@ -2269,7 +2270,7 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
         )
         if not matches_state:
             return {"skip": False}
-        if args.dry_run or not target:
+        if args.dry_run or not target or not verify_existing_targets:
             return {"skip": True}
         stat_result = run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=quick_timeout, env=env)
         if stat_result.get("ok"):
@@ -3254,6 +3255,7 @@ def command_ov_ingest_changed(args: argparse.Namespace) -> int:
         busy_retries=args.busy_retries,
         busy_delay=args.busy_delay,
         write=not args.dry_run,
+        verify_existing_targets=False,
     )
     return command_ov_import_repo_memory(payload_args)
 
