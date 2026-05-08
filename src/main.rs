@@ -21,6 +21,17 @@ struct Runtime {
     root: PathBuf,
 }
 
+const RUNTIME_EXECUTABLES: &[&str] = &[
+    "agent-basics",
+    "setup-macos.sh",
+    "agent-memory.py",
+    "memory-mcp.py",
+    "agent-basics-ov.py",
+    "agent-basics-mlx",
+    "agent-basics-mlx-server.py",
+];
+const RUNTIME_FILES: &[&str] = &["LICENSE", "THIRD-PARTY-NOTICES.md"];
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("agent-basics: {error}");
@@ -80,11 +91,11 @@ fn run() -> Result<(), Box<dyn Error>> {
 
 fn ensure_runtime() -> Result<Runtime, Box<dyn Error>> {
     let root = runtime_root()?;
-    let marker = root.join(".complete");
-    if marker.is_file() {
+    if runtime_complete(&root) {
         return Ok(Runtime { root });
     }
 
+    let marker = root.join(".complete");
     fs::create_dir_all(&root)?;
     write_executable(&root.join("agent-basics"), DISPATCHER)?;
     write_executable(&root.join("setup-macos.sh"), SETUP)?;
@@ -98,6 +109,23 @@ fn ensure_runtime() -> Result<Runtime, Box<dyn Error>> {
     fs::write(marker, VERSION.as_bytes())?;
 
     Ok(Runtime { root })
+}
+
+fn runtime_complete(root: &Path) -> bool {
+    if !root.join(".complete").is_file() {
+        return false;
+    }
+    RUNTIME_EXECUTABLES
+        .iter()
+        .all(|name| is_executable_file(&root.join(name)))
+        && RUNTIME_FILES.iter().all(|name| root.join(name).is_file())
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => metadata.permissions().mode() & 0o111 != 0,
+        _ => false,
+    }
 }
 
 fn runtime_root() -> Result<PathBuf, Box<dyn Error>> {
@@ -132,4 +160,79 @@ fn write_executable(path: &Path, content: &[u8]) -> Result<(), Box<dyn Error>> {
     permissions.set_mode(0o755);
     fs::set_permissions(path, permissions)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unique_temp_root(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        env::temp_dir().join(format!(
+            "agent-basics-test-{name}-{}-{stamp}",
+            process::id()
+        ))
+    }
+
+    fn write_file(path: &Path, executable: bool) {
+        fs::write(path, b"test").unwrap();
+        if executable {
+            let mut permissions = fs::metadata(path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).unwrap();
+        }
+    }
+
+    #[test]
+    fn runtime_complete_rejects_marker_without_payload() {
+        let root = unique_temp_root("marker-only");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join(".complete"), VERSION).unwrap();
+
+        assert!(!runtime_complete(&root));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn runtime_complete_rejects_non_executable_payload() {
+        let root = unique_temp_root("non-executable");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join(".complete"), VERSION).unwrap();
+        for name in RUNTIME_EXECUTABLES {
+            write_file(&root.join(name), true);
+        }
+        for name in RUNTIME_FILES {
+            write_file(&root.join(name), false);
+        }
+        let mut permissions = fs::metadata(root.join("agent-basics"))
+            .unwrap()
+            .permissions();
+        permissions.set_mode(0o644);
+        fs::set_permissions(root.join("agent-basics"), permissions).unwrap();
+
+        assert!(!runtime_complete(&root));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn runtime_complete_accepts_complete_payload() {
+        let root = unique_temp_root("complete");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join(".complete"), VERSION).unwrap();
+        for name in RUNTIME_EXECUTABLES {
+            write_file(&root.join(name), true);
+        }
+        for name in RUNTIME_FILES {
+            write_file(&root.join(name), false);
+        }
+
+        assert!(runtime_complete(&root));
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }

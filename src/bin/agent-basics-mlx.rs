@@ -51,7 +51,7 @@ fn ensure_runtime() -> Result<Runtime, Box<dyn Error>> {
     let root = runtime_root()?;
     let server = root.join("agent-basics-mlx.py");
     let marker = root.join(".complete");
-    if marker.is_file() && server.is_file() {
+    if runtime_complete(&root) {
         return Ok(Runtime { server });
     }
 
@@ -59,6 +59,17 @@ fn ensure_runtime() -> Result<Runtime, Box<dyn Error>> {
     write_executable(&server, MLX_SERVER)?;
     fs::write(marker, VERSION.as_bytes())?;
     Ok(Runtime { server })
+}
+
+fn runtime_complete(root: &Path) -> bool {
+    root.join(".complete").is_file() && is_executable_file(&root.join("agent-basics-mlx.py"))
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => metadata.permissions().mode() & 0o111 != 0,
+        _ => false,
+    }
 }
 
 fn runtime_root() -> Result<PathBuf, Box<dyn Error>> {
@@ -115,4 +126,64 @@ fn write_executable(path: &Path, content: &[u8]) -> Result<(), Box<dyn Error>> {
     permissions.set_mode(0o755);
     fs::set_permissions(path, permissions)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unique_temp_root(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        env::temp_dir().join(format!(
+            "agent-basics-mlx-test-{name}-{}-{stamp}",
+            process::id()
+        ))
+    }
+
+    fn write_file(path: &Path, executable: bool) {
+        fs::write(path, b"test").unwrap();
+        if executable {
+            let mut permissions = fs::metadata(path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).unwrap();
+        }
+    }
+
+    #[test]
+    fn runtime_complete_rejects_marker_without_payload() {
+        let root = unique_temp_root("marker-only");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join(".complete"), VERSION).unwrap();
+
+        assert!(!runtime_complete(&root));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn runtime_complete_rejects_non_executable_payload() {
+        let root = unique_temp_root("non-executable");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join(".complete"), VERSION).unwrap();
+        write_file(&root.join("agent-basics-mlx.py"), false);
+
+        assert!(!runtime_complete(&root));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn runtime_complete_accepts_complete_payload() {
+        let root = unique_temp_root("complete");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join(".complete"), VERSION).unwrap();
+        write_file(&root.join("agent-basics-mlx.py"), true);
+
+        assert!(runtime_complete(&root));
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -465,7 +465,7 @@ def repo_ov_default_port(repo: Path) -> int:
 
 
 def repo_ov_server_url(repo: Path) -> str:
-    cli_config = load_json_file(repo_ov_cli_config_path(repo))
+    cli_config = load_repo_json_file(repo, repo_ov_cli_config_path(repo), "repo OpenViking CLI config path")
     if isinstance(cli_config, dict):
         url = cli_config.get("url")
         if isinstance(url, str) and url.strip():
@@ -479,6 +479,37 @@ def repo_ov_cli_env(repo: Path) -> dict[str, str]:
     env["NO_PROXY"] = merge_no_proxy(env.get("NO_PROXY") or env.get("no_proxy", ""))
     env["no_proxy"] = env["NO_PROXY"]
     return env
+
+
+def repo_local_path_error(repo: Path, path: Path, description: str) -> str | None:
+    repo_root = repo.expanduser().resolve(strict=False)
+    candidate = path.expanduser()
+    if not candidate.is_absolute():
+        candidate = repo_root / candidate
+    try:
+        candidate.resolve(strict=False).relative_to(repo_root)
+    except ValueError:
+        return f"{description} must stay inside the repository"
+    return None
+
+
+def load_repo_json_file(repo: Path, path: Path, description: str) -> dict[str, Any]:
+    error = repo_local_path_error(repo, path, description)
+    if error:
+        return {"_error": error}
+    return load_json_file(path)
+
+
+def repo_openviking_config_error(repo: Path) -> str | None:
+    for path, description in [
+        (repo_openviking_dir(repo), "repo OpenViking directory"),
+        (repo_ov_config_path(repo), "repo OpenViking config path"),
+        (repo_ov_cli_config_path(repo), "repo OpenViking CLI config path"),
+    ]:
+        error = repo_local_path_error(repo, path, description)
+        if error:
+            return error
+    return None
 
 
 def ov_repo_resource_root(repo: Path) -> str:
@@ -523,16 +554,7 @@ def uri_has_path_boundary(uri: str, prefix: str) -> bool:
 def ov_uri_is_repo_scoped(uri: str, repo: Path, memory_base_uri: str = DEFAULT_OV_MEMORY_TARGET) -> bool:
     if not viking_uri_has_safe_path(uri):
         return False
-    repo_slug = ov_repo_slug(repo)
-    memory_marker = f"/projects/{repo_slug}"
-    resource_root = f"viking://resources/projects/{repo_slug}"
-    return (
-        uri_has_path_boundary(uri, resource_root)
-        or (
-            uri.startswith(memory_base_uri.rstrip("/") + "/")
-            and (uri.endswith(memory_marker) or f"{memory_marker}/" in uri)
-        )
-    )
+    return any(uri_has_path_boundary(uri, prefix) for prefix in ov_repo_scoped_prefixes(repo, memory_base_uri))
 
 
 def filter_ov_find_result(payload: Any, repo: Path, *, include_global: bool = False) -> Any:
@@ -1303,6 +1325,7 @@ def provider_default_embedding_model(provider: str) -> str:
 
 def command_ov_write_default_config(args: argparse.Namespace) -> int:
     repo = repo_root_from_args(args)
+    uses_repo_local_home = not bool(getattr(args, "home", None))
     home = (Path(args.home).expanduser() if getattr(args, "home", None) else repo_openviking_dir(repo)).resolve()
     path = Path(args.config).expanduser() if getattr(args, "config", None) else home / "ov.conf"
     cli_config_path = Path(getattr(args, "cli_config", None) or home / "ovcli.conf").expanduser()
@@ -1354,6 +1377,18 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
         "url": server_url.rstrip("/"),
         "timeout": getattr(args, "cli_timeout", DEFAULT_OV_VLM_TIMEOUT_SECONDS),
     }
+
+    if uses_repo_local_home:
+        for target, description in [
+            (home, "repo OpenViking directory"),
+            (path, "repo OpenViking config path"),
+            (cli_config_path, "repo OpenViking CLI config path"),
+            (home / "workspace", "repo OpenViking workspace path"),
+        ]:
+            error = repo_local_path_error(repo, target, description)
+            if error:
+                print_json({"ok": False, "repo": str(repo), "path": str(target), "error": error})
+                return 1
 
     results = []
     ok = True
@@ -2060,6 +2095,8 @@ def command_ov_server(args: argparse.Namespace) -> int:
 
 def ov_native_import_files(repo: Path) -> dict[str, list[Path]]:
     memory_root = repo / ".agents" / "memory"
+    if repo_local_path_error(repo, memory_root, "OpenViking source store path"):
+        return {"memories": [], "resources": [], "skills": []}
 
     def markdown_files(root: Path) -> list[Path]:
         if not root.exists():
@@ -2090,6 +2127,9 @@ def ov_import_state_path(repo: Path) -> Path:
 
 def load_ov_import_state(repo: Path) -> dict[str, Any]:
     path = ov_import_state_path(repo)
+    error = repo_local_path_error(repo, path, "OpenViking import state path")
+    if error:
+        return {"version": 1, "imports": {}, "previous_state_error": error}
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -2100,6 +2140,9 @@ def load_ov_import_state(repo: Path) -> dict[str, Any]:
 
 def write_ov_import_state(repo: Path, payload: dict[str, Any]) -> None:
     path = ov_import_state_path(repo)
+    error = repo_local_path_error(repo, path, "OpenViking import state path")
+    if error:
+        raise RuntimeError(error)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload["updated"] = int(time.time())
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -2283,6 +2326,10 @@ def ov_existing_content_result(
 
 def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
     repo = repo_root_from_args(args)
+    state_error = repo_local_path_error(repo, ov_import_state_path(repo), "OpenViking import state path")
+    if state_error:
+        print_json({"ok": False, "repo": str(repo), "state_path": str(ov_import_state_path(repo)), "error": state_error})
+        return 1
     ov_bin = find_ov_bin()
     if not ov_bin:
         print_json({"ok": False, "error": "OpenViking CLI not found; run `agent-basics ov install-system` first"})
@@ -2652,6 +2699,9 @@ def ov_search_payload(
     ov_bin, error = ov_bin_or_error()
     if error:
         return error
+    repo_config_error = repo_openviking_config_error(repo)
+    if repo_config_error:
+        return {"ok": False, "repo": str(repo), "error": repo_config_error}
     assert ov_bin is not None
     if not query.strip():
         return {"ok": False, "error": "query must be non-empty"}
@@ -2733,6 +2783,9 @@ def ov_read_payload(
     ov_bin, error = ov_bin_or_error()
     if error:
         return error
+    repo_config_error = repo_openviking_config_error(repo)
+    if repo_config_error:
+        return {"ok": False, "repo": str(repo), "error": repo_config_error}
     assert ov_bin is not None
     if not uri.strip():
         return {"ok": False, "error": "uri must be non-empty"}
@@ -2878,8 +2931,17 @@ def ov_record_payload(
     timestamp = int(time.time())
     filename = f"{timestamp}-{bounded_slugify(title, max_length=96, fallback='memory')}.md"
     source_dir = repo / ".agents" / "memory" / "memories" / category
+    source_dir_error = repo_local_path_error(repo, source_dir, "OpenViking memory source directory")
+    if source_dir_error:
+        return {"ok": False, "repo": str(repo), "source_path": str(source_dir / filename), "error": source_dir_error}
     source_path = unique_path(source_dir / filename)
     filename = source_path.name
+    source_error = repo_local_path_error(repo, source_path, "OpenViking memory source path")
+    if source_error:
+        return {"ok": False, "repo": str(repo), "source_path": str(source_path), "error": source_error}
+    state_error = repo_local_path_error(repo, ov_import_state_path(repo), "OpenViking import state path")
+    if state_error:
+        return {"ok": False, "repo": str(repo), "state_path": str(ov_import_state_path(repo)), "error": state_error}
     markdown = ov_memory_markdown(
         repo=repo,
         category=category,
@@ -3245,10 +3307,13 @@ def ov_status_payload(
     repo_ov_dir = repo_openviking_dir(repo)
     repo_config = repo_ov_config_path(repo)
     repo_cli_config = repo_ov_cli_config_path(repo)
+    repo_ov_error = repo_openviking_config_error(repo)
+    repo_config_payload = load_repo_json_file(repo, repo_config, "repo OpenViking config path")
+    repo_cli_config_payload = load_repo_json_file(repo, repo_cli_config, "repo OpenViking CLI config path")
     user_config = Path(os.environ.get("AGENT_BASICS_OV_CONFIG", str(DEFAULT_OV_CONFIG))).expanduser()
     user_cli_config = Path(os.environ.get("AGENT_BASICS_OV_CLI_CONFIG", str(DEFAULT_OV_CLI_CONFIG))).expanduser()
     payload: dict[str, Any] = {
-        "ok": bool(ov_bin),
+        "ok": bool(ov_bin) and not repo_ov_error,
         "repo": str(repo),
         "repo_slug": ov_repo_slug(repo),
         "namespaces": {
@@ -3273,10 +3338,10 @@ def ov_status_payload(
             "bin_exists": bool(ov_bin and ov_bin.exists()),
             "config_path": str(repo_config),
             "config_exists": repo_config.exists(),
-            "config": redact_sensitive(load_json_file(repo_config)),
+            "config": redact_sensitive(repo_config_payload),
             "cli_config_path": str(repo_cli_config),
             "cli_config_exists": repo_cli_config.exists(),
-            "cli_config": redact_sensitive(load_json_file(repo_cli_config)),
+            "cli_config": redact_sensitive(repo_cli_config_payload),
             "server_url": repo_ov_server_url(repo),
             "service_label": repo_ov_service_label(repo),
             "workspace": str(repo_ov_workspace_path(repo)),
@@ -3290,9 +3355,11 @@ def ov_status_payload(
             "repo_local_install_present": (repo / ".agents" / "openviking" / "venv").exists(),
         },
     }
+    if repo_ov_error:
+        payload["openviking"]["path_error"] = repo_ov_error
     if ov_bin:
         payload["openviking"]["version"] = summarize_command_payload(run_command([str(ov_bin), "version"]))
-        if online:
+        if online and not repo_ov_error:
             env = repo_ov_cli_env(repo)
             health = ov_command_payload([str(ov_bin), "health", "-o", "json"], timeout=None, env=env)
             status = ov_command_payload([str(ov_bin), "status", "-o", "json"], timeout=None, env=env)
@@ -3596,6 +3663,13 @@ def ov_try_remove_stale_hook_lock(lock_path: Path, existing: Any) -> bool:
 def ov_acquire_hook_ingest_lock(repo: Path, *, event: str) -> dict[str, Any]:
     locks_dir = ov_hook_locks_dir(repo)
     lock_path = ov_hook_ingest_lock_path(repo)
+    for path, description in [
+        (locks_dir, "OpenViking lock directory"),
+        (lock_path, "OpenViking ingest lock path"),
+    ]:
+        error = repo_local_path_error(repo, path, description)
+        if error:
+            return {"ok": False, "locked": False, "lock_path": str(lock_path), "error": error}
     locks_dir.mkdir(parents=True, exist_ok=True)
     token = sha256_text(f"{event}:{os.getpid()}:{time.time()}")
     owner = {
@@ -3626,6 +3700,9 @@ def ov_acquire_hook_ingest_lock(repo: Path, *, event: str) -> dict[str, Any]:
 def ov_release_hook_ingest_lock(repo: Path, lock: dict[str, Any]) -> dict[str, Any]:
     lock_path = ov_hook_ingest_lock_path(repo)
     owner_path = lock_path / "owner.json"
+    error = repo_local_path_error(repo, lock_path, "OpenViking ingest lock path")
+    if error:
+        return {"ok": False, "lock_path": str(lock_path), "error": error}
     expected_token = None
     owner = lock.get("owner")
     if isinstance(owner, dict):

@@ -82,6 +82,30 @@ class SecurityMcpOpenVikingAttackTest(unittest.TestCase):
         self.assertFalse(payload_encoded["ok"])
         self.assertEqual(commands, [])
 
+    def test_memory_uri_must_match_repo_category_prefix(self) -> None:
+        commands: list[list[str]] = []
+        original_find_ov_bin = agent_basics_ov.find_ov_bin
+        original_run_command = agent_basics_ov.run_command
+
+        def fake_run_command(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+            commands.append(command)
+            return {"ok": True, "command": command, "returncode": 0, "stdout": "{}", "stderr": ""}
+
+        try:
+            agent_basics_ov.find_ov_bin = lambda: Path("/tmp/ov")
+            agent_basics_ov.run_command = fake_run_command
+            payload = agent_basics_ov.ov_read_payload(
+                Path("/tmp/agent-basics"),
+                uri="viking://memory/entities/projects/other/projects/agent-basics/secret.md",
+            )
+        finally:
+            agent_basics_ov.find_ov_bin = original_find_ov_bin
+            agent_basics_ov.run_command = original_run_command
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("outside this repo namespace", payload["error"])
+        self.assertEqual(commands, [])
+
     def test_add_resource_rejects_external_files_and_symlink_escapes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -228,6 +252,99 @@ class SecurityMcpOpenVikingAttackTest(unittest.TestCase):
         self.assertNotIn("`", target_name)
         self.assertNotIn(";", target_name)
 
+    def test_record_rejects_symlinked_memory_source_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            outside = root / "outside-memory"
+            memory_root = repo / ".agents" / "memory" / "memories"
+            repo.mkdir()
+            outside.mkdir()
+            memory_root.mkdir(parents=True)
+            try:
+                (memory_root / "preferences").symlink_to(outside, target_is_directory=True)
+            except OSError:
+                self.skipTest("symlink setup unavailable")
+
+            payload = agent_basics_ov.ov_record_payload(
+                repo,
+                category="preferences",
+                title="Do not escape",
+                content="Recording memory must not write through repo symlinks.",
+                dry_run=True,
+            )
+            outside_files = list(outside.iterdir())
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("inside the repository", payload["error"])
+        self.assertEqual(outside_files, [])
+
+    def test_write_default_config_rejects_repo_openviking_symlink_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            outside = root / "outside-openviking"
+            repo_agents = repo / ".agents"
+            repo_agents.mkdir(parents=True)
+            outside.mkdir()
+            try:
+                (repo_agents / "openviking").symlink_to(outside, target_is_directory=True)
+            except OSError:
+                self.skipTest("symlink setup unavailable")
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = agent_basics_ov.command_ov_write_default_config(
+                    SimpleNamespace(
+                        repo=str(repo),
+                        config=None,
+                        cli_config=None,
+                        home=None,
+                        provider="mlx",
+                        base_url=None,
+                        provider_base=None,
+                        api_key=None,
+                        chat_model=None,
+                        embedding_model=None,
+                        embedding_dimension=768,
+                        vlm_timeout=86400,
+                        server_url="http://127.0.0.1:1933",
+                        cli_timeout=86400,
+                        force=False,
+                    )
+                )
+
+            payload = json.loads(output.getvalue())
+
+        self.assertEqual(result, 1)
+        self.assertFalse(payload["ok"])
+        self.assertIn("inside the repository", payload["error"])
+        self.assertFalse((outside / "ov.conf").exists())
+
+    def test_status_does_not_read_repo_config_symlink_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            ov_dir = repo / ".agents" / "openviking"
+            outside = root / "outside-config.json"
+            ov_dir.mkdir(parents=True)
+            outside.write_text(json.dumps({"leak": "outside-secret"}), encoding="utf-8")
+            try:
+                (ov_dir / "ov.conf").symlink_to(outside)
+            except OSError:
+                self.skipTest("symlink setup unavailable")
+
+            original_find_ov_bin = agent_basics_ov.find_ov_bin
+            try:
+                agent_basics_ov.find_ov_bin = lambda: None
+                payload = agent_basics_ov.ov_status_payload(repo, online=False)
+            finally:
+                agent_basics_ov.find_ov_bin = original_find_ov_bin
+
+        serialized = json.dumps(payload)
+        self.assertNotIn("outside-secret", serialized)
+        self.assertIn("inside the repository", payload["openviking"]["config"]["_error"])
+
     def test_stale_hook_lock_with_dead_pid_is_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
@@ -243,6 +360,26 @@ class SecurityMcpOpenVikingAttackTest(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["recovered_stale_lock"])
         self.assertFalse(payload["locked"])
+
+    def test_hook_lock_rejects_symlinked_lock_directory_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            outside = root / "outside-locks"
+            ov_dir = repo / ".agents" / "openviking"
+            ov_dir.mkdir(parents=True)
+            outside.mkdir()
+            try:
+                (ov_dir / "locks").symlink_to(outside, target_is_directory=True)
+            except OSError:
+                self.skipTest("symlink setup unavailable")
+
+            payload = agent_basics_ov.ov_acquire_hook_ingest_lock(repo, event="pre-commit")
+            outside_files = list(outside.iterdir())
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("inside the repository", payload["error"])
+        self.assertEqual(outside_files, [])
 
     def test_install_hooks_does_not_trust_spoofed_gitdir_file_when_git_rejects_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

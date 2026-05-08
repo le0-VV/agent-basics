@@ -94,6 +94,18 @@
       "skipped": false,
       "target": "viking://user/default/memories/cases/projects/agent-basics/1778237226-security-audit-hardening-for-setup-and-openviking-gateway.md"
     },
+    ".agents/memory/memories/cases/1778278673-runtime-cache-and-repo-path-hardening-audit.md": {
+      "elapsed_seconds": 18.707,
+      "imported_at": 1778278692,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/cases/1778278673-runtime-cache-and-repo-path-hardening-audit.md",
+      "returncode": 0,
+      "sha256": "19cd1c0ae4df5486d26d00affff60bf43b7999e9864647d12183660d5e3f9317",
+      "skipped": false,
+      "target": "viking://user/default/memories/cases/projects/agent-basics/1778278673-runtime-cache-and-repo-path-hardening-audit.md"
+    },
     ".agents/memory/memories/events/1777901050-legacy-memory-snapshot-created.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -425,10 +437,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778237245,
+  "last_import": 1778278692,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778237245,
+  "updated": 1778278692,
   "version": 1
 }
