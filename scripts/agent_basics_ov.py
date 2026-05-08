@@ -2257,6 +2257,7 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
 
     results: list[dict[str, Any]] = []
     verify_existing_targets = getattr(args, "verify_existing_targets", True)
+    state_changed = False
 
     def import_skip_check(path: Path, digest: str, method: str, target: str | None = None) -> dict[str, Any]:
         if args.force:
@@ -2292,28 +2293,43 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
         method: str,
         target: str | None = None,
     ) -> None:
+        nonlocal state_changed
         rel = path.relative_to(repo).as_posix()
+        previous = imports.get(rel)
+        preserve_existing_state = (
+            skipped
+            and isinstance(previous, dict)
+            and previous.get("sha256") == digest
+            and previous.get("ok") is True
+            and previous.get("method") == method
+        )
         ok = skipped or bool(command_result and command_result.get("ok"))
-        entry = {
-            "kind": kind,
-            "method": method,
-            "path": rel,
-            "target": target,
-            "sha256": digest,
-            "ok": ok,
-            "skipped": skipped,
-            "imported_at": int(time.time()) if ok and not skipped else imports.get(rel, {}).get("imported_at"),
-        }
-        if command_result is not None:
-            entry["returncode"] = command_result.get("returncode")
-            if not ok:
-                entry["stdout"] = command_result.get("stdout")
-                entry["stderr"] = command_result.get("stderr")
-            for key in ["busy_retries", "verified_existing", "already_exists", "previous_error", "error", "elapsed_seconds"]:
-                if key in command_result:
-                    entry[key] = command_result[key]
-        imports[rel] = entry
+        if preserve_existing_state:
+            entry = dict(previous)
+        else:
+            entry = {
+                "kind": kind,
+                "method": method,
+                "path": rel,
+                "target": target,
+                "sha256": digest,
+                "ok": ok,
+                "skipped": skipped,
+                "imported_at": int(time.time()) if ok and not skipped else imports.get(rel, {}).get("imported_at"),
+            }
+            if command_result is not None:
+                entry["returncode"] = command_result.get("returncode")
+                if not ok:
+                    entry["stdout"] = command_result.get("stdout")
+                    entry["stderr"] = command_result.get("stderr")
+                for key in ["busy_retries", "verified_existing", "already_exists", "previous_error", "error", "elapsed_seconds"]:
+                    if key in command_result:
+                        entry[key] = command_result[key]
+            imports[rel] = entry
+            state_changed = True
         result_entry = dict(entry)
+        if skipped:
+            result_entry["skipped"] = True
         if command_result is not None:
             result_entry["command"] = command_result.get("command")
             result_entry["stdout"] = command_result.get("stdout")
@@ -2483,16 +2499,17 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
     if args.wait and not args.dry_run:
         wait_result = run_command_env([str(ov_bin), "wait"], timeout=args.timeout, env=env)
 
-    state.update(
-        {
-            "version": 1,
-            "repo": str(repo),
-            "target": base_uri,
-            "memory_target": memory_base_uri,
-            "last_import": int(time.time()),
-        }
-    )
-    if args.write and not args.dry_run:
+    if state_changed:
+        state.update(
+            {
+                "version": 1,
+                "repo": str(repo),
+                "target": base_uri,
+                "memory_target": memory_base_uri,
+                "last_import": int(time.time()),
+            }
+        )
+    if args.write and not args.dry_run and state_changed:
         write_ov_import_state(repo, state)
 
     parents_ok = ov_first_failed_result(parent_results) is None
@@ -2503,7 +2520,7 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
         "target": base_uri,
         "memory_target": memory_base_uri,
         "dry_run": args.dry_run,
-        "write_state": args.write,
+        "write_state": bool(args.write and not args.dry_run and state_changed),
         "counts": {key: len(value) for key, value in files.items()},
         "parents": parent_results,
         "parents_ok": parents_ok,
@@ -3648,8 +3665,31 @@ def command_ov_hook(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         prompt=False if args.no_prompt else None,
     )
-    print_json(payload)
+    if args.json:
+        print_json(payload)
+    else:
+        print_ov_hook_summary(payload)
     return 0 if payload.get("ok") else 1
+
+
+def print_ov_hook_summary(payload: dict[str, Any]) -> None:
+    action = payload.get("action")
+    if payload.get("ok") and action == "none":
+        return
+    if payload.get("ok") and action == "skipped":
+        print(f"OpenViking hook skipped: {payload.get('reason', 'no reason provided')}")
+        return
+    if payload.get("ok") and action == "ingested":
+        source_store = payload.get("source_store", {})
+        relevant_paths = source_store.get("relevant_paths", []) if isinstance(source_store, dict) else []
+        ingest = payload.get("ingest", {})
+        elapsed = ingest.get("elapsed_seconds") if isinstance(ingest, dict) else None
+        if isinstance(elapsed, (int, float)):
+            print(f"OpenViking source-store ingest completed in {elapsed:.3f}s for {len(relevant_paths)} changed file(s).")
+        else:
+            print(f"OpenViking source-store ingest completed for {len(relevant_paths)} changed file(s).")
+        return
+    print_json(payload)
 
 
 def lmstudio_status_payload(base_url: str, timeout: float | None = 5) -> dict[str, Any]:
@@ -6734,6 +6774,7 @@ def build_parser() -> argparse.ArgumentParser:
     hook.add_argument("--include-review", action="store_true")
     hook.add_argument("--dry-run", action="store_true")
     hook.add_argument("--no-prompt", action="store_true")
+    hook.add_argument("--json", action="store_true", help="print the full hook payload instead of concise hook output")
     hook.set_defaults(func=command_ov_hook)
 
     status_parser = ov_sub.add_parser("status")

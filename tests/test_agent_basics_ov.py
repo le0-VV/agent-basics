@@ -1072,6 +1072,69 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(len(commands), 1)
         self.assertIn(".agents/openviking/locks/ingest.lock", payload["lock"]["lock_path"])
 
+    def test_ov_hook_command_prints_concise_success_by_default(self) -> None:
+        original = agent_basics_ov.ov_hook_run_payload
+        payload = {
+            "ok": True,
+            "action": "ingested",
+            "source_store": {"relevant_paths": [".agents/memory/memories/events/example.md"]},
+            "ingest": {"elapsed_seconds": 0.377, "stdout": '{"results": [{"too": "large"}]}'},
+        }
+
+        try:
+            agent_basics_ov.ov_hook_run_payload = lambda *args, **kwargs: payload
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = agent_basics_ov.command_ov_hook(
+                    SimpleNamespace(
+                        repo=str(ROOT),
+                        event="pre-commit",
+                        include_review=False,
+                        dry_run=False,
+                        no_prompt=True,
+                        json=False,
+                    )
+                )
+        finally:
+            agent_basics_ov.ov_hook_run_payload = original
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            output.getvalue().strip(),
+            "OpenViking source-store ingest completed in 0.377s for 1 changed file(s).",
+        )
+        self.assertNotIn("results", output.getvalue())
+
+    def test_ov_hook_command_can_print_json_for_diagnostics(self) -> None:
+        original = agent_basics_ov.ov_hook_run_payload
+        payload = {
+            "ok": True,
+            "action": "ingested",
+            "source_store": {"relevant_paths": [".agents/memory/memories/events/example.md"]},
+            "ingest": {"elapsed_seconds": 0.377, "stdout": '{"results": [{"kept": true}]}'},
+        }
+
+        try:
+            agent_basics_ov.ov_hook_run_payload = lambda *args, **kwargs: payload
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = agent_basics_ov.command_ov_hook(
+                    SimpleNamespace(
+                        repo=str(ROOT),
+                        event="pre-commit",
+                        include_review=False,
+                        dry_run=False,
+                        no_prompt=True,
+                        json=True,
+                    )
+                )
+        finally:
+            agent_basics_ov.ov_hook_run_payload = original
+
+        self.assertEqual(result, 0)
+        self.assertIn('"stdout"', output.getvalue())
+        self.assertIn("results", output.getvalue())
+
     def test_ov_mkdir_p_builds_valid_viking_uris(self) -> None:
         calls: list[tuple[list[str], float | None]] = []
 
@@ -1195,7 +1258,6 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-
             calls: list[tuple[list[str], float | None]] = []
 
             def fake_run(command: list[str], timeout: float | None = 30, env: dict[str, str] | None = None) -> dict[str, object]:
@@ -1282,6 +1344,7 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
+            original_state_text = state_path.read_text(encoding="utf-8")
 
             calls: list[list[str]] = []
 
@@ -1316,12 +1379,15 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
             finally:
                 agent_basics_ov.find_ov_bin = original_find_ov_bin
                 agent_basics_ov.run_command_env = original_run_command_env
+            after_state_text = state_path.read_text(encoding="utf-8")
 
         payload = json.loads(output.getvalue())
         commands = [command[1] for command in calls]
 
         self.assertEqual(result, 0)
         self.assertTrue(payload["results"][0]["skipped"])
+        self.assertFalse(payload["write_state"])
+        self.assertEqual(after_state_text, original_state_text)
         self.assertNotIn("stat", commands)
         self.assertNotIn("write", commands)
 

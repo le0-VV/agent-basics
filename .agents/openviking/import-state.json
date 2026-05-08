@@ -246,6 +246,18 @@
       "skipped": false,
       "target": "viking://user/default/memories/events/projects/agent-basics/1778220586-openviking-hook-skips-unchanged-imported-memories.md"
     },
+    ".agents/memory/memories/events/1778221068-openviking-hook-output-is-concise.md": {
+      "elapsed_seconds": 11.679,
+      "imported_at": 1778221080,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/events/1778221068-openviking-hook-output-is-concise.md",
+      "returncode": 0,
+      "sha256": "d02de3062dd999e17d00c6c981cdaa90bb5e8ff47dbb8e6e8dc966a3394035f4",
+      "skipped": false,
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778221068-openviking-hook-output-is-concise.md"
+    },
     ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -389,10 +401,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778220600,
+  "last_import": 1778221080,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778220600,
+  "updated": 1778221080,
   "version": 1
 }
