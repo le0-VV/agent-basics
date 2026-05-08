@@ -35,13 +35,22 @@ class SetupMacosTest(unittest.TestCase):
         fake_bin.chmod(0o755)
         return fake_bin
 
-    def write_fake_openviking_installer(self, repo: Path) -> tuple[Path, Path]:
+    def write_fake_openviking_installer(
+        self,
+        repo: Path,
+        *,
+        fail_service: bool = False,
+        fail_health: bool = False,
+    ) -> tuple[Path, Path]:
         fake_dispatcher = repo / ".test-openviking" / "agent-basics"
         log_path = repo / ".test-openviking" / "install.log"
+        service_failure = "1" if fail_service else "0"
+        health_exit = "1" if fail_health else "0"
         fake_dispatcher.parent.mkdir(parents=True, exist_ok=True)
         fake_dispatcher.write_text(
             "#!/usr/bin/env sh\n"
             "set -eu\n"
+            f"FAIL_SERVICE={service_failure}\n"
             "printf '%s\\n' \"$*\" >> \"$AGENT_BASICS_TEST_OPENVIKING_INSTALL_LOG\"\n"
             "if [ \"$1\" != \"ov\" ]; then\n"
             "  echo \"unexpected fake dispatcher command: $*\" >&2\n"
@@ -64,6 +73,7 @@ class SetupMacosTest(unittest.TestCase):
             "case \"$1\" in\n"
             "  --help) echo 'fake installed OpenViking help'; exit 0 ;;\n"
             "  version) echo 'CLI: 0.0.0-installed-test'; exit 0 ;;\n"
+            f"  health) exit {health_exit} ;;\n"
             "  *) exit 0 ;;\n"
             "esac\n"
             "EOS\n"
@@ -87,6 +97,7 @@ class SetupMacosTest(unittest.TestCase):
             "case \"$1\" in\n"
             "  --help) echo 'fake installed OpenViking help'; exit 0 ;;\n"
             "  version) echo 'CLI: 0.0.0-installed-test'; exit 0 ;;\n"
+            f"  health) exit {health_exit} ;;\n"
             "  *) exit 0 ;;\n"
             "esac\n"
             "EOS\n"
@@ -135,6 +146,7 @@ class SetupMacosTest(unittest.TestCase):
             "      echo \"unexpected fake service action: $*\" >&2\n"
             "      exit 2\n"
             "    fi\n"
+            "    if [ \"$FAIL_SERVICE\" = \"1\" ]; then exit 1; fi\n"
             "    ;;\n"
             "  *)\n"
             "    echo \"unexpected fake dispatcher command: $*\" >&2\n"
@@ -396,6 +408,34 @@ class SetupMacosTest(unittest.TestCase):
             self.assertEqual(config["openviking"]["mcp"]["cwd_argument"], "cwd")
             snippet = json.loads((repo / ".agents" / "openviking" / "codex-mcp.json").read_text(encoding="utf-8"))
             self.assertNotIn("cwd", snippet["mcpServers"]["agent-basics"])
+
+    def test_setup_skips_import_when_repo_openviking_service_is_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            home = Path(tmp) / "home"
+            repo.mkdir()
+            home.mkdir()
+            dispatcher, install_log = self.write_fake_openviking_installer(
+                repo,
+                fail_service=True,
+                fail_health=True,
+            )
+
+            result = self.run_setup(
+                repo,
+                {
+                    "AGENT_BASICS_TEST_OPENVIKING_AUTO_INSTALL": "1",
+                    "AGENT_BASICS_TEST_OPENVIKING_INSTALL_DISPATCHER": str(dispatcher),
+                    "AGENT_BASICS_TEST_OPENVIKING_INSTALL_LOG": str(install_log),
+                    "HOME": str(home),
+                },
+                fake_openviking=False,
+            )
+
+            self.assertIn("Warning: repo-local OpenViking service setup failed.", result.stderr)
+            self.assertIn("Skipped OpenViking source-store import", result.stderr)
+            self.assertTrue((repo / ".agents" / "config.toml").is_file())
+            self.assertFalse((repo / ".agents" / "openviking" / "import-state.json").exists())
 
     def test_setup_persists_chinese_language_and_prints_chinese_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

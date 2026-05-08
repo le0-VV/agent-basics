@@ -7,6 +7,7 @@ agents_template=""
 agent_basics_template=""
 LOCAL_EMBEDDING_PID=""
 LOCAL_EMBEDDING_LOG=""
+OPENVIKING_SOURCE_IMPORT_ENABLED="1"
 
 if [[ ! -d "$TARGET_DIR" ]]; then
   mkdir -p "$TARGET_DIR"
@@ -2726,13 +2727,13 @@ ensure_repo_openviking_service() {
 
   if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "Warning: repo-local OpenViking service setup is only supported on macOS launchctl." >&2
-    return
+    return 1
   fi
 
   if ! dispatcher="$(find_agent_basics_dispatcher)"; then
     echo "Warning: no executable agent-basics dispatcher found for repo-local OpenViking service setup." >&2
     echo "Re-run manually: agent-basics --repo \"$TARGET_DIR\" ov service install --repo-local" >&2
-    return
+    return 1
   fi
 
   if "$dispatcher" --repo "$TARGET_DIR" ov service status --repo-local >/dev/null 2>&1 && openviking_health_ready; then
@@ -2743,7 +2744,7 @@ ensure_repo_openviking_service() {
   if ! "$dispatcher" ov package-server --home "$HOME/.openviking"; then
     echo "Warning: OpenViking server packaging failed." >&2
     echo "Re-run manually: $dispatcher ov package-server --home \"$HOME/.openviking\"" >&2
-    return
+    return 1
   fi
 
   if "$dispatcher" --repo "$TARGET_DIR" ov service install --repo-local; then
@@ -2753,6 +2754,7 @@ ensure_repo_openviking_service() {
 
   echo "Warning: repo-local OpenViking service setup failed." >&2
   echo "Re-run manually: $dispatcher --repo \"$TARGET_DIR\" ov service install --repo-local" >&2
+  return 1
 }
 
 append_gitignore_entry_if_missing() {
@@ -2909,6 +2911,12 @@ import_openviking_source_store() {
 
   if [[ "${AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK:-0}" == "1" ]]; then
     echo "Skipped OpenViking source-store import due to test-only skip flag"
+    return
+  fi
+
+  if [[ "$OPENVIKING_SOURCE_IMPORT_ENABLED" != "1" ]]; then
+    echo "Skipped OpenViking source-store import because the repo-local OpenViking service is not available." >&2
+    echo "Re-run manually with: agent-basics ov import-repo-memory --write --wait-memory --wait-resources" >&2
     return
   fi
 
@@ -3719,7 +3727,11 @@ else
 fi
 
 install_openviking_hooks
-ensure_repo_openviking_service
+if ensure_repo_openviking_service; then
+  OPENVIKING_SOURCE_IMPORT_ENABLED="1"
+else
+  OPENVIKING_SOURCE_IMPORT_ENABLED="0"
+fi
 
 while IFS= read -r markdown_file; do
   ensure_trailing_blank_line "$markdown_file"
