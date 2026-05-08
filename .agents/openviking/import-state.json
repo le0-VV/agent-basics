@@ -70,6 +70,30 @@
       "skipped": true,
       "target": "viking://user/default/memories/cases/projects/agent-basics/1778124643-agent-basics-mlx-service-process-and-memory-accounting.md"
     },
+    ".agents/memory/memories/cases/1778235958-setup-managed-path-hardening.md": {
+      "elapsed_seconds": 24.868,
+      "imported_at": 1778235984,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/cases/1778235958-setup-managed-path-hardening.md",
+      "returncode": 0,
+      "sha256": "5609a24e543be765ea5760bbf460a94bdc76b8316a43d4fb8feea36c9c46c2dc",
+      "skipped": false,
+      "target": "viking://user/default/memories/cases/projects/agent-basics/1778235958-setup-managed-path-hardening.md"
+    },
+    ".agents/memory/memories/cases/1778237226-security-audit-hardening-for-setup-and-openviking-gateway.md": {
+      "elapsed_seconds": 18.018,
+      "imported_at": 1778237245,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/cases/1778237226-security-audit-hardening-for-setup-and-openviking-gateway.md",
+      "returncode": 0,
+      "sha256": "a18f952be551c3b6e64524b305dcf66d0d2bfdc245955fd3beba3358074ac804",
+      "skipped": false,
+      "target": "viking://user/default/memories/cases/projects/agent-basics/1778237226-security-audit-hardening-for-setup-and-openviking-gateway.md"
+    },
     ".agents/memory/memories/events/1777901050-legacy-memory-snapshot-created.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -401,10 +425,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778221080,
+  "last_import": 1778237245,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778221080,
+  "updated": 1778237245,
   "version": 1
 }
