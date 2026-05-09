@@ -20,16 +20,16 @@ Agents 做长线工作很容易掉链子，本质上还是 context 限制。Cont
 
 `agent-basics` 是一个基础 repo harness：安装一个共享的记忆后端，把稳定的 agent-facing 文件放在可预测的位置，再教 agents 几个固定流程。
 
-仓库把可人工审核的源文件放在 `.agents/memory/`；OpenViking 在仓库本地 `.agents/openviking/` workspace 里负责存储、搜索和检索；MCP 给 agents 一个一致的方式来读取上下文和记录新上下文。Setup 和 upgrade 负责安全地处理已有项目，git hooks 则在提交知识文件变化时刷新 memory backend。
+仓库把可人工审核的源文件放在 `.agents/memory/`；一个全局 OpenViking service 负责存储、搜索和检索；MCP 给 agents 一个一致的方式来读取上下文和记录新上下文。Setup 和 upgrade 负责安全地处理已有项目，git hooks 则在提交 repo knowledge 变化时刷新全局 memory backend。
 
 ## 它怎么工作
 
-它使用 OpenViking 作为记忆和检索后端，而 OpenViking 本身需要通过 API 访问一个 LLM 和一个 embedding 模型，用来生成结构化记忆和做语义检索。`agent-basics` 负责仓库侧的 instructions、setup、upgrade、MCP 接线、git hooks，以及安全的 markdown 冲突处理。它会在 `~/.openviking` 管理一个共享的 OpenViking executable/runtime，但每个 repo 自己拥有 `.agents/openviking/` 里的 OpenViking config、workspace、import state 和 locks。
+它使用 OpenViking 作为记忆和检索后端，而 OpenViking 本身需要通过 API 访问一个 LLM 和一个 embedding 模型，用来生成结构化记忆和做语义检索。`agent-basics` 负责仓库侧的 instructions、setup、upgrade、MCP 接线、git hooks，以及安全的 markdown 冲突处理。它会在 `~/.openviking` 管理一个共享的 OpenViking executable、service、config 和 workspace；每个 repo 自己拥有 `.agents/memory/` 和 `.agents/openviking/` 里的 source files 与 import metadata。
 
 ## 它提供什么
 
 - 一个 agents 能可靠发现的根目录 `Agents.md`。
-- 一个仓库本地 `.agents/` 工作区，用于 agent instructions、skills、memory source files 和 OpenViking config/workspace state。
+- 一个仓库本地 `.agents/` 工作区，用于 agent instructions、skills、memory source files、OpenViking namespace metadata 和 import state。
 - 一个用户级 OpenViking executable/runtime，通常在 `~/.openviking`，可被多个项目共享。
 - 仓库感知的 MCP tools，让 agents 通过 OpenViking 搜索和记录项目上下文。
 - 当 repo memory files 变化时刷新 OpenViking 的 git hooks。
@@ -43,7 +43,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，把 OpenViking server 打包成 `~/.openviking/openviking`，并准备 agent-basics MLX runtime。Repo setup 会创建 repo-local OpenViking config/workspace，并在需要时安装 repo-local macOS LaunchAgent。第一版里，内置本地 MLX runtime 要求 Apple Silicon Mac，并且至少 16 GB 统一内存。支持的机器上会把 agent-basics MLX runtime 配在 `http://127.0.0.1:18080/v1`，chat/VLM routing 用 `mlx-community/gemma-4-e2b-it-4bit`，embedding 用 `mlx-community/embeddinggemma-300m-4bit`。
+Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，把 OpenViking server 打包成 `~/.openviking/openviking`，安装全局 macOS service，并准备 agent-basics MLX runtime。Repo setup 会创建 repo-local source-store metadata，并把 `.agents/memory/` 导入这个全局 OpenViking service。第一版里，内置本地 MLX runtime 要求 Apple Silicon Mac，并且至少 16 GB 统一内存。支持的机器上会把 agent-basics MLX runtime 配在 `http://127.0.0.1:18080/v1`，chat/VLM routing 用 `mlx-community/gemma-4-e2b-it-4bit`，embedding 用 `mlx-community/embeddinggemma-300m-4bit`。
 
 验证命令：
 
@@ -84,11 +84,11 @@ agent-basics mlx bootstrap
 agent-basics ov doctor
 ```
 
-在 macOS 上，repo setup 可以把 OpenViking 装成 repo-local 用户 LaunchAgent，让 live search、ingest 和 MCP calls 使用当前 repo 的 `.agents/openviking/` workspace。Foreground server mode 主要用来 debug：
+在 macOS 上，agent-basics 会把 OpenViking 装成一个全局用户 LaunchAgent。Repo setup 不再安装第二个 repo-local OpenViking server；live search、ingest 和 MCP calls 都通过全局 service，并使用 repo-scoped namespaces。Foreground server mode 主要用来 debug：
 
 ```bash
-agent-basics ov service status --repo-local
-agent-basics ov service restart --repo-local
+agent-basics ov service status
+agent-basics ov service restart
 agent-basics ov package-server --dry-run
 agent-basics ov server
 ```
@@ -170,11 +170,11 @@ setup 之后，一个项目通常会有：
 - `Agents.md`：agents 应该优先读取的根目录说明。
 - `.agents/AGENT-BASICS.md`：agent-basics 工作流的操作说明。
 - `.agents/memory/`：repo-owned memory 和 resource files，由 OpenViking ingest。
-- `.agents/openviking/`：repo OpenViking config、workspace cache、import state、locks 和 migration records。
+- `.agents/openviking/`：repo OpenViking metadata、namespace config、import state、locks 和 migration records。
 - `.agents/skills/` 和 `Skills.md`：给 agents 使用的可复用工作流。
 - `.agents/TODO.md`：当前工作 checklist；被 git 忽略。
 
-`.agents/openviking/ov.conf` 和 `.agents/openviking/ovcli.conf` 是本机运行时生成文件。Setup 会按当前 checkout 修复它们，所以默认被 git 忽略。
+OpenViking runtime files 放在 `~/.openviking/`。`.agents/openviking/ov.conf`、`.agents/openviking/ovcli.conf` 和 `.agents/openviking/workspace/` 是旧版 agent-basics 的 ignored legacy paths；当前 setup 不会创建也不会使用它们。
 
 ## 本地 Runtime
 
@@ -199,7 +199,7 @@ agent-basics ov write-default-config \
   --api-key your-api-key
 ```
 
-在目标 repo 里运行这个命令；默认会写 `.agents/openviking/ov.conf` 和 `.agents/openviking/ovcli.conf`。
+可以在任意目录运行这个命令；默认会写全局的 `~/.openviking/ov.conf` 和 `~/.openviking/ovcli.conf`。
 
 ## 需要帮助的话
 

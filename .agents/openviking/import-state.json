@@ -271,28 +271,30 @@
       "target": "viking://user/default/memories/events/projects/agent-basics/1778219958-first-run-polish-before-real-world-test.md"
     },
     ".agents/memory/memories/events/1778220586-openviking-hook-skips-unchanged-imported-memories.md": {
-      "elapsed_seconds": 14.105,
-      "imported_at": 1778220600,
+      "imported_at": 1778310711,
       "kind": "memory",
       "method": "write",
       "ok": true,
       "path": ".agents/memory/memories/events/1778220586-openviking-hook-skips-unchanged-imported-memories.md",
+      "previous_error": "timed out after 5.0s",
       "returncode": 0,
       "sha256": "56df6464ee657e3b1d952f60f872463d131735f5ee49d0c73f54b6071418f3e0",
       "skipped": false,
-      "target": "viking://user/default/memories/events/projects/agent-basics/1778220586-openviking-hook-skips-unchanged-imported-memories.md"
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778220586-openviking-hook-skips-unchanged-imported-memories.md",
+      "verified_existing": true
     },
     ".agents/memory/memories/events/1778221068-openviking-hook-output-is-concise.md": {
-      "elapsed_seconds": 11.679,
-      "imported_at": 1778221080,
+      "imported_at": 1778310783,
       "kind": "memory",
       "method": "write",
       "ok": true,
       "path": ".agents/memory/memories/events/1778221068-openviking-hook-output-is-concise.md",
+      "previous_error": "timed out after 10.0s",
       "returncode": 0,
       "sha256": "d02de3062dd999e17d00c6c981cdaa90bb5e8ff47dbb8e6e8dc966a3394035f4",
       "skipped": false,
-      "target": "viking://user/default/memories/events/projects/agent-basics/1778221068-openviking-hook-output-is-concise.md"
+      "target": "viking://user/default/memories/events/projects/agent-basics/1778221068-openviking-hook-output-is-concise.md",
+      "verified_existing": true
     },
     ".agents/memory/memories/preferences/1777901050-keep-memory-as-ov-source-store.md": {
       "imported_at": 1777913431,
@@ -385,6 +387,18 @@
       "skipped": false,
       "target": "viking://user/default/memories/preferences/projects/agent-basics/1778156831-use-repo-local-openviking-workspaces.md"
     },
+    ".agents/memory/memories/preferences/1778311277-use-one-global-openviking-installation-with-repo-local-source-memory.md": {
+      "elapsed_seconds": 13.599,
+      "imported_at": 1778311291,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/preferences/1778311277-use-one-global-openviking-installation-with-repo-local-source-memory.md",
+      "returncode": 0,
+      "sha256": "4c5eac98f16b70cc195914f6bcc6d748a49879be0a1d930f91960bcec84f4ed5",
+      "skipped": false,
+      "target": "viking://user/default/memories/preferences/projects/agent-basics/1778311277-use-one-global-openviking-installation-with-repo-local-source-memory.md"
+    },
     ".agents/memory/memories/tools/1777935030-openviking-cli-http-timeout-lives-in-ovcli-conf.md": {
       "imported_at": 1777935377,
       "kind": "memory",
@@ -437,10 +451,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778278692,
+  "last_import": 1778311291,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778278692,
+  "updated": 1778311291,
   "version": 1
 }

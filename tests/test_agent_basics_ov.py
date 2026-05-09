@@ -107,38 +107,44 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         with redirect_stderr(stderr), self.assertRaises(SystemExit):
             parser.parse_args(["ov", "write-default-config", "--provider", "ollama"])
 
-    def test_ov_default_config_without_home_uses_repo_local_absolute_workspace(self) -> None:
+    def test_ov_default_config_without_home_uses_global_absolute_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
+            home = Path(tmp) / "global-openviking"
             repo.mkdir()
+            original_home = agent_basics_ov.DEFAULT_OV_HOME
             output = io.StringIO()
-            with redirect_stdout(output):
-                result = agent_basics_ov.command_ov_write_default_config(
-                    SimpleNamespace(
-                        repo=str(repo),
-                        config=None,
-                        cli_config=None,
-                        home=None,
-                        provider="mlx",
-                        base_url=None,
-                        provider_base=None,
-                        api_key=None,
-                        chat_model=None,
-                        embedding_model=None,
-                        embedding_dimension=768,
-                        vlm_timeout=86400,
-                        server_url="http://127.0.0.1:1933",
-                        cli_timeout=86400,
-                        force=False,
+            try:
+                agent_basics_ov.DEFAULT_OV_HOME = home
+                with redirect_stdout(output):
+                    result = agent_basics_ov.command_ov_write_default_config(
+                        SimpleNamespace(
+                            repo=str(repo),
+                            config=None,
+                            cli_config=None,
+                            home=None,
+                            provider="mlx",
+                            base_url=None,
+                            provider_base=None,
+                            api_key=None,
+                            chat_model=None,
+                            embedding_model=None,
+                            embedding_dimension=768,
+                            vlm_timeout=86400,
+                            server_url="http://127.0.0.1:1933",
+                            cli_timeout=86400,
+                            force=False,
+                        )
                     )
-                )
+            finally:
+                agent_basics_ov.DEFAULT_OV_HOME = original_home
 
             payload = json.loads(output.getvalue())
 
         self.assertEqual(result, 0)
         self.assertEqual(
             payload["config"]["storage"]["workspace"],
-            str((repo / ".agents" / "openviking" / "workspace").resolve()),
+            str((home / "workspace").resolve()),
         )
 
     def test_ov_package_server_dry_run_builds_openviking_process(self) -> None:
@@ -1309,6 +1315,66 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
             if command[1] in {"health", "mkdir", "stat", "read"}:
                 self.assertEqual(timeout, 3)
 
+    def test_ov_import_staleness_verifies_global_target_presence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "agent-basics"
+            memory_path = repo / ".agents" / "memory" / "memories" / "cases" / "case.md"
+            memory_path.parent.mkdir(parents=True)
+            memory_text = (
+                "---\n"
+                "record_kind: memory\n"
+                "ov_category: cases\n"
+                "title: Example case\n"
+                "requires_human_review: false\n"
+                "---\n"
+                "\n"
+                "# Example case\n"
+            )
+            memory_path.write_text(memory_text, encoding="utf-8")
+            target = "viking://user/default/memories/cases/projects/agent-basics/case.md"
+            state_path = repo / ".agents" / "openviking" / "import-state.json"
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "imports": {
+                            ".agents/memory/memories/cases/case.md": {
+                                "ok": True,
+                                "method": "write",
+                                "sha256": agent_basics_ov.sha256_text(memory_text),
+                                "target": target,
+                            }
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            calls: list[list[str]] = []
+
+            def fake_run(command: list[str], timeout: float | None = 30, env: dict[str, str] | None = None) -> dict[str, object]:
+                calls.append(command)
+                return {"ok": False, "command": command, "stdout": "", "stderr": "not found", "returncode": 1}
+
+            original_run_command_env = agent_basics_ov.run_command_env
+            try:
+                agent_basics_ov.run_command_env = fake_run
+                staleness = agent_basics_ov.ov_import_staleness(
+                    repo,
+                    verify_targets=True,
+                    ov_bin=Path("/tmp/ov"),
+                    quick_timeout=7,
+                )
+            finally:
+                agent_basics_ov.run_command_env = original_run_command_env
+
+        self.assertEqual(staleness["stale_count"], 1)
+        self.assertEqual(staleness["stale"][0]["reason"], "target_missing")
+        self.assertEqual(staleness["stale"][0]["target"], target)
+        self.assertEqual(staleness["target_verification"], "enabled")
+        self.assertEqual(calls[0], ["/tmp/ov", "stat", target, "-o", "json"])
+
     def test_ov_ingest_changed_skips_matching_state_without_target_stat(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "agent-basics"
@@ -1693,6 +1759,9 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(result["busy_waits"], 1)
         self.assertEqual([command[1] for command, _timeout in calls], ["write", "wait", "write"])
         self.assertEqual([timeout for _command, timeout in calls], [2, 3, 2])
+
+    def test_result_is_busy_checks_error_field(self) -> None:
+        self.assertTrue(agent_basics_ov.result_is_busy({"ok": False, "error": "resource is busy and cannot be written now"}))
 
     def test_ov_search_payload_scopes_every_category_to_repo(self) -> None:
         commands: list[list[str]] = []

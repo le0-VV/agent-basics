@@ -317,7 +317,7 @@ def run_command_env(command: list[str], timeout: float | None = 30, env: dict[st
 
 
 def result_is_busy(result: dict[str, Any]) -> bool:
-    text = f"{result.get('stdout', '')}\n{result.get('stderr', '')}".lower()
+    text = f"{result.get('stdout', '')}\n{result.get('stderr', '')}\n{result.get('error', '')}".lower()
     return "resource is busy" in text or "cannot be written now" in text
 
 
@@ -451,6 +451,14 @@ def repo_ov_workspace_path(repo: Path) -> Path:
     return repo_openviking_dir(repo) / "workspace"
 
 
+def global_ov_config_path() -> Path:
+    return Path(os.environ.get("AGENT_BASICS_OV_CONFIG", str(DEFAULT_OV_CONFIG))).expanduser()
+
+
+def global_ov_cli_config_path() -> Path:
+    return Path(os.environ.get("AGENT_BASICS_OV_CLI_CONFIG", str(DEFAULT_OV_CLI_CONFIG))).expanduser()
+
+
 def repo_ov_service_digest(repo: Path) -> str:
     return hashlib.sha256(str(repo.resolve()).encode("utf-8")).hexdigest()[:12]
 
@@ -465,17 +473,17 @@ def repo_ov_default_port(repo: Path) -> int:
 
 
 def repo_ov_server_url(repo: Path) -> str:
-    cli_config = load_repo_json_file(repo, repo_ov_cli_config_path(repo), "repo OpenViking CLI config path")
+    cli_config = load_json_file(global_ov_cli_config_path())
     if isinstance(cli_config, dict):
         url = cli_config.get("url")
         if isinstance(url, str) and url.strip():
             return url.rstrip("/")
-    return f"http://127.0.0.1:{repo_ov_default_port(repo)}"
+    return "http://127.0.0.1:1933"
 
 
 def repo_ov_cli_env(repo: Path) -> dict[str, str]:
     env = dict(os.environ)
-    env[OPENVIKING_CLI_CONFIG_ENV] = str(repo_ov_cli_config_path(repo))
+    env[OPENVIKING_CLI_CONFIG_ENV] = str(global_ov_cli_config_path())
     env["NO_PROXY"] = merge_no_proxy(env.get("NO_PROXY") or env.get("no_proxy", ""))
     env["no_proxy"] = env["NO_PROXY"]
     return env
@@ -503,8 +511,8 @@ def load_repo_json_file(repo: Path, path: Path, description: str) -> dict[str, A
 def repo_openviking_config_error(repo: Path) -> str | None:
     for path, description in [
         (repo_openviking_dir(repo), "repo OpenViking directory"),
-        (repo_ov_config_path(repo), "repo OpenViking config path"),
-        (repo_ov_cli_config_path(repo), "repo OpenViking CLI config path"),
+        (repo_openviking_dir(repo) / "import-state.json", "repo OpenViking import state path"),
+        (repo_openviking_dir(repo) / "locks", "repo OpenViking lock directory"),
     ]:
         error = repo_local_path_error(repo, path, description)
         if error:
@@ -1325,8 +1333,7 @@ def provider_default_embedding_model(provider: str) -> str:
 
 def command_ov_write_default_config(args: argparse.Namespace) -> int:
     repo = repo_root_from_args(args)
-    uses_repo_local_home = not bool(getattr(args, "home", None))
-    home = (Path(args.home).expanduser() if getattr(args, "home", None) else repo_openviking_dir(repo)).resolve()
+    home = (Path(args.home).expanduser() if getattr(args, "home", None) else DEFAULT_OV_HOME).resolve()
     path = Path(args.config).expanduser() if getattr(args, "config", None) else home / "ov.conf"
     cli_config_path = Path(getattr(args, "cli_config", None) or home / "ovcli.conf").expanduser()
     server_url = getattr(args, "server_url", None) or "http://127.0.0.1:1933"
@@ -1377,18 +1384,6 @@ def command_ov_write_default_config(args: argparse.Namespace) -> int:
         "url": server_url.rstrip("/"),
         "timeout": getattr(args, "cli_timeout", DEFAULT_OV_VLM_TIMEOUT_SECONDS),
     }
-
-    if uses_repo_local_home:
-        for target, description in [
-            (home, "repo OpenViking directory"),
-            (path, "repo OpenViking config path"),
-            (cli_config_path, "repo OpenViking CLI config path"),
-            (home / "workspace", "repo OpenViking workspace path"),
-        ]:
-            error = repo_local_path_error(repo, target, description)
-            if error:
-                print_json({"ok": False, "repo": str(repo), "path": str(target), "error": error})
-                return 1
 
     results = []
     ok = True
@@ -1866,6 +1861,18 @@ def ov_service_changed(plist_path: Path, plist_text: str) -> bool:
 def command_ov_service(args: argparse.Namespace) -> int:
     paths = ov_service_paths(args)
     action = args.service_action
+    if paths["repo_local"] and action in {"install", "start", "restart"}:
+        print_json(
+            {
+                "ok": False,
+                "action": action,
+                "repo": str(paths["repo"]),
+                "repo_local": True,
+                "error": "repo-local OpenViking services are deprecated; use the global service and repo-local source store import instead",
+                "cleanup": "agent-basics ov service uninstall --repo-local",
+            }
+        )
+        return 2
     service_timeout = getattr(args, "timeout", DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
     plist_path = paths["plist_path"]
     plist_text = paths["plist_text"]
@@ -2054,7 +2061,7 @@ def command_ov_server(args: argparse.Namespace) -> int:
             }
         )
         return 1
-    config = Path(args.config).expanduser() if args.config else repo_ov_config_path(repo)
+    config = Path(args.config).expanduser() if args.config else global_ov_config_path()
     command = [str(server_bin), "--config", str(config)]
     if args.host:
         command.extend(["--host", args.host])
@@ -2069,7 +2076,8 @@ def command_ov_server(args: argparse.Namespace) -> int:
     payload = {
         "ok": True,
         "repo": str(repo),
-        "repo_local": not bool(args.config),
+        "repo_local": False,
+        "data_plane": "global-service",
         "command": command,
         "server_bin": str(server_bin),
         "config": str(config),
@@ -2631,7 +2639,7 @@ def command_ov_import_repo_memory(args: argparse.Namespace) -> int:
         "results": results,
         "wait": wait_result,
         "state_path": str(ov_import_state_path(repo)),
-        "cli_config": str(repo_ov_cli_config_path(repo)),
+        "cli_config": str(global_ov_cli_config_path()),
     }
     print_json(payload)
     return 0 if ok else 1
@@ -2991,7 +2999,7 @@ def ov_record_payload(
             "category": category,
             "source_path": str(source_path),
             "target": target,
-            "cli_config": str(repo_ov_cli_config_path(repo)),
+            "cli_config": str(global_ov_cli_config_path()),
             "parents": parent_results,
             "state": state_entry,
             "state_path": str(ov_import_state_path(repo)),
@@ -3032,7 +3040,7 @@ def ov_record_payload(
         "category": category,
         "source_path": str(source_path),
         "target": target,
-        "cli_config": str(repo_ov_cli_config_path(repo)),
+        "cli_config": str(global_ov_cli_config_path()),
         "parents": parent_results,
         "state": state_entry,
         "state_path": str(ov_import_state_path(repo)),
@@ -3150,7 +3158,7 @@ def ov_add_resource_payload(
             "repo": str(repo),
             "source": command_source,
             "target": target,
-            "cli_config": str(repo_ov_cli_config_path(repo)),
+            "cli_config": str(global_ov_cli_config_path()),
             "parents": parent_results,
             "write": result,
         }
@@ -3174,7 +3182,7 @@ def ov_add_resource_payload(
             "repo": str(repo),
             "source": command_source,
             "target": target,
-            "cli_config": str(repo_ov_cli_config_path(repo)),
+            "cli_config": str(global_ov_cli_config_path()),
             "parents": parent_results,
             "stat": stat_result,
             "write": result,
@@ -3191,7 +3199,7 @@ def ov_add_resource_payload(
         "repo": str(repo),
         "source": command_source,
         "target": target,
-        "cli_config": str(repo_ov_cli_config_path(repo)),
+        "cli_config": str(global_ov_cli_config_path()),
         "parents": parent_results,
         "write": result,
     }
@@ -3255,7 +3263,7 @@ def ov_add_skill_payload(
         "repo": str(repo),
         "source": source,
         "source_path": source_path,
-        "cli_config": str(repo_ov_cli_config_path(repo)),
+        "cli_config": str(global_ov_cli_config_path()),
         "note": "OpenViking add-skill does not expose a target URI; repo attribution should be included in skill content.",
         "write": result,
     }
@@ -3273,24 +3281,56 @@ def command_ov_add_skill(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
-def ov_import_staleness(repo: Path) -> dict[str, Any]:
+def ov_import_staleness(
+    repo: Path,
+    *,
+    verify_targets: bool = False,
+    ov_bin: Path | None = None,
+    env: dict[str, str] | None = None,
+    quick_timeout: float | None = DEFAULT_OV_QUICK_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
     files = ov_native_import_files(repo)
     state = load_ov_import_state(repo)
     imports = state.get("imports", {}) if isinstance(state, dict) else {}
     stale = []
+    verified_targets = 0
     for kind, paths in files.items():
         for path in paths:
             rel = path.relative_to(repo).as_posix()
             digest = sha256_text(path.read_text(encoding="utf-8"))
             previous = imports.get(rel)
             if not isinstance(previous, dict) or previous.get("sha256") != digest or previous.get("ok") is not True:
-                stale.append({"kind": kind, "path": rel, "state": previous})
+                stale.append({"kind": kind, "path": rel, "reason": "source_state_mismatch", "state": previous})
+                continue
+            if not verify_targets or ov_bin is None:
+                continue
+            target = previous.get("target")
+            method = previous.get("method")
+            if not isinstance(target, str) or method not in {"write", "add-resource"}:
+                continue
+            stat_result = run_command_env([str(ov_bin), "stat", target, "-o", "json"], timeout=quick_timeout, env=env)
+            if stat_result.get("ok"):
+                verified_targets += 1
+                continue
+            reason = "target_missing" if ov_result_is_missing(stat_result) else "target_unverified"
+            stale.append(
+                {
+                    "kind": kind,
+                    "path": rel,
+                    "reason": reason,
+                    "target": target,
+                    "state": previous,
+                    "verification": summarize_command_payload(stat_result),
+                }
+            )
     return {
         "counts": {key: len(value) for key, value in files.items()},
         "stale_count": len(stale),
         "stale": stale,
         "state": state,
         "state_path": str(ov_import_state_path(repo)),
+        "verified_targets": verified_targets,
+        "target_verification": "enabled" if verify_targets and ov_bin is not None else "skipped",
     }
 
 
@@ -3305,17 +3345,16 @@ def ov_status_payload(
     base_url = (base_url or provider_default_base(provider)).rstrip("/")
     ov_bin = find_ov_bin()
     repo_ov_dir = repo_openviking_dir(repo)
-    repo_config = repo_ov_config_path(repo)
-    repo_cli_config = repo_ov_cli_config_path(repo)
     repo_ov_error = repo_openviking_config_error(repo)
-    repo_config_payload = load_repo_json_file(repo, repo_config, "repo OpenViking config path")
-    repo_cli_config_payload = load_repo_json_file(repo, repo_cli_config, "repo OpenViking CLI config path")
-    user_config = Path(os.environ.get("AGENT_BASICS_OV_CONFIG", str(DEFAULT_OV_CONFIG))).expanduser()
-    user_cli_config = Path(os.environ.get("AGENT_BASICS_OV_CLI_CONFIG", str(DEFAULT_OV_CLI_CONFIG))).expanduser()
+    user_config = global_ov_config_path()
+    user_cli_config = global_ov_cli_config_path()
+    user_config_payload = load_json_file(user_config)
+    user_cli_config_payload = load_json_file(user_cli_config)
     payload: dict[str, Any] = {
         "ok": bool(ov_bin) and not repo_ov_error,
         "repo": str(repo),
         "repo_slug": ov_repo_slug(repo),
+        "data_plane": "global-service",
         "namespaces": {
             "resource_root": ov_repo_resource_root(repo),
             "memory_roots": {
@@ -3333,25 +3372,31 @@ def ov_status_payload(
             },
         },
         "openviking": {
+            "data_plane": "global-service",
             "home": str(DEFAULT_OV_HOME),
             "bin": str(ov_bin) if ov_bin else None,
             "bin_exists": bool(ov_bin and ov_bin.exists()),
-            "config_path": str(repo_config),
-            "config_exists": repo_config.exists(),
-            "config": redact_sensitive(repo_config_payload),
-            "cli_config_path": str(repo_cli_config),
-            "cli_config_exists": repo_cli_config.exists(),
-            "cli_config": redact_sensitive(repo_cli_config_payload),
+            "config_path": str(user_config),
+            "config_exists": user_config.exists(),
+            "config": redact_sensitive(user_config_payload),
+            "cli_config_path": str(user_cli_config),
+            "cli_config_exists": user_cli_config.exists(),
+            "cli_config": redact_sensitive(user_cli_config_payload),
             "server_url": repo_ov_server_url(repo),
-            "service_label": repo_ov_service_label(repo),
-            "workspace": str(repo_ov_workspace_path(repo)),
-            "workspace_exists": repo_ov_workspace_path(repo).exists(),
+            "service_label": DEFAULT_OV_SERVICE_LABEL,
+            "workspace": str(DEFAULT_OV_HOME / "workspace"),
+            "workspace_exists": (DEFAULT_OV_HOME / "workspace").exists(),
             "repo_openviking_dir": str(repo_ov_dir),
+            "repo_import_state_path": str(ov_import_state_path(repo)),
             "user_runtime_home": str(DEFAULT_OV_HOME),
             "user_config_path": str(user_config),
             "user_config_exists": user_config.exists(),
             "user_cli_config_path": str(user_cli_config),
             "user_cli_config_exists": user_cli_config.exists(),
+            "legacy_repo_config_path": str(repo_ov_config_path(repo)),
+            "legacy_repo_cli_config_path": str(repo_ov_cli_config_path(repo)),
+            "legacy_repo_workspace": str(repo_ov_workspace_path(repo)),
+            "legacy_repo_service_label": repo_ov_service_label(repo),
             "repo_local_install_present": (repo / ".agents" / "openviking" / "venv").exists(),
         },
     }
@@ -3363,6 +3408,13 @@ def ov_status_payload(
             env = repo_ov_cli_env(repo)
             health = ov_command_payload([str(ov_bin), "health", "-o", "json"], timeout=None, env=env)
             status = ov_command_payload([str(ov_bin), "status", "-o", "json"], timeout=None, env=env)
+            payload["source_store"]["canonical"] = ov_import_staleness(
+                repo,
+                verify_targets=bool(health.get("ok")),
+                ov_bin=ov_bin,
+                env=env,
+                quick_timeout=DEFAULT_OV_QUICK_TIMEOUT_SECONDS,
+            )
             payload["openviking"]["health"] = {
                 **summarize_command_payload(health),
                 "json": health.get("json"),

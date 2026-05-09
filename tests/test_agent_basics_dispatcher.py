@@ -219,7 +219,7 @@ class AgentBasicsDispatcherTest(unittest.TestCase):
                 "    'ok': True,\n"
                 f"    'repo': {str(repo)!r},\n"
                 "    'openviking': {\n"
-                "        'workspace': '.agents/openviking/workspace',\n"
+                "        'workspace': '~/.openviking/workspace',\n"
                 "        'server_url': 'http://127.0.0.1:1933',\n"
                 "    },\n"
                 "    'source_store': {'canonical': {\n"

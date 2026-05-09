@@ -20,16 +20,16 @@ This project aims to help solve this for as many people as possible.
 
 `agent-basics` is a basic repo harness: install one shared memory backend, put stable agent-facing files in predictable places, and teach agents a few repeatable routines.
 
-The repo keeps human-reviewable source files under `.agents/memory/`; OpenViking handles storage, search, and retrieval in a repo-local `.agents/openviking/` workspace; MCP gives agents a consistent way to ask for context and record new context. Setup and upgrade keep the structure safe for existing projects, while git hooks keep the memory backend current when committed knowledge changes.
+The repo keeps human-reviewable source files under `.agents/memory/`; one global OpenViking service handles storage, search, and retrieval; MCP gives agents a consistent way to ask for context and record new context. Setup and upgrade keep the structure safe for existing projects, while git hooks keep the global memory backend current when committed repo knowledge changes.
 
 ## How It Works
 
-It uses OpenViking as the memory and retrieval backend, which itself needs access to an LLM and an embedding model API for generating structured memory and semantic retrieval. `agent-basics` handles the repo instructions, setup, upgrade, MCP wiring, git hooks, and safe markdown conflict handling. It manages one shared OpenViking executable/runtime under `~/.openviking`, while each repo owns its own OpenViking config, workspace, import state, and locks under `.agents/openviking/`.
+It uses OpenViking as the memory and retrieval backend, which itself needs access to an LLM and an embedding model API for generating structured memory and semantic retrieval. `agent-basics` handles the repo instructions, setup, upgrade, MCP wiring, git hooks, and safe markdown conflict handling. It manages one shared OpenViking executable, service, config, and workspace under `~/.openviking`, while each repo owns source files and import metadata under `.agents/memory/` and `.agents/openviking/`.
 
 ## What It Gives You
 
 - A root `Agents.md` that agents can reliably discover.
-- A repo-local `.agents/` workspace for agent instructions, skills, memory source files, and OpenViking config/workspace state.
+- A repo-local `.agents/` workspace for agent instructions, skills, memory source files, OpenViking namespace metadata, and import state.
 - A user-level OpenViking executable/runtime, normally under `~/.openviking`, shared across projects.
 - Repo-aware MCP tools so agents can search and record project context through OpenViking.
 - Git hooks that refresh OpenViking when repo memory files change.
@@ -43,7 +43,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, packages its server as `~/.openviking/openviking`, and prepares the agent-basics MLX runtime. Repo setup creates the repo-local OpenViking config/workspace and installs the repo-local macOS LaunchAgent when needed. For the first release, the bundled local MLX runtime requires an Apple Silicon Mac with at least 16 GB unified memory. On supported hosts, Homebrew configures the agent-basics MLX runtime at `http://127.0.0.1:18080/v1`, with `mlx-community/gemma-4-e2b-it-4bit` for chat/VLM routing and `mlx-community/embeddinggemma-300m-4bit` for embeddings.
+The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, packages its server as `~/.openviking/openviking`, installs the global macOS service, and prepares the agent-basics MLX runtime. Repo setup creates repo-local source-store metadata and imports `.agents/memory/` into that global OpenViking service. For the first release, the bundled local MLX runtime requires an Apple Silicon Mac with at least 16 GB unified memory. On supported hosts, Homebrew configures the agent-basics MLX runtime at `http://127.0.0.1:18080/v1`, with `mlx-community/gemma-4-e2b-it-4bit` for chat/VLM routing and `mlx-community/embeddinggemma-300m-4bit` for embeddings.
 
 Verify the command:
 
@@ -84,11 +84,11 @@ agent-basics mlx bootstrap
 agent-basics ov doctor
 ```
 
-On macOS, repo setup can install OpenViking as a repo-local user LaunchAgent so live search, ingest, and MCP calls use that repo's `.agents/openviking/` workspace. Foreground server mode is mainly for debugging:
+On macOS, agent-basics installs OpenViking as one global user LaunchAgent. Repo setup does not install a second repo-local OpenViking server; live search, ingest, and MCP calls route through the global service with repo-scoped namespaces. Foreground server mode is mainly for debugging:
 
 ```bash
-agent-basics ov service status --repo-local
-agent-basics ov service restart --repo-local
+agent-basics ov service status
+agent-basics ov service restart
 agent-basics ov package-server --dry-run
 agent-basics ov server
 ```
@@ -170,11 +170,11 @@ Key files:
 - `Agents.md`: root instructions agents should read first.
 - `.agents/AGENT-BASICS.md`: operating notes for the agent-basics workflow.
 - `.agents/memory/`: repo-owned memory and resource files that OpenViking ingests.
-- `.agents/openviking/`: repo OpenViking config, workspace cache, import state, locks, and migration records.
+- `.agents/openviking/`: repo OpenViking metadata, namespace config, import state, locks, and migration records.
 - `.agents/skills/` and `Skills.md`: repeatable workflows for agents.
 - `.agents/TODO.md`: current work checklist; ignored by git.
 
-`.agents/openviking/ov.conf` and `.agents/openviking/ovcli.conf` are generated local runtime files. Setup repairs them for the current checkout, so they are ignored by git.
+OpenViking runtime files live under `~/.openviking/`. `.agents/openviking/ov.conf`, `.agents/openviking/ovcli.conf`, and `.agents/openviking/workspace/` are legacy ignored paths from older agent-basics builds; current setup does not create or use them.
 
 ## Local Runtime
 
@@ -199,7 +199,7 @@ agent-basics ov write-default-config \
   --api-key your-api-key
 ```
 
-Run that command inside the target repo; by default it writes `.agents/openviking/ov.conf` and `.agents/openviking/ovcli.conf`.
+Run that command from any directory; by default it writes the global `~/.openviking/ov.conf` and `~/.openviking/ovcli.conf`.
 
 ## If you need any help
 

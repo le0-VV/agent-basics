@@ -6,12 +6,13 @@ repo_slug = "agent-basics"
 enabled = true
 required = true
 source_store_path = ".agents/memory"
-config_path = ".agents/openviking/ov.conf"
-cli_config_path = ".agents/openviking/ovcli.conf"
-workspace_path = ".agents/openviking/workspace"
+global_config_path = "~/.openviking/ov.conf"
+global_cli_config_path = "~/.openviking/ovcli.conf"
+global_workspace_path = "~/.openviking/workspace"
+import_state_path = ".agents/openviking/import-state.json"
 metadata_path = ".agents/openviking/config.toml"
 namespaces_path = ".agents/openviking/namespaces.toml"
-data_plane = "repo-local"
+data_plane = "global-service"
 
 [openviking.mcp]
 command = "agent-basics"

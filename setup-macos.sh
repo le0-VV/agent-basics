@@ -403,7 +403,7 @@ This file contains agent-basics-specific operating rules. `Agents.md` contains t
 
 - OpenViking is the required target backend for agent-basics memory, documentation, resources, skills, semantic organization, and retrieval.
 - Agents should not call OpenViking with ad hoc commands when an agent-basics gateway exists. Use the repo-aware `agent-basics mcp` server or stable `agent-basics ov ...` commands.
-- Repository-specific OpenViking config, workspace, import state, metadata, and locks should live under `.agents/openviking/`. Only the OpenViking package/runtime should live in the user-level installation, normally `~/.openviking`.
+- Repository-specific OpenViking metadata, import state, namespace records, migration records, and locks should live under `.agents/openviking/`. The OpenViking package, config, workspace, queues, vector indexes, and runtime files live in the user-level installation, normally `~/.openviking`.
 - `agent-basics` owns setup, upgrade, validation, repo path resolution, git hooks, migration safety, and agent-facing command/MCP contracts.
 - OpenViking owns durable context storage, resource ingestion, summaries, semantic search, and vector indexes.
 - Before making context-dependent claims, search OpenViking through the gateway.
@@ -430,14 +430,14 @@ The target agent-facing surfaces are:
 
 - `agent-basics mcp`: repo-aware MCP server for OpenViking-backed tools.
 - `agent-basics ov doctor`: check the user-level OpenViking installation, repo config, providers, ingest status, and health.
-- `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, package the server as `~/.openviking/openviking`, and prepare default runtime/provider config. Repo setup owns repo-local OpenViking config and service setup.
+- `agent-basics ov bootstrap-system`: install OpenViking under `~/.openviking` when missing, package the server as `~/.openviking/openviking`, and prepare default runtime/provider config.
 - `agent-basics ov package-server`: build the OpenViking server entrypoint into a one-file `openviking` executable so macOS process listings do not show the long-running service as `python3.12`.
 - `agent-basics mlx bootstrap`: on Apple Silicon Macs with at least 16 GB unified memory, install the lightweight MLX runtime, pull the configured Hugging Face chat/embedding models when needed, and check the local OpenAI-compatible API.
 - `agent-basics ov write-default-config --provider custom`: point OpenViking at a user-supplied OpenAI-compatible API provider.
 - `agent-basics ov install-system`: low-level repair command for only the OpenViking package installation.
 - `agent-basics ov write-default-config`: low-level repair command for OpenViking `ov.conf` and `ovcli.conf` for the configured local provider.
-- `agent-basics ov service install --repo-local`: install and load the repo-local OpenViking HTTP server as a macOS LaunchAgent, using the shared `~/.openviking/openviking` executable and repo-local `.agents/openviking/ov.conf`.
-- `agent-basics ov server`: start the repo-local OpenViking HTTP server in the foreground for debugging.
+- `agent-basics ov service install`: install and load the global OpenViking HTTP server as a macOS LaunchAgent.
+- `agent-basics ov server`: start the global OpenViking HTTP server in the foreground for debugging.
 - `agent-basics ov import-repo-memory`: write `.agents/memory/` OV-native memories into OpenViking memory categories and ingest resources/skills.
 - `agent-basics ov search <query>`: retrieve prior context for vague or specific project requests.
 - `agent-basics ov record`: record durable context in the correct OpenViking category.
@@ -681,7 +681,7 @@ EOT
 
 `.agents/memory/` is the repo-owned source store for OpenViking-facing memory, resources, and skills.
 
-OpenViking is the required runtime backend for durable memory, documentation resources, semantic organization, vector indexes, and retrieval. The files in this directory are project-owned source material that agents and setup tooling can inspect, adapt, ingest, and version-control. The OpenViking package/runtime stays user-level; the repo-local OpenViking workspace, generated summaries, queues, and vector database live under `.agents/openviking/workspace/` as ignored generated state.
+OpenViking is the required runtime backend for durable memory, documentation resources, semantic organization, vector indexes, and retrieval. The files in this directory are project-owned source material that agents and setup tooling can inspect, adapt, ingest, and version-control. The OpenViking package/runtime, workspace, generated summaries, queues, and vector database stay user-level under `~/.openviking`; repo-local state under `.agents/openviking/` tracks metadata, namespaces, hooks, locks, and import state.
 
 ## Trust Boundary
 
@@ -2307,14 +2307,14 @@ desired.update({
     "memory_source": ".agents/memory",
     "legacy_snapshots": ".agents/openviking/legacy-memory",
     "shared_runtime_home": "~/.openviking",
-    "ov_config": ".agents/openviking/ov.conf",
-    "ov_cli_config": ".agents/openviking/ovcli.conf",
-    "workspace": ".agents/openviking/workspace",
-    "data_plane": "repo-local",
+    "global_ov_config": "~/.openviking/ov.conf",
+    "global_ov_cli_config": "~/.openviking/ovcli.conf",
+    "import_state": ".agents/openviking/import-state.json",
+    "data_plane": "global-service",
     "notes": (
-        "The OpenViking executable/runtime is shared at user level. Repository-specific OpenViking "
-        "config, workspace, generated data, queues, vector indexes, import state, and locks stay under "
-        ".agents/openviking/."
+        "The OpenViking executable, server, config, workspace, generated data, queues, and vector "
+        "indexes are shared at user level. Repository-specific source material and import state stay "
+        "under .agents/memory/ and .agents/openviking/."
     ),
 })
 changed = (not existed) or any(payload.get(key) != value for key, value in desired.items())
@@ -2359,115 +2359,19 @@ PY
 }
 
 write_repo_openviking_config_files_if_missing() {
-  local ov_home="$REPO_OPENVIKING_DIR"
-  local ov_config="$REPO_OPENVIKING_DIR/ov.conf"
-  local ovcli_config="$REPO_OPENVIKING_DIR/ovcli.conf"
   local meta_config="$REPO_OPENVIKING_DIR/config.toml"
   local namespaces_config="$REPO_OPENVIKING_DIR/namespaces.toml"
-  local server_port
-  local server_url
-  local service_label
-  local dispatcher
-  local helper_path
   local timestamp
   local repo_slug
-  local workspace_path
 
-  server_port="$(repo_openviking_service_port)"
-  server_url="http://127.0.0.1:$server_port"
-  service_label="$(repo_openviking_service_label)"
   timestamp="$(date -u +%s)"
   repo_slug="$(slugify "$PROJECT_NAME")"
 
   ensure_repo_local_dir "$REPO_OPENVIKING_DIR"
-  ensure_repo_local_dir "$REPO_OPENVIKING_DIR/workspace"
-  assert_repo_local_path "$ov_config"
-  assert_repo_local_path "$ovcli_config"
   assert_repo_local_path "$meta_config"
   assert_repo_local_path "$namespaces_config"
-  workspace_path="$(cd "$REPO_OPENVIKING_DIR" && pwd -P)/workspace"
 
-  if [[ -f "$ov_config" && -f "$ovcli_config" ]]; then
-    python3 - "$ov_config" "$ovcli_config" "$workspace_path" "$server_url" "$server_port" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-ov_config = Path(sys.argv[1])
-ovcli_config = Path(sys.argv[2])
-workspace = sys.argv[3]
-server_url = sys.argv[4]
-server_port = int(sys.argv[5])
-
-
-def load_json(path: Path) -> dict:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise SystemExit(f"invalid JSON in {path}: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise SystemExit(f"invalid JSON in {path}: expected object")
-    return payload
-
-
-changed = []
-config = load_json(ov_config)
-storage = config.setdefault("storage", {})
-if not isinstance(storage, dict):
-    storage = {}
-    config["storage"] = storage
-if storage.get("workspace") != workspace:
-    storage["workspace"] = workspace
-    changed.append(str(ov_config))
-server = config.setdefault("server", {})
-if not isinstance(server, dict):
-    server = {}
-    config["server"] = server
-if server.get("host") != "127.0.0.1":
-    server["host"] = "127.0.0.1"
-    changed.append(str(ov_config))
-if server.get("port") != server_port:
-    server["port"] = server_port
-    changed.append(str(ov_config))
-
-cli = load_json(ovcli_config)
-if cli.get("url") != server_url:
-    cli["url"] = server_url
-    changed.append(str(ovcli_config))
-
-if str(ov_config) in changed:
-    ov_config.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-if str(ovcli_config) in changed:
-    ovcli_config.write_text(json.dumps(cli, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-if changed:
-    print("Updated repo-local OpenViking config paths")
-else:
-    print("Exists: .agents/openviking/ov.conf")
-    print("Exists: .agents/openviking/ovcli.conf")
-PY
-  elif helper_path="$(find_ov_helper_source)"; then
-    python3 "$helper_path" --repo "$TARGET_DIR" ov write-default-config \
-      --home "$ov_home" \
-      --config "$ov_config" \
-      --cli-config "$ovcli_config" \
-      --server-url "$server_url" >/dev/null
-    echo "Wrote repo-local OpenViking config: .agents/openviking/ov.conf"
-    echo "Wrote repo-local OpenViking CLI config: .agents/openviking/ovcli.conf"
-  elif dispatcher="$(find_agent_basics_dispatcher)"; then
-    "$dispatcher" --repo "$TARGET_DIR" ov write-default-config \
-      --home "$ov_home" \
-      --config "$ov_config" \
-      --cli-config "$ovcli_config" \
-      --server-url "$server_url" >/dev/null
-    echo "Wrote repo-local OpenViking config: .agents/openviking/ov.conf"
-    echo "Wrote repo-local OpenViking CLI config: .agents/openviking/ovcli.conf"
-  else
-    echo "Error: cannot write repo-local OpenViking config because no agent-basics dispatcher/helper was found." >&2
-    exit 1
-  fi
-
-  python3 - "$meta_config" "$namespaces_config" "$timestamp" "$repo_slug" "$server_url" "$server_port" "$service_label" <<'PY'
+  python3 - "$meta_config" "$namespaces_config" "$timestamp" "$repo_slug" <<'PY'
 from __future__ import annotations
 
 import json
@@ -2475,7 +2379,7 @@ import re
 import sys
 from pathlib import Path
 
-meta_path, namespaces_path, timestamp, repo_slug, server_url, server_port, service_label = sys.argv[1:]
+meta_path, namespaces_path, timestamp, repo_slug = sys.argv[1:]
 
 def quote(value: str) -> str:
     return json.dumps(value)
@@ -2503,20 +2407,21 @@ generated_at = previous_generated_at(meta)
 meta_lines = [
     "version = 1",
     f"generated_at = {generated_at}",
-    'data_plane = "repo-local"',
+    'data_plane = "global-service"',
     'shared_runtime_home = "~/.openviking"',
-    'ov_config_path = ".agents/openviking/ov.conf"',
-    'ov_cli_config_path = ".agents/openviking/ovcli.conf"',
-    'workspace_path = ".agents/openviking/workspace"',
+    'global_ov_config_path = "~/.openviking/ov.conf"',
+    'global_ov_cli_config_path = "~/.openviking/ovcli.conf"',
+    'source_store_path = ".agents/memory"',
+    'import_state_path = ".agents/openviking/import-state.json"',
     "",
-    "[server]",
+    "[global_server]",
     'host = "127.0.0.1"',
-    f"port = {int(server_port)}",
-    f"url = {quote(server_url)}",
+    "port = 1933",
+    'url = "http://127.0.0.1:1933"',
     "",
     "[service]",
-    f"label = {quote(service_label)}",
-    "repo_local = true",
+    'label = "com.agent-basics.openviking"',
+    "repo_local = false",
     "",
 ]
 write_if_changed(meta, "\n".join(meta_lines))
@@ -2546,6 +2451,7 @@ write_repo_config_if_missing() {
   assert_repo_local_path "$repo_config"
   if [[ -f "$repo_config" ]]; then
     echo "Exists: .agents/config.toml"
+    repair_repo_config_openviking_settings "$repo_config"
     remove_repo_config_language "$repo_config"
     return
   fi
@@ -2576,18 +2482,109 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write("enabled = true\n")
     handle.write("required = true\n")
     handle.write('source_store_path = ".agents/memory"\n')
-    handle.write('config_path = ".agents/openviking/ov.conf"\n')
-    handle.write('cli_config_path = ".agents/openviking/ovcli.conf"\n')
-    handle.write('workspace_path = ".agents/openviking/workspace"\n')
+    handle.write('global_config_path = "~/.openviking/ov.conf"\n')
+    handle.write('global_cli_config_path = "~/.openviking/ovcli.conf"\n')
+    handle.write('global_workspace_path = "~/.openviking/workspace"\n')
+    handle.write('import_state_path = ".agents/openviking/import-state.json"\n')
     handle.write('metadata_path = ".agents/openviking/config.toml"\n')
     handle.write('namespaces_path = ".agents/openviking/namespaces.toml"\n')
-    handle.write('data_plane = "repo-local"\n\n')
+    handle.write('data_plane = "global-service"\n\n')
     handle.write("[openviking.mcp]\n")
     handle.write('command = "agent-basics"\n')
     handle.write('args = ["mcp"]\n')
     handle.write('cwd_argument = "cwd"\n')
 PY
   echo "Created: .agents/config.toml"
+}
+
+repair_repo_config_openviking_settings() {
+  local repo_config="$1"
+  local result
+
+  result="$(python3 - "$repo_config" <<'PY'
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+original = text
+
+openviking_keys = {
+    "enabled",
+    "required",
+    "source_store_path",
+    "config_path",
+    "cli_config_path",
+    "workspace_path",
+    "global_config_path",
+    "global_cli_config_path",
+    "global_workspace_path",
+    "import_state_path",
+    "metadata_path",
+    "namespaces_path",
+    "data_plane",
+}
+openviking_lines = [
+    "enabled = true",
+    "required = true",
+    'source_store_path = ".agents/memory"',
+    'global_config_path = "~/.openviking/ov.conf"',
+    'global_cli_config_path = "~/.openviking/ovcli.conf"',
+    'global_workspace_path = "~/.openviking/workspace"',
+    'import_state_path = ".agents/openviking/import-state.json"',
+    'metadata_path = ".agents/openviking/config.toml"',
+    'namespaces_path = ".agents/openviking/namespaces.toml"',
+    'data_plane = "global-service"',
+]
+mcp_keys = {"command", "args", "cwd_argument"}
+mcp_lines = [
+    'command = "agent-basics"',
+    'args = ["mcp"]',
+    'cwd_argument = "cwd"',
+]
+
+
+def replace_section(source: str, section: str, keys: set[str], desired: list[str]) -> tuple[str, bool]:
+    pattern = re.compile(rf"(?ms)^\[{re.escape(section)}\]\n(?P<body>.*?)(?=^\[|\Z)")
+    match = pattern.search(source)
+    if not match:
+        block = f"\n[{section}]\n" + "\n".join(desired) + "\n"
+        return source.rstrip() + "\n" + block, True
+    body = match.group("body")
+    kept = []
+    key_re = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*=")
+    for line in body.splitlines():
+        key_match = key_re.match(line)
+        if key_match and key_match.group(1) in keys:
+            continue
+        kept.append(line)
+    while kept and not kept[-1].strip():
+        kept.pop()
+    new_body_lines = kept + ([] if not kept else [""]) + desired
+    new_body = "\n".join(new_body_lines) + "\n"
+    updated = source[: match.start("body")] + new_body + source[match.end("body") :]
+    return updated, updated != source
+
+
+text, changed_a = replace_section(text, "openviking", openviking_keys, openviking_lines)
+text, changed_b = replace_section(text, "openviking.mcp", mcp_keys, mcp_lines)
+text = re.sub(r"\n{3,}", "\n\n", text)
+
+if text != original or changed_a or changed_b:
+    path.write_text(text, encoding="utf-8")
+    print("changed")
+else:
+    print("unchanged")
+PY
+)"
+
+  if [[ "$result" == "changed" ]]; then
+    echo "Updated OpenViking settings: .agents/config.toml"
+  fi
 }
 
 remove_repo_config_language() {
@@ -2854,11 +2851,13 @@ ensure_user_openviking_service() {
 
   if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "Warning: OpenViking service setup is only supported on macOS launchctl." >&2
+    OPENVIKING_SOURCE_IMPORT_ENABLED="0"
     return
   fi
 
   if [[ -z "${HOME:-}" ]]; then
     echo "Warning: HOME is required to install the user-level OpenViking service." >&2
+    OPENVIKING_SOURCE_IMPORT_ENABLED="0"
     return
   fi
 
@@ -2867,6 +2866,7 @@ ensure_user_openviking_service() {
   if ! dispatcher="$(find_agent_basics_dispatcher)"; then
     echo "Warning: no executable agent-basics dispatcher found for OpenViking service setup." >&2
     echo "Re-run manually: agent-basics ov service install --home \"$ov_home\"" >&2
+    OPENVIKING_SOURCE_IMPORT_ENABLED="0"
     return
   fi
   display_command="$(agent_basics_display_command)"
@@ -2878,6 +2878,7 @@ ensure_user_openviking_service() {
 
   if ! run_setup_command_quiet "OpenViking server packaging" "$dispatcher" ov package-server --home "$ov_home"; then
     echo "Re-run manually: $display_command ov package-server --home \"$ov_home\"" >&2
+    OPENVIKING_SOURCE_IMPORT_ENABLED="0"
     return
   fi
 
@@ -2887,46 +2888,7 @@ ensure_user_openviking_service() {
   fi
 
   echo "Re-run manually: $display_command ov service install --home \"$ov_home\"" >&2
-}
-
-ensure_repo_openviking_service() {
-  local dispatcher
-  local display_command
-
-  # Test-only fake CLIs do not imply a real OpenViking server binary.
-  if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" || "${AGENT_BASICS_TEST_SKIP_OPENVIKING_CHECK:-0}" == "1" ]]; then
-    return
-  fi
-
-  if [[ "$(uname -s)" != "Darwin" ]]; then
-    echo "Warning: repo-local OpenViking service setup is only supported on macOS launchctl." >&2
-    return 1
-  fi
-
-  if ! dispatcher="$(find_agent_basics_dispatcher)"; then
-    echo "Warning: no executable agent-basics dispatcher found for repo-local OpenViking service setup." >&2
-    echo "Re-run manually: agent-basics --repo \"$TARGET_DIR\" ov service install --repo-local" >&2
-    return 1
-  fi
-  display_command="$(agent_basics_display_command)"
-
-  if "$dispatcher" --repo "$TARGET_DIR" ov service status --repo-local >/dev/null 2>&1 && openviking_health_ready; then
-    echo "Verified repo-local OpenViking macOS service"
-    return
-  fi
-
-  if ! run_setup_command_quiet "OpenViking server packaging" "$dispatcher" ov package-server --home "$HOME/.openviking"; then
-    echo "Re-run manually: $display_command ov package-server --home \"$HOME/.openviking\"" >&2
-    return 1
-  fi
-
-  if run_setup_command_quiet "repo-local OpenViking service setup" "$dispatcher" --repo "$TARGET_DIR" ov service install --repo-local; then
-    echo "Verified repo-local OpenViking macOS service"
-    return
-  fi
-
-  echo "Re-run manually: $display_command --repo \"$TARGET_DIR\" ov service install --repo-local" >&2
-  return 1
+  OPENVIKING_SOURCE_IMPORT_ENABLED="0"
 }
 
 print_setup_command_failure_summary() {
@@ -3085,15 +3047,17 @@ install_openviking_hooks() {
 
 openviking_health_ready() {
   local ov_bin
+  local ovcli_config
 
   if [[ -n "${AGENT_BASICS_TEST_OPENVIKING_BIN:-}" ]]; then
     ov_bin="$AGENT_BASICS_TEST_OPENVIKING_BIN"
   else
     ov_bin="${HOME:-}/.openviking/venv/bin/ov"
   fi
+  ovcli_config="${HOME:-}/.openviking/ovcli.conf"
 
   [[ -x "$ov_bin" ]] || return 1
-  OPENVIKING_CLI_CONFIG_FILE="$REPO_OPENVIKING_DIR/ovcli.conf" "$ov_bin" health -o json >/dev/null 2>&1
+  OPENVIKING_CLI_CONFIG_FILE="$ovcli_config" "$ov_bin" health -o json >/dev/null 2>&1
 }
 
 wait_for_openviking_health_for_import() {
@@ -3144,7 +3108,7 @@ import_openviking_source_store() {
   fi
 
   if [[ "$OPENVIKING_SOURCE_IMPORT_ENABLED" != "1" ]]; then
-    echo "Skipped OpenViking source-store import because the repo-local OpenViking service is not available." >&2
+    echo "Skipped OpenViking source-store import because the global OpenViking service is not available." >&2
     echo "Re-run manually with: agent-basics ov import-repo-memory --write --wait-memory --wait-resources" >&2
     return
   fi
@@ -3866,6 +3830,8 @@ start_repo_local_embedding_api_for_setup() {
 
 ensure_agent_basics_install_config
 verify_user_openviking_installation
+ensure_user_openviking_config
+ensure_user_openviking_service
 snapshot_existing_legacy_memory
 create_memory_layout
 
@@ -3973,11 +3939,6 @@ else
 fi
 
 install_openviking_hooks
-if ensure_repo_openviking_service; then
-  OPENVIKING_SOURCE_IMPORT_ENABLED="1"
-else
-  OPENVIKING_SOURCE_IMPORT_ENABLED="0"
-fi
 
 while IFS= read -r markdown_file; do
   ensure_trailing_blank_line "$markdown_file"
@@ -4000,13 +3961,16 @@ OpenViking source store:
 OpenViking 仓库 metadata:
   .agents/openviking/
 
-OpenViking 仓库 workspace:
-  .agents/openviking/workspace/ (ignored)
-
-OpenViking 仓库配置:
+OpenViking 仓库配置和导入状态:
   .agents/config.toml
-  .agents/openviking/ov.conf
-  .agents/openviking/ovcli.conf
+  .agents/openviking/config.toml
+  .agents/openviking/namespaces.toml
+  .agents/openviking/import-state.json
+
+OpenViking 全局运行时:
+  ~/.openviking/ov.conf
+  ~/.openviking/ovcli.conf
+  ~/.openviking/workspace/
 
 agent-basics 安装配置:
   $AGENT_BASICS_CONFIG_FILE
@@ -4049,13 +4013,16 @@ OpenViking source store:
 OpenViking repo metadata:
   .agents/openviking/
 
-OpenViking repo workspace:
-  .agents/openviking/workspace/ (ignored)
-
-OpenViking repo config:
+OpenViking repo config and import state:
   .agents/config.toml
-  .agents/openviking/ov.conf
-  .agents/openviking/ovcli.conf
+  .agents/openviking/config.toml
+  .agents/openviking/namespaces.toml
+  .agents/openviking/import-state.json
+
+OpenViking global runtime:
+  ~/.openviking/ov.conf
+  ~/.openviking/ovcli.conf
+  ~/.openviking/workspace/
 
 agent-basics install config:
   $AGENT_BASICS_CONFIG_FILE

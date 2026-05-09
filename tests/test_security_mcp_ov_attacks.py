@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -170,13 +171,16 @@ class SecurityMcpOpenVikingAttackTest(unittest.TestCase):
         self.assertIn(inside, files["resources"])
         self.assertNotIn(linked, files["resources"])
 
-    def test_status_redacts_api_keys_from_repo_config(self) -> None:
+    def test_status_redacts_api_keys_from_global_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
-            config_dir = repo / ".agents" / "openviking"
-            config_dir.mkdir(parents=True)
+            global_home = Path(tmp) / "openviking"
+            repo.mkdir()
+            global_home.mkdir(parents=True)
             (repo / ".git").mkdir()
-            (config_dir / "ov.conf").write_text(
+            global_config = global_home / "ov.conf"
+            global_cli_config = global_home / "ovcli.conf"
+            global_config.write_text(
                 json.dumps(
                     {
                         "embedding": {"dense": {"api_key": "sk-secret-embedding"}},
@@ -185,13 +189,25 @@ class SecurityMcpOpenVikingAttackTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (config_dir / "ovcli.conf").write_text(json.dumps({"url": "http://127.0.0.1:1933"}), encoding="utf-8")
+            global_cli_config.write_text(json.dumps({"url": "http://127.0.0.1:1933"}), encoding="utf-8")
             original_find_ov_bin = agent_basics_ov.find_ov_bin
+            original_env_config = os.environ.get("AGENT_BASICS_OV_CONFIG")
+            original_env_cli_config = os.environ.get("AGENT_BASICS_OV_CLI_CONFIG")
             try:
+                os.environ["AGENT_BASICS_OV_CONFIG"] = str(global_config)
+                os.environ["AGENT_BASICS_OV_CLI_CONFIG"] = str(global_cli_config)
                 agent_basics_ov.find_ov_bin = lambda: None
                 payload = agent_basics_ov.ov_status_payload(repo, online=False)
             finally:
                 agent_basics_ov.find_ov_bin = original_find_ov_bin
+                if original_env_config is None:
+                    os.environ.pop("AGENT_BASICS_OV_CONFIG", None)
+                else:
+                    os.environ["AGENT_BASICS_OV_CONFIG"] = original_env_config
+                if original_env_cli_config is None:
+                    os.environ.pop("AGENT_BASICS_OV_CLI_CONFIG", None)
+                else:
+                    os.environ["AGENT_BASICS_OV_CLI_CONFIG"] = original_env_cli_config
 
         serialized = json.dumps(payload)
         self.assertNotIn("sk-secret", serialized)
@@ -279,11 +295,12 @@ class SecurityMcpOpenVikingAttackTest(unittest.TestCase):
         self.assertIn("inside the repository", payload["error"])
         self.assertEqual(outside_files, [])
 
-    def test_write_default_config_rejects_repo_openviking_symlink_escape(self) -> None:
+    def test_write_default_config_without_home_uses_global_home_even_if_repo_openviking_is_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
             outside = root / "outside-openviking"
+            global_home = root / "global-openviking"
             repo_agents = repo / ".agents"
             repo_agents.mkdir(parents=True)
             outside.mkdir()
@@ -292,58 +309,83 @@ class SecurityMcpOpenVikingAttackTest(unittest.TestCase):
             except OSError:
                 self.skipTest("symlink setup unavailable")
 
+            original_home = agent_basics_ov.DEFAULT_OV_HOME
             output = io.StringIO()
-            with redirect_stdout(output):
-                result = agent_basics_ov.command_ov_write_default_config(
-                    SimpleNamespace(
-                        repo=str(repo),
-                        config=None,
-                        cli_config=None,
-                        home=None,
-                        provider="mlx",
-                        base_url=None,
-                        provider_base=None,
-                        api_key=None,
-                        chat_model=None,
-                        embedding_model=None,
-                        embedding_dimension=768,
-                        vlm_timeout=86400,
-                        server_url="http://127.0.0.1:1933",
-                        cli_timeout=86400,
-                        force=False,
+            try:
+                agent_basics_ov.DEFAULT_OV_HOME = global_home
+                with redirect_stdout(output):
+                    result = agent_basics_ov.command_ov_write_default_config(
+                        SimpleNamespace(
+                            repo=str(repo),
+                            config=None,
+                            cli_config=None,
+                            home=None,
+                            provider="mlx",
+                            base_url=None,
+                            provider_base=None,
+                            api_key=None,
+                            chat_model=None,
+                            embedding_model=None,
+                            embedding_dimension=768,
+                            vlm_timeout=86400,
+                            server_url="http://127.0.0.1:1933",
+                            cli_timeout=86400,
+                            force=False,
+                        )
                     )
-                )
+            finally:
+                agent_basics_ov.DEFAULT_OV_HOME = original_home
 
             payload = json.loads(output.getvalue())
+            outside_config_exists = (outside / "ov.conf").exists()
+            global_config_exists = (global_home / "ov.conf").is_file()
 
-        self.assertEqual(result, 1)
-        self.assertFalse(payload["ok"])
-        self.assertIn("inside the repository", payload["error"])
-        self.assertFalse((outside / "ov.conf").exists())
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["ok"])
+        self.assertFalse(outside_config_exists)
+        self.assertTrue(global_config_exists)
 
-    def test_status_does_not_read_repo_config_symlink_escape(self) -> None:
+    def test_status_does_not_read_legacy_repo_config_symlink_escape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
             ov_dir = repo / ".agents" / "openviking"
             outside = root / "outside-config.json"
+            global_home = root / "global-openviking"
             ov_dir.mkdir(parents=True)
+            global_home.mkdir()
             outside.write_text(json.dumps({"leak": "outside-secret"}), encoding="utf-8")
+            global_config = global_home / "ov.conf"
+            global_cli_config = global_home / "ovcli.conf"
+            global_config.write_text(json.dumps({"safe": True}), encoding="utf-8")
+            global_cli_config.write_text(json.dumps({"url": "http://127.0.0.1:1933"}), encoding="utf-8")
             try:
                 (ov_dir / "ov.conf").symlink_to(outside)
             except OSError:
                 self.skipTest("symlink setup unavailable")
 
             original_find_ov_bin = agent_basics_ov.find_ov_bin
+            original_env_config = os.environ.get("AGENT_BASICS_OV_CONFIG")
+            original_env_cli_config = os.environ.get("AGENT_BASICS_OV_CLI_CONFIG")
             try:
+                os.environ["AGENT_BASICS_OV_CONFIG"] = str(global_config)
+                os.environ["AGENT_BASICS_OV_CLI_CONFIG"] = str(global_cli_config)
                 agent_basics_ov.find_ov_bin = lambda: None
                 payload = agent_basics_ov.ov_status_payload(repo, online=False)
             finally:
                 agent_basics_ov.find_ov_bin = original_find_ov_bin
+                if original_env_config is None:
+                    os.environ.pop("AGENT_BASICS_OV_CONFIG", None)
+                else:
+                    os.environ["AGENT_BASICS_OV_CONFIG"] = original_env_config
+                if original_env_cli_config is None:
+                    os.environ.pop("AGENT_BASICS_OV_CLI_CONFIG", None)
+                else:
+                    os.environ["AGENT_BASICS_OV_CLI_CONFIG"] = original_env_cli_config
 
         serialized = json.dumps(payload)
         self.assertNotIn("outside-secret", serialized)
-        self.assertIn("inside the repository", payload["openviking"]["config"]["_error"])
+        self.assertEqual(payload["openviking"]["config"], {"safe": True})
 
     def test_stale_hook_lock_with_dead_pid_is_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
