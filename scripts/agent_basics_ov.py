@@ -11,6 +11,7 @@ import os
 import platform
 import re
 import subprocess
+import stat
 import sys
 import time
 import urllib.error
@@ -2015,6 +2016,91 @@ def ov_service_changed(plist_path: Path, plist_text: str) -> bool:
         return True
 
 
+def unique_child_path(directory: Path, name: str) -> Path:
+    candidate = directory / name
+    if not candidate.exists():
+        return candidate
+    for index in range(1, 1000):
+        candidate = directory / f"{name}.{index}"
+        if not candidate.exists():
+            return candidate
+    return directory / f"{name}.{int(time.time())}"
+
+
+def service_plist_backup_dir(home: Path) -> Path:
+    return home / "backups" / "launchagents"
+
+
+def write_service_plist_backup(plist_path: Path, backup_dir: Path) -> Path:
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup = unique_child_path(backup_dir, f"{plist_path.name}.bak.{int(time.time())}")
+    backup.write_text(plist_path.read_text(encoding="utf-8"), encoding="utf-8")
+    return backup
+
+
+def archive_service_plist_backups(plist_path: Path, backup_dir: Path) -> list[dict[str, Any]]:
+    if not plist_path.parent.exists():
+        return []
+    archived = []
+    for candidate in sorted(plist_path.parent.glob(f"{plist_path.name}.bak.*")):
+        try:
+            mode = candidate.lstat().st_mode
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(mode):
+            archived.append(
+                {
+                    "ok": False,
+                    "source": str(candidate),
+                    "skipped": True,
+                    "reason": "not a regular file",
+                }
+            )
+            continue
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        destination = unique_child_path(backup_dir, candidate.name)
+        candidate.replace(destination)
+        archived.append({"ok": True, "source": str(candidate), "destination": str(destination)})
+    return archived
+
+
+def deprecated_repo_ov_service_cleanup_payload(
+    repo: Path,
+    *,
+    timeout: float,
+    dry_run: bool,
+    plist_path: Path | None = None,
+) -> dict[str, Any]:
+    label = repo_ov_service_label(repo)
+    target = ov_service_target(label)
+    plist = plist_path or ov_service_plist_path(label)
+    payload: dict[str, Any] = {
+        "ok": True,
+        "label": label,
+        "target": target,
+        "plist": str(plist),
+        "deprecated": True,
+        "commands": [["launchctl", "bootout", target], ["launchctl", "disable", target]],
+        "would_remove_plist": plist.exists(),
+    }
+    if dry_run:
+        payload["dry_run"] = True
+        return payload
+
+    result = run_command(["launchctl", "bootout", target], timeout=timeout)
+    result["optional"] = True
+    disable = run_command(["launchctl", "disable", target], timeout=timeout)
+    disable["optional"] = True
+    removed = False
+    if plist.exists():
+        plist.unlink()
+        removed = True
+    payload["steps"] = [result, disable]
+    payload["removed_plist"] = removed
+    payload["changed"] = removed or bool(result.get("ok"))
+    return payload
+
+
 def command_ov_service(args: argparse.Namespace) -> int:
     paths = ov_service_paths(args)
     action = args.service_action
@@ -2054,6 +2140,12 @@ def command_ov_service(args: argparse.Namespace) -> int:
         "timeout": service_timeout,
         "would_change_plist": changed,
     }
+    if not paths["repo_local"] and action in {"install", "restart"}:
+        payload["legacy_repo_local_cleanup"] = deprecated_repo_ov_service_cleanup_payload(
+            paths["repo"],
+            timeout=service_timeout,
+            dry_run=True,
+        )
 
     if action == "status":
         command = ["launchctl", "print", paths["target"]]
@@ -2151,19 +2243,21 @@ def command_ov_service(args: argparse.Namespace) -> int:
         return 1
 
     backup = None
+    archived_backups: list[dict[str, Any]] = []
     try:
         paths["home"].mkdir(parents=True, exist_ok=True)
         (paths["home"] / "logs").mkdir(parents=True, exist_ok=True)
         plist_path.parent.mkdir(parents=True, exist_ok=True)
+        archived_backups = archive_service_plist_backups(plist_path, service_plist_backup_dir(paths["home"]))
         if changed:
             if plist_path.exists():
-                backup = plist_path.with_name(f"{plist_path.name}.bak.{int(time.time())}")
-                backup.write_text(plist_path.read_text(encoding="utf-8"), encoding="utf-8")
+                backup = write_service_plist_backup(plist_path, service_plist_backup_dir(paths["home"]))
             plist_path.write_text(plist_text, encoding="utf-8")
     except OSError as exc:
         payload["ok"] = False
         payload["changed"] = changed
         payload["backup"] = str(backup) if backup else None
+        payload["archived_backups"] = archived_backups
         payload["error"] = f"failed to write OpenViking service files: {exc}"
         payload["exception_type"] = type(exc).__name__
         print_json(payload)
@@ -2172,6 +2266,7 @@ def command_ov_service(args: argparse.Namespace) -> int:
     if getattr(args, "no_load", False):
         payload["changed"] = changed
         payload["backup"] = str(backup) if backup else None
+        payload["archived_backups"] = archived_backups
         payload["loaded"] = False
         payload["no_load"] = True
         print_json(payload)
@@ -2198,11 +2293,22 @@ def command_ov_service(args: argparse.Namespace) -> int:
         steps.extend(run_launchctl_install_command(command, timeout=service_timeout) for command in install_commands)
 
     required_steps = [step for step in steps if not step.get("optional")]
+    legacy_cleanup = None
+    if not paths["repo_local"]:
+        legacy_cleanup = deprecated_repo_ov_service_cleanup_payload(
+            paths["repo"],
+            timeout=service_timeout,
+            dry_run=False,
+        )
     payload["changed"] = changed
     payload["backup"] = str(backup) if backup else None
+    payload["archived_backups"] = archived_backups
     payload["loaded"] = bool(required_steps and all(step["ok"] for step in required_steps))
     payload["steps"] = steps
     payload["ok"] = all(step["ok"] for step in required_steps)
+    if legacy_cleanup is not None:
+        payload["legacy_repo_local_cleanup"] = legacy_cleanup
+        payload["changed"] = bool(payload["changed"]) or bool(legacy_cleanup.get("changed"))
     print_json(payload)
     return 0 if payload["ok"] else 1
 
@@ -4894,21 +5000,24 @@ def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
         return payload
 
     backup = None
+    archived_backups: list[dict[str, Any]] = []
     try:
         home.mkdir(parents=True, exist_ok=True)
         (home / "logs").mkdir(parents=True, exist_ok=True)
         hf_home.mkdir(parents=True, exist_ok=True)
         plist_path.parent.mkdir(parents=True, exist_ok=True)
+        archived_backups = archive_service_plist_backups(plist_path, service_plist_backup_dir(home))
         if changed:
             if plist_path.exists():
-                backup = plist_path.with_name(f"{plist_path.name}.bak.{int(time.time())}")
-                backup.write_text(plist_path.read_text(encoding="utf-8"), encoding="utf-8")
+                backup = write_service_plist_backup(plist_path, service_plist_backup_dir(home))
             plist_path.write_text(plist_text, encoding="utf-8")
     except OSError as exc:
         payload.update(
             {
                 "ok": False,
                 "changed": False,
+                "backup": str(backup) if backup else None,
+                "archived_backups": archived_backups,
                 "error": f"failed to write MLX service files: {exc}",
                 "exception_type": type(exc).__name__,
             }
@@ -4916,7 +5025,15 @@ def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
         return payload
 
     if getattr(args, "no_load", False):
-        payload.update({"changed": changed, "backup": str(backup) if backup else None, "loaded": False, "no_load": True})
+        payload.update(
+            {
+                "changed": changed,
+                "backup": str(backup) if backup else None,
+                "archived_backups": archived_backups,
+                "loaded": False,
+                "no_load": True,
+            }
+        )
         return payload
 
     steps = []
@@ -4943,6 +5060,7 @@ def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
         {
             "changed": changed,
             "backup": str(backup) if backup else None,
+            "archived_backups": archived_backups,
             "loaded": bool(required_steps and all(step["ok"] for step in required_steps)),
             "steps": steps,
             "ok": all(step["ok"] for step in required_steps),

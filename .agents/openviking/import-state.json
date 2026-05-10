@@ -118,6 +118,18 @@
       "skipped": false,
       "target": "viking://user/default/memories/cases/projects/agent-basics/1778380646-bootstrap-proxy-bypass-and-concise-output.md"
     },
+    ".agents/memory/memories/cases/1778381562-launchagent-cleanup-for-ab-mlx-and-openviking.md": {
+      "elapsed_seconds": 14.328,
+      "imported_at": 1778381577,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/cases/1778381562-launchagent-cleanup-for-ab-mlx-and-openviking.md",
+      "returncode": 0,
+      "sha256": "d275d729fb119660c2f011cb6630b38f3ee5fecf96ddcf8ee9a6a9ab6d89273c",
+      "skipped": false,
+      "target": "viking://user/default/memories/cases/projects/agent-basics/1778381562-launchagent-cleanup-for-ab-mlx-and-openviking.md"
+    },
     ".agents/memory/memories/events/1777901050-legacy-memory-snapshot-created.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -463,10 +475,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778380661,
+  "last_import": 1778381577,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778380661,
+  "updated": 1778381577,
   "version": 1
 }

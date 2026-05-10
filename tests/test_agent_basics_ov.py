@@ -377,6 +377,72 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(payload["EnvironmentVariables"]["AGENT_BASICS_MLX_PYTHON"], str(python_bin))
         self.assertEqual(payload["EnvironmentVariables"]["HF_HOME"], str(home / "huggingface"))
 
+    def test_service_plist_backups_are_archived_outside_launchagents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            launch_agents = Path(tmp) / "LaunchAgents"
+            launch_agents.mkdir()
+            plist = launch_agents / "com.agent-basics.test.mlx.plist"
+            backup = launch_agents / "com.agent-basics.test.mlx.plist.bak.123"
+            backup_dir = Path(tmp) / "mlx" / "backups" / "launchagents"
+            plist.write_text("active\n", encoding="utf-8")
+            backup.write_text("old backup\n", encoding="utf-8")
+
+            archived = agent_basics_ov.archive_service_plist_backups(plist, backup_dir)
+            archived_content = (backup_dir / backup.name).read_text(encoding="utf-8")
+            backup_exists = backup.exists()
+
+        self.assertEqual(len(archived), 1)
+        self.assertTrue(archived[0]["ok"])
+        self.assertFalse(backup_exists)
+        self.assertEqual(archived_content, "old backup\n")
+
+    def test_mlx_service_install_moves_backups_outside_launchagents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "mlx"
+            python_bin = home / "venv" / "bin" / "python"
+            server = home / "agent-basics-mlx"
+            plist_dir = root / "LaunchAgents"
+            plist = plist_dir / "com.agent-basics.test.mlx.plist"
+            stale_backup = plist_dir / "com.agent-basics.test.mlx.plist.bak.123"
+            python_bin.parent.mkdir(parents=True)
+            plist_dir.mkdir()
+            python_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+            python_bin.chmod(0o755)
+            server.write_text("#!/bin/sh\n", encoding="utf-8")
+            server.chmod(0o755)
+            plist.write_text("old active plist\n", encoding="utf-8")
+            stale_backup.write_text("old backup plist\n", encoding="utf-8")
+
+            original_platform_system = agent_basics_ov.platform.system
+            try:
+                agent_basics_ov.platform.system = lambda: "Darwin"
+                payload = agent_basics_ov.mlx_service_payload(
+                    SimpleNamespace(
+                        service_action="install",
+                        home=str(home),
+                        python_bin=str(python_bin),
+                        server_script=str(server),
+                        label="com.agent-basics.test.mlx",
+                        plist=str(plist),
+                        no_load=True,
+                        dry_run=False,
+                        force=False,
+                    )
+                )
+            finally:
+                agent_basics_ov.platform.system = original_platform_system
+            backup_dir = home / "backups" / "launchagents"
+            stale_backup_exists = stale_backup.exists()
+            remaining_backups = list(plist_dir.glob("*.bak.*"))
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["changed"])
+        self.assertEqual(Path(payload["backup"]).parent, backup_dir)
+        self.assertEqual(Path(payload["archived_backups"][0]["destination"]).parent, backup_dir)
+        self.assertFalse(stale_backup_exists)
+        self.assertFalse(remaining_backups)
+
     def test_mlx_write_server_installs_agent_basics_mlx_process_with_venv_shebang(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "mlx"
@@ -2335,6 +2401,94 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertFalse(plist_path.exists())
         self.assertIn(["launchctl", "bootstrap", payload["target"].rsplit("/", 1)[0], str(plist_path)], payload["commands"])
         self.assertEqual(payload["plist_payload"]["ProgramArguments"], [str(server_path), "--config", str(config_path)])
+
+    def test_deprecated_repo_openviking_cleanup_removes_repo_local_launchagent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            plist_path = Path(tmp) / "LaunchAgents" / f"{agent_basics_ov.repo_ov_service_label(repo)}.plist"
+            plist_path.parent.mkdir()
+            plist_path.write_text("<plist/>\n", encoding="utf-8")
+            commands: list[list[str]] = []
+            original_run_command = agent_basics_ov.run_command
+
+            def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+                commands.append(command)
+                return {"ok": True, "command": command, "returncode": 0, "stdout": "", "stderr": ""}
+
+            try:
+                agent_basics_ov.run_command = fake_run
+                payload = agent_basics_ov.deprecated_repo_ov_service_cleanup_payload(
+                    repo,
+                    timeout=1,
+                    dry_run=False,
+                    plist_path=plist_path,
+                )
+                plist_exists = plist_path.exists()
+            finally:
+                agent_basics_ov.run_command = original_run_command
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["removed_plist"])
+        self.assertFalse(plist_exists)
+        self.assertEqual(
+            commands,
+            [
+                ["launchctl", "bootout", payload["target"]],
+                ["launchctl", "disable", payload["target"]],
+            ],
+        )
+
+    def test_ov_service_install_archives_backups_and_plans_legacy_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "openviking"
+            server_path = home / "openviking"
+            config_path = home / "ov.conf"
+            plist_dir = Path(tmp) / "LaunchAgents"
+            plist_path = plist_dir / "com.agent-basics.test.openviking.plist"
+            stale_backup = plist_dir / "com.agent-basics.test.openviking.plist.bak.123"
+            home.mkdir(parents=True)
+            plist_dir.mkdir()
+            server_path.write_text("#!/bin/sh\n", encoding="utf-8")
+            server_path.chmod(0o755)
+            config_path.write_text("{}\n", encoding="utf-8")
+            plist_path.write_text("old active plist\n", encoding="utf-8")
+            stale_backup.write_text("old backup plist\n", encoding="utf-8")
+
+            original_platform_system = agent_basics_ov.platform.system
+            try:
+                agent_basics_ov.platform.system = lambda: "Darwin"
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    result = agent_basics_ov.command_ov_service(
+                        SimpleNamespace(
+                            service_action="install",
+                            home=str(home),
+                            server_bin=str(server_path),
+                            config=str(config_path),
+                            label="com.agent-basics.test.openviking",
+                            plist=str(plist_path),
+                            timeout=1,
+                            dry_run=False,
+                            force=False,
+                            no_load=True,
+                            repo_local=False,
+                        )
+                )
+            finally:
+                agent_basics_ov.platform.system = original_platform_system
+            backup_dir = home / "backups" / "launchagents"
+            stale_backup_exists = stale_backup.exists()
+            remaining_backups = list(plist_dir.glob("*.bak.*"))
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(Path(payload["backup"]).parent, backup_dir)
+        self.assertEqual(Path(payload["archived_backups"][0]["destination"]).parent, backup_dir)
+        self.assertTrue(payload["legacy_repo_local_cleanup"]["dry_run"])
+        self.assertFalse(stale_backup_exists)
+        self.assertFalse(remaining_backups)
 
     def test_ov_service_permission_error_returns_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
