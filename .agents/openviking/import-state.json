@@ -130,6 +130,18 @@
       "skipped": false,
       "target": "viking://user/default/memories/cases/projects/agent-basics/1778381562-launchagent-cleanup-for-ab-mlx-and-openviking.md"
     },
+    ".agents/memory/memories/cases/1778382529-bootstrap-should-not-restart-unchanged-launchagents.md": {
+      "elapsed_seconds": 12.625,
+      "imported_at": 1778382542,
+      "kind": "memory",
+      "method": "write",
+      "ok": true,
+      "path": ".agents/memory/memories/cases/1778382529-bootstrap-should-not-restart-unchanged-launchagents.md",
+      "returncode": 0,
+      "sha256": "a531357d808cb368b80953efc256520812e5ec37b0ad9202a14215eafb2b467b",
+      "skipped": false,
+      "target": "viking://user/default/memories/cases/projects/agent-basics/1778382529-bootstrap-should-not-restart-unchanged-launchagents.md"
+    },
     ".agents/memory/memories/events/1777901050-legacy-memory-snapshot-created.md": {
       "imported_at": 1777913431,
       "kind": "memory",
@@ -475,10 +487,10 @@
       "target": "viking://resources/projects/agent-basics/resources/.agents/memory/resources/sources/1777947901-lmstudio-bootstrap-docs.md"
     }
   },
-  "last_import": 1778381577,
+  "last_import": 1778382542,
   "memory_target": "viking://user/default/memories",
   "repo": "/Users/leonardw/Projects/agent-basics",
   "target": "viking://resources/projects/agent-basics",
-  "updated": 1778381577,
+  "updated": 1778382542,
   "version": 1
 }

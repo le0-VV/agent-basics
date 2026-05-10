@@ -42,6 +42,7 @@ DEFAULT_MLX_HARDWARE_REQUIREMENT = "Apple Silicon Mac with at least 16 GB unifie
 DEFAULT_MLX_UNLOAD_IDLE_SECONDS = 0
 DEFAULT_MLX_PRELOAD_MODE = "all"
 DEFAULT_MLX_STARTUP_STRUCTURED_OUTPUT_CHECK = "openviking-router"
+DEFAULT_MLX_WAIT_SERVER_SECONDS = 120
 DEFAULT_MLX_PYTHON = "3.12"
 DEFAULT_MLX_PACKAGES = [
     "fastapi",
@@ -475,6 +476,24 @@ def run_launchctl_install_command(command: list[str], *, timeout: float | None) 
     if command[:2] == ["launchctl", "bootstrap"]:
         return run_launchctl_bootstrap(command, timeout=timeout)
     return run_command(command, timeout=timeout)
+
+
+def launchctl_print_is_running(result: dict[str, Any]) -> bool:
+    return bool(result.get("ok")) and bool(
+        re.search(r"^\s*state\s*=\s*running\b", str(result.get("stdout", "")), re.MULTILINE)
+    )
+
+
+def launchctl_already_running_step(target: str) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "command": ["launchctl", "print", target],
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "skipped": True,
+        "reason": "service already running",
+    }
 
 
 def sha256_text(value: str) -> str:
@@ -1651,7 +1670,7 @@ def ov_bootstrap_mlx_args(args: argparse.Namespace, *, dry_run: bool) -> argpars
         service=getattr(args, "mlx_service", "auto"),
         timeout=getattr(args, "mlx_timeout", 5),
         service_timeout=getattr(args, "service_timeout", DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS),
-        wait_server_seconds=getattr(args, "mlx_wait_server_seconds", 15),
+        wait_server_seconds=getattr(args, "mlx_wait_server_seconds", DEFAULT_MLX_WAIT_SERVER_SECONDS),
         force_install=False,
         force_package=getattr(args, "mlx_force_package", False),
         force_server=False,
@@ -2161,7 +2180,7 @@ def command_ov_service(args: argparse.Namespace) -> int:
         return 0 if payload["ok"] else 1
 
     if action == "start":
-        command = ["launchctl", "kickstart", "-k", paths["target"]]
+        command = ["launchctl", "kickstart", paths["target"]]
         payload["commands"] = [command]
         if args.dry_run:
             payload["dry_run"] = True
@@ -2218,7 +2237,7 @@ def command_ov_service(args: argparse.Namespace) -> int:
             commands.append(["launchctl", "bootout", paths["target"]])
             commands.extend(install_commands)
         else:
-            commands.append(["launchctl", "kickstart", "-k", paths["target"]])
+            commands.append(["launchctl", "kickstart", paths["target"]])
     payload["commands"] = commands
 
     if args.dry_run:
@@ -2278,8 +2297,11 @@ def command_ov_service(args: argparse.Namespace) -> int:
         status["optional"] = True
         steps.append(status)
         if status["ok"] and not changed and not getattr(args, "force", False):
-            kickstart = run_command(["launchctl", "kickstart", "-k", paths["target"]], timeout=service_timeout)
-            steps.append(kickstart)
+            if launchctl_print_is_running(status):
+                steps.append(launchctl_already_running_step(paths["target"]))
+            else:
+                kickstart = run_command(["launchctl", "kickstart", paths["target"]], timeout=service_timeout)
+                steps.append(kickstart)
         else:
             if status["ok"]:
                 bootout = run_command(["launchctl", "bootout", paths["target"]], timeout=service_timeout)
@@ -4948,7 +4970,7 @@ def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
         return payload
 
     if action == "start":
-        command = ["launchctl", "kickstart", "-k", target]
+        command = ["launchctl", "kickstart", target]
         payload["commands"] = [command]
         if getattr(args, "dry_run", False):
             payload["dry_run"] = True
@@ -4985,7 +5007,15 @@ def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
     if action not in {"install", "restart"}:
         return {"ok": False, "error": f"unsupported MLX service action: {action}"}
 
-    payload["commands"] = install_commands if action == "restart" else [["launchctl", "print", target], *install_commands]
+    if action == "restart":
+        payload["commands"] = install_commands
+    else:
+        payload["commands"] = [["launchctl", "print", target]]
+        if changed or getattr(args, "force", False):
+            payload["commands"].append(["launchctl", "bootout", target])
+            payload["commands"].extend(install_commands)
+        else:
+            payload["commands"].append(["launchctl", "kickstart", target])
     if getattr(args, "dry_run", False):
         payload["dry_run"] = True
         return payload
@@ -5047,7 +5077,10 @@ def mlx_service_payload(args: argparse.Namespace) -> dict[str, Any]:
         status["optional"] = True
         steps.append(status)
         if status["ok"] and not changed and not getattr(args, "force", False):
-            steps.append(run_command(["launchctl", "kickstart", "-k", target], timeout=timeout))
+            if launchctl_print_is_running(status):
+                steps.append(launchctl_already_running_step(target))
+            else:
+                steps.append(run_command(["launchctl", "kickstart", target], timeout=timeout))
         else:
             if status["ok"]:
                 bootout = run_command(["launchctl", "bootout", target], timeout=timeout)
@@ -5215,7 +5248,7 @@ def command_mlx_bootstrap(args: argparse.Namespace) -> int:
             mlx_wait_server_payload(
                 base_url,
                 timeout=getattr(args, "timeout", 5),
-                wait_seconds=getattr(args, "wait_server_seconds", 15),
+                wait_seconds=getattr(args, "wait_server_seconds", DEFAULT_MLX_WAIT_SERVER_SECONDS),
             ),
         )
 
@@ -5544,7 +5577,7 @@ def lmstudio_service_payload(args: argparse.Namespace) -> dict[str, Any]:
         return payload
 
     if action == "start":
-        command = ["launchctl", "kickstart", "-k", target]
+        command = ["launchctl", "kickstart", target]
         payload["commands"] = [command]
         if getattr(args, "dry_run", False):
             payload["dry_run"] = True
@@ -5581,7 +5614,15 @@ def lmstudio_service_payload(args: argparse.Namespace) -> dict[str, Any]:
     if action not in {"install", "restart"}:
         return {"ok": False, "error": f"unsupported LM Studio service action: {action}"}
 
-    payload["commands"] = install_commands if action == "restart" else [["launchctl", "print", target], *install_commands]
+    if action == "restart":
+        payload["commands"] = install_commands
+    else:
+        payload["commands"] = [["launchctl", "print", target]]
+        if changed or getattr(args, "force", False):
+            payload["commands"].append(["launchctl", "bootout", target])
+            payload["commands"].extend(install_commands)
+        else:
+            payload["commands"].append(["launchctl", "kickstart", target])
     if getattr(args, "dry_run", False):
         payload["dry_run"] = True
         return payload
@@ -5628,7 +5669,10 @@ def lmstudio_service_payload(args: argparse.Namespace) -> dict[str, Any]:
         status["optional"] = True
         steps.append(status)
         if status["ok"] and not changed and not getattr(args, "force", False):
-            steps.append(run_command(["launchctl", "kickstart", "-k", target], timeout=timeout))
+            if launchctl_print_is_running(status):
+                steps.append(launchctl_already_running_step(target))
+            else:
+                steps.append(run_command(["launchctl", "kickstart", target], timeout=timeout))
         else:
             if status["ok"]:
                 bootout = run_command(["launchctl", "bootout", target], timeout=timeout)
@@ -7122,7 +7166,7 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--mlx-server-script", default=str(DEFAULT_MLX_SERVER_SCRIPT))
     bootstrap.add_argument("--mlx-source")
     bootstrap.add_argument("--mlx-timeout", type=float, default=5)
-    bootstrap.add_argument("--mlx-wait-server-seconds", type=float, default=15)
+    bootstrap.add_argument("--mlx-wait-server-seconds", type=float, default=DEFAULT_MLX_WAIT_SERVER_SECONDS)
     bootstrap.add_argument("--mlx-unload-idle-seconds", type=int, default=DEFAULT_MLX_UNLOAD_IDLE_SECONDS)
     bootstrap.add_argument(
         "--mlx-preload-models",
@@ -7447,7 +7491,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mlx_bootstrap.add_argument("--timeout", type=float, default=5)
     mlx_bootstrap.add_argument("--service-timeout", type=float, default=DEFAULT_OV_SERVICE_COMMAND_TIMEOUT_SECONDS)
-    mlx_bootstrap.add_argument("--wait-server-seconds", type=float, default=15)
+    mlx_bootstrap.add_argument("--wait-server-seconds", type=float, default=DEFAULT_MLX_WAIT_SERVER_SECONDS)
     mlx_bootstrap.add_argument("--best-effort", action="store_true")
     mlx_bootstrap.add_argument("--dry-run", action="store_true")
     mlx_bootstrap.add_argument("--json", action="store_true", help="print the full diagnostic JSON payload")

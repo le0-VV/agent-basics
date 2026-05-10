@@ -48,6 +48,11 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0][1], 1)
 
+    def test_launchctl_print_running_detection(self) -> None:
+        self.assertTrue(agent_basics_ov.launchctl_print_is_running({"ok": True, "stdout": "\tstate = running\n"}))
+        self.assertFalse(agent_basics_ov.launchctl_print_is_running({"ok": True, "stdout": "\tstate = waiting\n"}))
+        self.assertFalse(agent_basics_ov.launchctl_print_is_running({"ok": False, "stdout": "\tstate = running\n"}))
+
     def test_http_json_bypasses_proxy_for_loopback_urls(self) -> None:
         captured_handlers = []
         original_build_opener = agent_basics_ov.urllib.request.build_opener
@@ -118,6 +123,8 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertTrue(verbose.json)
         self.assertFalse(ov_concise.json)
         self.assertTrue(ov_verbose.json)
+        self.assertEqual(concise.wait_server_seconds, agent_basics_ov.DEFAULT_MLX_WAIT_SERVER_SECONDS)
+        self.assertEqual(ov_concise.mlx_wait_server_seconds, agent_basics_ov.DEFAULT_MLX_WAIT_SERVER_SECONDS)
 
     def test_mlx_bootstrap_concise_output_for_cli_failure(self) -> None:
         original_hardware_payload = agent_basics_ov.hardware_payload
@@ -442,6 +449,72 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(Path(payload["archived_backups"][0]["destination"]).parent, backup_dir)
         self.assertFalse(stale_backup_exists)
         self.assertFalse(remaining_backups)
+
+    def test_mlx_service_install_does_not_restart_unchanged_running_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "mlx"
+            python_bin = home / "venv" / "bin" / "python"
+            server = home / "agent-basics-mlx"
+            plist = Path(tmp) / "com.agent-basics.test.mlx.plist"
+            python_bin.parent.mkdir(parents=True)
+            home.mkdir(parents=True, exist_ok=True)
+            python_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+            python_bin.chmod(0o755)
+            server.write_text("#!/bin/sh\n", encoding="utf-8")
+            server.chmod(0o755)
+            plist.write_text(
+                agent_basics_ov.ov_service_plist_text(
+                    agent_basics_ov.mlx_service_plist_payload(
+                        label="com.agent-basics.test.mlx",
+                        home=home,
+                        server_script=server,
+                        host="127.0.0.1",
+                        port=18080,
+                        chat_model=agent_basics_ov.DEFAULT_MLX_CHAT_MODEL,
+                        embedding_model=agent_basics_ov.DEFAULT_MLX_EMBEDDING_MODEL,
+                        no_proxy=agent_basics_ov.merge_no_proxy(os.environ.get("NO_PROXY") or os.environ.get("no_proxy", "")),
+                        hf_home=home / "huggingface",
+                        unload_idle_seconds=agent_basics_ov.DEFAULT_MLX_UNLOAD_IDLE_SECONDS,
+                        preload_models=agent_basics_ov.DEFAULT_MLX_PRELOAD_MODE,
+                        startup_structured_output_check=agent_basics_ov.DEFAULT_MLX_STARTUP_STRUCTURED_OUTPUT_CHECK,
+                    )
+                ),
+                encoding="utf-8",
+            )
+            commands: list[list[str]] = []
+            original_run_command = agent_basics_ov.run_command
+            original_platform_system = agent_basics_ov.platform.system
+
+            def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+                commands.append(command)
+                if command[:2] == ["launchctl", "print"]:
+                    return {"ok": True, "command": command, "returncode": 0, "stdout": "\tstate = running\n", "stderr": ""}
+                return {"ok": True, "command": command, "returncode": 0, "stdout": "", "stderr": ""}
+
+            try:
+                agent_basics_ov.run_command = fake_run
+                agent_basics_ov.platform.system = lambda: "Darwin"
+                payload = agent_basics_ov.mlx_service_payload(
+                    SimpleNamespace(
+                        service_action="install",
+                        home=str(home),
+                        python_bin=str(python_bin),
+                        server_script=str(server),
+                        label="com.agent-basics.test.mlx",
+                        plist=str(plist),
+                        dry_run=False,
+                        force=False,
+                    )
+                )
+            finally:
+                agent_basics_ov.run_command = original_run_command
+                agent_basics_ov.platform.system = original_platform_system
+
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["changed"])
+        self.assertTrue(payload["steps"][1]["skipped"])
+        self.assertNotIn(["launchctl", "kickstart", "-k", payload["target"]], commands)
+        self.assertNotIn(["launchctl", "bootout", payload["target"]], commands)
 
     def test_mlx_write_server_installs_agent_basics_mlx_process_with_venv_shebang(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2489,6 +2562,70 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertTrue(payload["legacy_repo_local_cleanup"]["dry_run"])
         self.assertFalse(stale_backup_exists)
         self.assertFalse(remaining_backups)
+
+    def test_ov_service_install_does_not_restart_unchanged_running_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "openviking"
+            server_path = home / "openviking"
+            config_path = home / "ov.conf"
+            plist_path = Path(tmp) / "com.agent-basics.test.openviking.plist"
+            home.mkdir(parents=True)
+            server_path.write_text("#!/bin/sh\n", encoding="utf-8")
+            server_path.chmod(0o755)
+            config_path.write_text("{}\n", encoding="utf-8")
+            plist_path.write_text(
+                agent_basics_ov.ov_service_plist_text(
+                    agent_basics_ov.ov_service_plist_payload(
+                        label="com.agent-basics.test.openviking",
+                        home=home,
+                        server_bin=server_path,
+                        config=config_path,
+                        no_proxy=agent_basics_ov.merge_no_proxy(os.environ.get("NO_PROXY") or os.environ.get("no_proxy", "")),
+                    )
+                ),
+                encoding="utf-8",
+            )
+            commands: list[list[str]] = []
+            original_run_command = agent_basics_ov.run_command
+            original_platform_system = agent_basics_ov.platform.system
+
+            def fake_run(command: list[str], timeout: float | None = 30) -> dict[str, object]:
+                commands.append(command)
+                if command[:2] == ["launchctl", "print"]:
+                    return {"ok": True, "command": command, "returncode": 0, "stdout": "\tstate = running\n", "stderr": ""}
+                return {"ok": True, "command": command, "returncode": 0, "stdout": "", "stderr": ""}
+
+            try:
+                agent_basics_ov.run_command = fake_run
+                agent_basics_ov.platform.system = lambda: "Darwin"
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    result = agent_basics_ov.command_ov_service(
+                        SimpleNamespace(
+                            service_action="install",
+                            home=str(home),
+                            server_bin=str(server_path),
+                            config=str(config_path),
+                            label="com.agent-basics.test.openviking",
+                            plist=str(plist_path),
+                            timeout=1,
+                            dry_run=False,
+                            force=False,
+                            no_load=False,
+                            repo_local=False,
+                        )
+                    )
+            finally:
+                agent_basics_ov.run_command = original_run_command
+                agent_basics_ov.platform.system = original_platform_system
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["would_change_plist"])
+        self.assertTrue(payload["steps"][1]["skipped"])
+        self.assertNotIn(["launchctl", "kickstart", "-k", payload["target"]], commands)
+        self.assertNotIn(["launchctl", "bootout", payload["target"]], commands)
 
     def test_ov_service_permission_error_returns_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
