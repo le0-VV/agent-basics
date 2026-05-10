@@ -43,7 +43,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, packages its server as `~/.openviking/openviking`, installs the global macOS service, and prepares the agent-basics MLX runtime. Repo setup creates repo-local source-store metadata and imports `.agents/memory/` into that global OpenViking service. For the first release, the bundled local MLX runtime requires an Apple Silicon Mac with at least 16 GB unified memory. On supported hosts, Homebrew configures the agent-basics MLX runtime at `http://127.0.0.1:18080/v1`, with `mlx-community/gemma-4-e2b-it-4bit` for chat/VLM routing and `mlx-community/embeddinggemma-300m-4bit` for embeddings.
+The Homebrew install bootstraps the shared OpenViking installation under `~/.openviking`, packages its server as `~/.openviking/openviking`, writes default global provider config, and prepares the agent-basics MLX runtime. Repo setup verifies or starts the global OpenViking service, creates repo-local source-store metadata, and imports `.agents/memory/` into that global OpenViking service. For the first release, the bundled local MLX runtime requires an Apple Silicon Mac with at least 16 GB unified memory. On supported hosts, Homebrew configures the agent-basics MLX runtime at `http://127.0.0.1:18080/v1`, with `mlx-community/gemma-4-e2b-it-4bit` for chat/VLM routing and `mlx-community/embeddinggemma-300m-4bit` for embeddings.
 
 Verify the command:
 
@@ -84,6 +84,8 @@ agent-basics mlx bootstrap
 agent-basics ov doctor
 ```
 
+Bootstrap commands print concise status by default. Add `--json` when you need the full diagnostic payload.
+
 On macOS, agent-basics installs OpenViking as one global user LaunchAgent. Repo setup does not install a second repo-local OpenViking server; live search, ingest, and MCP calls route through the global service with repo-scoped namespaces. Foreground server mode is mainly for debugging:
 
 ```bash
@@ -99,7 +101,7 @@ Useful commands:
 agent-basics ov status
 agent-basics ov import-repo-memory --write --wait-memory --wait-resources
 agent-basics ov search "what did we decide about memory?"
-agent-basics ov record
+agent-basics ov record preferences "Use OpenViking" --content "The project uses OpenViking for durable context."
 agent-basics ov add-resource ./docs/api.md
 agent-basics ov add-skill .agents/skills/finish-work.md
 agent-basics ov ingest-changed
@@ -152,7 +154,7 @@ After setup, a project usually has:
 ```text
 .
 ├── Agents.md
-├── ROADMAP.md
+├── ROADMAP.md              # optional, recommended for long-running work
 ├── Skills.md
 └── .agents/
     ├── AGENT-BASICS.md

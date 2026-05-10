@@ -48,6 +48,108 @@ class AgentBasicsOpenVikingHelperTest(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0][1], 1)
 
+    def test_http_json_bypasses_proxy_for_loopback_urls(self) -> None:
+        captured_handlers = []
+        original_build_opener = agent_basics_ov.urllib.request.build_opener
+
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return b'{"ok": true}'
+
+        class FakeOpener:
+            def open(self, _request: object, timeout: float | None = None) -> FakeResponse:
+                self.timeout = timeout
+                return FakeResponse()
+
+        def fake_build_opener(*handlers: object) -> FakeOpener:
+            captured_handlers.append(handlers)
+            return FakeOpener()
+
+        try:
+            agent_basics_ov.urllib.request.build_opener = fake_build_opener
+            payload = agent_basics_ov.http_json("http://127.0.0.1:18080", "/health", timeout=1)
+        finally:
+            agent_basics_ov.urllib.request.build_opener = original_build_opener
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(len(captured_handlers), 1)
+        self.assertEqual(getattr(captured_handlers[0][0], "proxies", None), {})
+
+    def test_bootstrap_summary_compacts_html_failure_payloads(self) -> None:
+        payload = {
+            "ok": False,
+            "base_url": "http://127.0.0.1:18080",
+            "steps": [
+                {
+                    "name": "wait server",
+                    "payload": {
+                        "ok": False,
+                        "error": "HTTP 500 /v1/models: <html><body><h1>500 Internal Privoxy Error</h1></body></html>",
+                    },
+                }
+            ],
+        }
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            agent_basics_ov.print_bootstrap_summary("agent-basics MLX bootstrap", payload)
+
+        text = output.getvalue()
+        self.assertIn("agent-basics MLX bootstrap: failed", text)
+        self.assertIn("500 Internal Privoxy Error", text)
+        self.assertIn("rerun with --json", text)
+        self.assertNotIn("<html>", text)
+
+    def test_bootstrap_parsers_default_to_concise_output_with_json_escape_hatch(self) -> None:
+        parser = agent_basics_ov.build_parser()
+
+        concise = parser.parse_args(["mlx", "bootstrap", "--dry-run"])
+        verbose = parser.parse_args(["mlx", "bootstrap", "--dry-run", "--json"])
+        ov_concise = parser.parse_args(["ov", "bootstrap-system", "--dry-run"])
+        ov_verbose = parser.parse_args(["ov", "bootstrap-system", "--dry-run", "--json"])
+
+        self.assertFalse(concise.json)
+        self.assertTrue(verbose.json)
+        self.assertFalse(ov_concise.json)
+        self.assertTrue(ov_verbose.json)
+
+    def test_mlx_bootstrap_concise_output_for_cli_failure(self) -> None:
+        original_hardware_payload = agent_basics_ov.hardware_payload
+        try:
+            agent_basics_ov.hardware_payload = lambda: {
+                "ok": True,
+                "system": "Darwin",
+                "machine": "x86_64",
+                "recommendation": {"memory_gb": 8.0},
+            }
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = agent_basics_ov.command_mlx_bootstrap(
+                    SimpleNamespace(
+                        min_memory_gb=16,
+                        allow_non_macos=False,
+                        force_hardware=False,
+                        best_effort=False,
+                        dry_run=True,
+                        json=False,
+                    )
+                )
+        finally:
+            agent_basics_ov.hardware_payload = original_hardware_payload
+
+        text = output.getvalue()
+        self.assertEqual(result, 1)
+        self.assertIn("agent-basics MLX bootstrap: failed", text)
+        self.assertIn("rerun with --json", text)
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(text)
+
     def test_ov_default_config_uses_mlx_provider_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "ov"

@@ -43,7 +43,7 @@ brew tap le0-VV/agent-basics https://github.com/le0-VV/agent-basics.git
 brew install --HEAD le0-VV/agent-basics/agent-basics
 ```
 
-Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，把 OpenViking server 打包成 `~/.openviking/openviking`，安装全局 macOS service，并准备 agent-basics MLX runtime。Repo setup 会创建 repo-local source-store metadata，并把 `.agents/memory/` 导入这个全局 OpenViking service。第一版里，内置本地 MLX runtime 要求 Apple Silicon Mac，并且至少 16 GB 统一内存。支持的机器上会把 agent-basics MLX runtime 配在 `http://127.0.0.1:18080/v1`，chat/VLM routing 用 `mlx-community/gemma-4-e2b-it-4bit`，embedding 用 `mlx-community/embeddinggemma-300m-4bit`。
+Homebrew 安装时会自动 bootstrap 共享的 OpenViking 到 `~/.openviking`，把 OpenViking server 打包成 `~/.openviking/openviking`，写入默认全局 provider config，并准备 agent-basics MLX runtime。Repo setup 会验证或启动全局 OpenViking service，创建 repo-local source-store metadata，并把 `.agents/memory/` 导入这个全局 OpenViking service。第一版里，内置本地 MLX runtime 要求 Apple Silicon Mac，并且至少 16 GB 统一内存。支持的机器上会把 agent-basics MLX runtime 配在 `http://127.0.0.1:18080/v1`，chat/VLM routing 用 `mlx-community/gemma-4-e2b-it-4bit`，embedding 用 `mlx-community/embeddinggemma-300m-4bit`。
 
 验证命令：
 
@@ -84,6 +84,8 @@ agent-basics mlx bootstrap
 agent-basics ov doctor
 ```
 
+Bootstrap 命令默认只打印简洁状态。需要完整诊断 payload 时，加 `--json`。
+
 在 macOS 上，agent-basics 会把 OpenViking 装成一个全局用户 LaunchAgent。Repo setup 不再安装第二个 repo-local OpenViking server；live search、ingest 和 MCP calls 都通过全局 service，并使用 repo-scoped namespaces。Foreground server mode 主要用来 debug：
 
 ```bash
@@ -99,7 +101,7 @@ agent-basics ov server
 agent-basics ov status
 agent-basics ov import-repo-memory --write --wait-memory --wait-resources
 agent-basics ov search "what did we decide about memory?"
-agent-basics ov record
+agent-basics ov record preferences "Use OpenViking" --content "The project uses OpenViking for durable context."
 agent-basics ov add-resource ./docs/api.md
 agent-basics ov add-skill .agents/skills/finish-work.md
 agent-basics ov ingest-changed
@@ -152,7 +154,7 @@ setup 之后，一个项目通常会有：
 ```text
 .
 ├── Agents.md
-├── ROADMAP.md
+├── ROADMAP.md              # 可选，长线工作建议使用
 ├── Skills.md
 └── .agents/
     ├── AGENT-BASICS.md

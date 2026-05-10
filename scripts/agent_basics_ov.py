@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import html
 import io
+import ipaddress
 import json
 import os
 import platform
@@ -262,6 +263,115 @@ ROUTER_OUTPUT_SCHEMA: dict[str, Any] = {
 
 def print_json(payload: Any) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def command_wants_json(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "json", True))
+
+
+def compact_message(value: Any, *, limit: int = 260) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = html.unescape(re.sub(r"<[^>]+>", " ", text))
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[: max(0, limit - 3)].rstrip()}..."
+
+
+def first_failure_from_payload(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in ["error", "stderr", "json_parse_error"]:
+        value = compact_message(payload.get(key))
+        if value:
+            return value
+    status = payload.get("status")
+    if isinstance(status, dict):
+        value = first_failure_from_payload(status)
+        if value:
+            return value
+    for step in payload.get("steps", []) or []:
+        if isinstance(step, dict) and isinstance(step.get("payload"), dict) and not step["payload"].get("ok"):
+            value = first_failure_from_payload(step["payload"])
+            if value:
+                return value
+    attempts = payload.get("attempts")
+    if isinstance(attempts, list):
+        for attempt in attempts:
+            if isinstance(attempt, dict):
+                value = compact_message(attempt.get("error"))
+                if value:
+                    return value
+    return ""
+
+
+def bootstrap_step_state(payload: dict[str, Any]) -> str:
+    if payload.get("skipped"):
+        return "skip"
+    if payload.get("ok"):
+        return "ok"
+    return "fail"
+
+
+def bootstrap_step_suffix(payload: dict[str, Any]) -> str:
+    if payload.get("skipped"):
+        reason = compact_message(payload.get("reason") or payload.get("mode"))
+        return f" ({reason})" if reason else ""
+    if payload.get("dry_run") and payload.get("changed"):
+        return " (would change)"
+    if payload.get("changed"):
+        return " (changed)"
+    return " (unchanged)"
+
+
+def print_bootstrap_summary(title: str, payload: dict[str, Any]) -> None:
+    print(f"{title}: {'ok' if payload.get('ok') else 'failed'}")
+    for key, label in [("home", "home"), ("base_url", "base_url")]:
+        if payload.get(key):
+            print(f"  {label}: {payload[key]}")
+    if payload.get("provider"):
+        print(f"  provider: {payload['provider']}")
+    if payload.get("service_enabled") is not None:
+        print(f"  service: {'enabled' if payload.get('service_enabled') else 'disabled'}")
+    if payload.get("dry_run"):
+        print("  dry_run: true")
+    steps = payload.get("steps")
+    if isinstance(steps, list) and steps:
+        print("  steps:")
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            name = step.get("name", "step")
+            step_payload = step.get("payload") if isinstance(step.get("payload"), dict) else {}
+            state = bootstrap_step_state(step_payload)
+            print(f"    [{state}] {name}{bootstrap_step_suffix(step_payload)}")
+            if state == "fail":
+                nested_steps = step_payload.get("steps")
+                if isinstance(nested_steps, list):
+                    for nested in nested_steps:
+                        if not isinstance(nested, dict):
+                            continue
+                        nested_payload = nested.get("payload") if isinstance(nested.get("payload"), dict) else {}
+                        if not nested_payload or nested_payload.get("ok"):
+                            continue
+                        nested_error = first_failure_from_payload(nested_payload)
+                        nested_name = nested.get("name", "nested step")
+                        print(f"      failed: {nested_name}{f' - {nested_error}' if nested_error else ''}")
+                        break
+                error = first_failure_from_payload(step_payload)
+                if error:
+                    print(f"      error: {error}")
+    if not payload.get("ok"):
+        print("  diagnostics: rerun with --json for the full payload")
+
+
+def print_bootstrap_payload(args: argparse.Namespace, title: str, payload: dict[str, Any]) -> None:
+    if command_wants_json(args):
+        print_json(payload)
+    else:
+        print_bootstrap_summary(title, payload)
 
 
 def repo_root_from_args(args: argparse.Namespace) -> Path:
@@ -639,7 +749,7 @@ def http_json(
         method="GET" if payload is None else "POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with http_opener_for_url(url).open(request, timeout=timeout) as response:
             text = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
@@ -647,6 +757,24 @@ def http_json(
     except Exception as exc:
         return http_json_with_curl(url, path, payload, exc)
     return json.loads(text) if text else {}
+
+
+def url_is_loopback(url: str) -> bool:
+    host = urllib.parse.urlparse(url).hostname
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def http_opener_for_url(url: str) -> urllib.request.OpenerDirector:
+    if url_is_loopback(url):
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener()
 
 
 def http_json_with_curl(
@@ -659,12 +787,14 @@ def http_json_with_curl(
     if not curl:
         raise RuntimeError(f"HTTP request failed for {path}: {original_error}") from original_error
 
-    command = [curl, "-sS", url]
+    no_proxy_args = ["--noproxy", "*"] if url_is_loopback(url) else []
+    command = [curl, "-sS", *no_proxy_args, url]
     input_text = None
     if payload is not None:
         command = [
             curl,
             "-sS",
+            *no_proxy_args,
             "-X",
             "POST",
             url,
@@ -1581,7 +1711,9 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
             if package_mode != "never"
             else {"ok": True, "changed": False, "skipped": True, "mode": package_mode}
         )
-        print_json(
+        print_bootstrap_payload(
+            args,
+            "agent-basics OpenViking bootstrap",
             {
                 "ok": True,
                 "dry_run": True,
@@ -1603,7 +1735,30 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
                     "skipped_reason": service_skipped_reason,
                 },
                 "runtime": runtime_plan,
-            }
+                "steps": [
+                    {"name": "install-system", "payload": {"ok": True, "changed": False, "skipped": False}},
+                    {"name": "package-server", "payload": package_plan},
+                    {
+                        "name": "write-default-config",
+                        "payload": {
+                            "ok": True,
+                            "changed": args.force_config or not config.exists() or not cli_config.exists(),
+                            "dry_run": True,
+                        },
+                    },
+                    {
+                        "name": "service install",
+                        "payload": {
+                            "ok": True,
+                            "changed": False,
+                            "dry_run": True,
+                            "skipped": not service_enabled,
+                            "reason": service_skipped_reason,
+                        },
+                    },
+                    {"name": "runtime bootstrap", "payload": runtime_plan},
+                ],
+            },
         )
         return 0
 
@@ -1619,7 +1774,7 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
     steps: list[dict[str, Any]] = [{"name": "install-system", "payload": install_payload}]
     ok = bool(install_payload.get("ok"))
     if not ok:
-        print_json({"ok": False, "home": str(home), "steps": steps})
+        print_bootstrap_payload(args, "agent-basics OpenViking bootstrap", {"ok": False, "home": str(home), "steps": steps})
         return 1
 
     package_mode = getattr(args, "package_server", "auto")
@@ -1634,7 +1789,7 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
             if args.service_best_effort:
                 steps[-1]["best_effort_ignored_failure"] = True
             else:
-                print_json({"ok": False, "home": str(home), "steps": steps})
+                print_bootstrap_payload(args, "agent-basics OpenViking bootstrap", {"ok": False, "home": str(home), "steps": steps})
                 return 1
     else:
         steps.append(
@@ -1666,7 +1821,7 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
     steps.append({"name": "write-default-config", "payload": config_payload})
     ok = ok and bool(config_payload.get("ok"))
     if not config_payload.get("ok"):
-        print_json({"ok": False, "home": str(home), "steps": steps})
+        print_bootstrap_payload(args, "agent-basics OpenViking bootstrap", {"ok": False, "home": str(home), "steps": steps})
         return 1
 
     if service_enabled:
@@ -1717,7 +1872,9 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
         ok = bool(getattr(args, "runtime_best_effort", False))
         steps[-1]["best_effort_ignored_failure"] = bool(getattr(args, "runtime_best_effort", False))
 
-    print_json(
+    print_bootstrap_payload(
+        args,
+        "agent-basics OpenViking bootstrap",
         {
             "ok": ok,
             "changed": any(bool(step["payload"].get("changed")) for step in steps),
@@ -1725,7 +1882,7 @@ def command_ov_bootstrap_system(args: argparse.Namespace) -> int:
             "service_enabled": service_enabled,
             "service_best_effort": args.service_best_effort,
             "steps": steps,
-        }
+        },
     )
     return 0 if ok else 1
 
@@ -4823,7 +4980,9 @@ def command_mlx_bootstrap(args: argparse.Namespace) -> int:
     best_effort = bool(getattr(args, "best_effort", False))
     if not gate["ok"] and not force_hardware:
         ok = best_effort
-        print_json(
+        print_bootstrap_payload(
+            args,
+            "agent-basics MLX bootstrap",
             {
                 "ok": ok,
                 "changed": False,
@@ -4837,7 +4996,7 @@ def command_mlx_bootstrap(args: argparse.Namespace) -> int:
                 ),
                 "hardware_gate": gate,
                 "hardware": hardware,
-            }
+            },
         )
         return 0 if ok else 1
 
@@ -4942,7 +5101,9 @@ def command_mlx_bootstrap(args: argparse.Namespace) -> int:
             ),
         )
 
-    print_json(
+    print_bootstrap_payload(
+        args,
+        "agent-basics MLX bootstrap",
         {
             "ok": ok,
             "changed": any(bool(step["payload"].get("changed")) for step in steps),
@@ -4953,7 +5114,7 @@ def command_mlx_bootstrap(args: argparse.Namespace) -> int:
             "hardware_gate": gate,
             "hardware": hardware,
             "steps": steps,
-        }
+        },
     )
     return 0 if ok else 1
 
@@ -6866,6 +7027,7 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--force-service", action="store_true")
     bootstrap.add_argument("--no-load", action="store_true")
     bootstrap.add_argument("--dry-run", action="store_true")
+    bootstrap.add_argument("--json", action="store_true", help="print the full diagnostic JSON payload")
     bootstrap.set_defaults(func=command_ov_bootstrap_system)
 
     config = ov_sub.add_parser("write-default-config")
@@ -7170,6 +7332,7 @@ def build_parser() -> argparse.ArgumentParser:
     mlx_bootstrap.add_argument("--wait-server-seconds", type=float, default=15)
     mlx_bootstrap.add_argument("--best-effort", action="store_true")
     mlx_bootstrap.add_argument("--dry-run", action="store_true")
+    mlx_bootstrap.add_argument("--json", action="store_true", help="print the full diagnostic JSON payload")
     mlx_bootstrap.set_defaults(func=command_mlx_bootstrap)
 
     migrate = subparsers.add_parser("migrate")

@@ -21,7 +21,8 @@ class AgentBasics < Formula
     <<~EOS
       agent-basics bootstraps OpenViking during install and configures the
       agent-basics MLX runtime as the default local OpenAI-compatible runtime.
-      Repo setup installs repo-local OpenViking service/config when needed.
+      Repo setup verifies or starts the global OpenViking service and creates
+      repo-local source-store metadata.
       To repair or rerun that step manually:
         agent-basics ov bootstrap-system
         agent-basics mlx bootstrap
